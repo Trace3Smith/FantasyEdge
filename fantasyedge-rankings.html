@@ -390,7 +390,7 @@
 
   function renderTable(players) {
     const tbody = document.getElementById('tableBody');
-    const filtered = currentPos === 'ALL' ? players : players.filter(p => (p.pos||'').toUpperCase().includes(currentPos));
+    const filtered = currentPos === 'ALL' ? players :  (p => (p.pos||'').toUpperCase().split('/').map(x=>x.trim()).includes(currentPos));
     if (!filtered.length) {
       tbody.innerHTML = '<tr class="loading-row"><td colspan="13"><div class="loading-title">No Players Found</div><div class="loading-sub">Try a different position filter</div></td></tr>';
       return;
