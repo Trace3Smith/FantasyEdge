@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FantasyEdge — Last Night's Results</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700&family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{--gold:#D4A017;--gold-light:#F0C040;--black:#080808;--dark:#111111;--dark2:#1A1A1A;--dark3:#222222;--dark4:#2A2A2A;--gray:#888888;--gray-light:#AAAAAA;--white:#F5F5F0;--green:#4CAF50;--red:#F44336;--orange:#FF9800;--blue:#2196F3;--purple:#9C27B0;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--black);color:var(--white);font-family:'Barlow',sans-serif;min-height:100vh;cursor:none;}
+  .cursor{width:10px;height:10px;background:var(--gold);border-radius:50%;position:fixed;pointer-events:none;z-index:9999;transform:translate(-50%,-50%);mix-blend-mode:difference;}
+  .cursor-ring{width:32px;height:32px;border:1px solid var(--gold);border-radius:50%;position:fixed;pointer-events:none;z-index:9998;transform:translate(-50%,-50%);transition:all .15s ease;opacity:.5;}
+
+  .app{display:flex;min-height:100vh;}
+
+  /* SIDEBAR */
+  .sidebar{width:240px;flex-shrink:0;background:var(--dark);border-right:1px solid rgba(212,160,23,0.1);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:50;}
+  .sidebar-logo{padding:28px 24px;border-bottom:1px solid rgba(212,160,23,0.1);font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;}
+  .sidebar-logo span{color:var(--gold);}
+  .sidebar-section{padding:20px 16px 8px;font-size:10px;font-weight:700;letter-spacing:3px;color:var(--gray);text-transform:uppercase;}
+  .sidebar-nav{list-style:none;padding:0 8px;}
+  .sidebar-nav li a{display:flex;align-items:center;gap:12px;padding:11px 16px;border-radius:4px;color:var(--gray-light);text-decoration:none;font-size:14px;font-weight:500;transition:all 0.2s;cursor:none;}
+  .sidebar-nav li a:hover{background:var(--dark2);color:var(--white);}
+  .sidebar-nav li a.active{background:rgba(212,160,23,0.12);color:var(--gold);}
+  .nav-icon{font-size:16px;width:20px;text-align:center;}
+  .sidebar-bottom{margin-top:auto;padding:20px 16px;border-top:1px solid rgba(212,160,23,0.1);}
+  .upgrade-card{background:linear-gradient(135deg,rgba(212,160,23,0.15),rgba(212,160,23,0.05));border:1px solid rgba(212,160,23,0.25);padding:16px;}
+  .upgrade-card h4{font-size:13px;font-weight:700;margin-bottom:6px;}
+  .upgrade-card p{font-size:11px;color:var(--gray);line-height:1.5;margin-bottom:12px;}
+  .upgrade-btn{width:100%;background:var(--gold);color:var(--black);border:none;padding:9px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:800;letter-spacing:2px;text-transform:uppercase;cursor:none;transition:background 0.2s;}
+  .upgrade-btn:hover{background:var(--gold-light);}
+
+  .main{margin-left:240px;flex:1;display:flex;flex-direction:column;}
+  .topbar{background:var(--dark);border-bottom:1px solid rgba(212,160,23,0.1);padding:0 36px;height:64px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:40;}
+  .topbar-left h1{font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2px;}
+  .topbar-left p{font-size:12px;color:var(--gray);margin-top:1px;}
+  .topbar-right{display:flex;align-items:center;gap:12px;}
+  .sport-filter-mini{display:flex;gap:4px;}
+  .sfm{padding:7px 14px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;background:var(--dark2);border:1px solid rgba(212,160,23,0.1);color:var(--gray);cursor:none;transition:all 0.2s;}
+  .sfm:hover{color:var(--gray-light);}
+  .sfm.active{background:rgba(212,160,23,0.12);border-color:var(--gold);color:var(--gold);}
+
+  .content{padding:28px 36px;flex:1;}
+
+  /* SUMMARY STRIP */
+  .summary-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;margin-bottom:28px;}
+  .summary-card{background:var(--dark2);padding:20px 24px;display:flex;align-items:center;gap:16px;border-left:3px solid transparent;}
+  .summary-card.gold{border-left-color:var(--gold);}
+  .summary-card.green{border-left-color:var(--green);}
+  .summary-card.red{border-left-color:var(--red);}
+  .summary-card.orange{border-left-color:var(--orange);}
+  .summary-icon{font-size:26px;}
+  .summary-info{display:flex;flex-direction:column;gap:2px;}
+  .summary-val{font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:700;color:var(--white);line-height:1;}
+  .summary-lbl{font-size:11px;color:var(--gray);letter-spacing:1px;text-transform:uppercase;}
+
+  /* TOP PERFORMER HERO */
+  .hero-performer{background:var(--dark2);border:1px solid rgba(212,160,23,0.2);padding:28px 32px;margin-bottom:28px;display:grid;grid-template-columns:1fr auto;gap:32px;align-items:center;position:relative;overflow:hidden;}
+  .hero-performer::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 50% 100% at 100% 50%,rgba(212,160,23,0.06),transparent 70%);}
+  .hero-tag-row{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
+  .hero-eyebrow{font-size:10px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:var(--gold);}
+  .grade-badge{padding:4px 12px;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;}
+  .grade-s{background:rgba(255,215,0,0.15);color:#FFD700;}
+  .grade-a{background:rgba(76,175,80,0.15);color:var(--green);}
+  .grade-b{background:rgba(212,160,23,0.15);color:var(--gold);}
+  .grade-c{background:rgba(33,150,243,0.15);color:var(--blue);}
+  .hero-name{font-family:'Bebas Neue',sans-serif;font-size:52px;letter-spacing:2px;line-height:1;margin-bottom:4px;}
+  .hero-meta{color:var(--gray);font-size:14px;margin-bottom:18px;}
+  .hero-alerts{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;}
+  .alert-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
+  .alert-chip.fire{background:rgba(255,152,0,0.15);color:var(--orange);}
+  .alert-chip.good{background:rgba(212,160,23,0.12);color:var(--gold);}
+  .alert-chip.streak{background:rgba(76,175,80,0.12);color:var(--green);}
+  .hero-game{font-size:13px;color:var(--gray-light);font-weight:300;}
+  .hero-big-num{font-family:'Bebas Neue',sans-serif;font-size:100px;color:rgba(212,160,23,0.06);line-height:1;text-align:right;}
+  .hero-streak-tag{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;letter-spacing:2px;text-transform:uppercase;}
+
+  /* TWO COLUMN */
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;}
+  .three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-bottom:20px;}
+
+  /* SECTION PANELS */
+  .panel{background:var(--dark2);border:1px solid rgba(212,160,23,0.06);}
+  .panel-hd{padding:16px 20px;border-bottom:1px solid rgba(212,160,23,0.06);display:flex;align-items:center;justify-content:space-between;}
+  .panel-title{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;letter-spacing:2px;text-transform:uppercase;display:flex;align-items:center;gap:8px;}
+  .panel-count{font-size:12px;color:var(--gray);font-family:'Barlow Condensed',sans-serif;font-weight:600;}
+  .panel-body{padding:0;}
+
+  /* PLAYER ROWS */
+  .player-row{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid rgba(255,255,255,0.03);transition:background 0.15s;cursor:none;}
+  .player-row:hover{background:rgba(212,160,23,0.04);}
+  .player-row:last-child{border-bottom:none;}
+  .p-avatar{width:38px;height:38px;border-radius:50%;background:var(--dark3);display:flex;align-items:center;justify-content:center;font-size:18px;border:1px solid rgba(212,160,23,0.12);flex-shrink:0;}
+  .p-info{flex:1;min-width:0;}
+  .p-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .p-meta{font-size:11px;color:var(--gray);margin-top:1px;}
+  .p-right{display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0;}
+  .p-grade{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;}
+  .p-alert{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;white-space:nowrap;}
+  .p-streak{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;}
+
+  /* STAT LINE */
+  .stat-line{display:flex;gap:16px;margin-top:4px;flex-wrap:wrap;}
+  .stat-bubble{font-size:11px;color:var(--gray-light);display:flex;gap:4px;align-items:center;}
+  .stat-bubble .sv{font-weight:700;color:var(--white);}
+  .stat-bubble .gold{color:var(--gold);}
+
+  /* COLD PLAYERS */
+  .cold-row{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid rgba(255,255,255,0.03);}
+  .cold-row:last-child{border-bottom:none;}
+  .cold-indicator{width:3px;height:36px;border-radius:2px;flex-shrink:0;}
+  .cold-fire{background:var(--green);}
+  .cold-hot{background:var(--gold);}
+  .cold-ice{background:var(--red);}
+  .cold-cold{background:var(--blue);}
+
+  /* SPORT BADGE */
+  .sport-badge{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;padding:2px 8px;background:var(--dark3);color:var(--gray);}
+
+  /* ADD/DROP PANEL */
+  .add-drop-list{padding:0;}
+  .add-drop-row{display:flex;align-items:center;gap:12px;padding:13px 20px;border-bottom:1px solid rgba(255,255,255,0.03);}
+  .add-drop-row:last-child{border-bottom:none;}
+  .action-tag{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;letter-spacing:2px;padding:4px 10px;flex-shrink:0;}
+  .tag-add{background:rgba(76,175,80,0.15);color:var(--green);}
+  .tag-drop{background:rgba(244,67,54,0.15);color:var(--red);}
+  .tag-watch{background:rgba(33,150,243,0.12);color:var(--blue);}
+  .add-drop-reason{font-size:12px;color:var(--gray);font-weight:300;line-height:1.5;margin-top:2px;}
+
+  /* GAME LOG SPARKLINE */
+  .game-log{display:flex;gap:3px;align-items:flex-end;height:24px;margin-top:6px;}
+  .log-bar{width:8px;border-radius:1px;transition:height 0.3s;}
+
+  /* TABS */
+  .section-tabs{display:flex;gap:0;margin-bottom:20px;border-bottom:1px solid rgba(212,160,23,0.1);}
+  .stab{padding:12px 20px;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;background:none;border:none;color:var(--gray);cursor:none;transition:all 0.2s;border-bottom:2px solid transparent;margin-bottom:-1px;}
+  .stab:hover{color:var(--gray-light);}
+  .stab.active{color:var(--gold);border-bottom-color:var(--gold);}
+</style>
+</head>
+<body>
+<div class="cursor" id="cursor"></div>
+<div class="cursor-ring" id="cursorRing"></div>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-logo">Fantasy<span>Edge</span></div>
+    <div class="sidebar-section">Main</div>
+    <ul class="sidebar-nav">
+      <li><a href="fantasyedge-dashboard.html" class="active"><span class="nav-icon">🌙</span> Last Night</a></li>
+      <li><a href="fantasyedge.html"><span class="nav-icon">🏠</span> Home</a></li>
+      <li><a href="fantasyedge-rankings.html"><span class="nav-icon">📊</span> Rankings</a></li>
+      <li><a href="fantasyedge-analyzer.html"><span class="nav-icon">🔍</span> Roster Analyzer</a></li>
+      <li><a href="fantasyedge-trending.html"><span class="nav-icon">🔥</span> Trending</a></li>
+      <li><a href="fantasyedge-brackets.html"><span class="nav-icon">🏆</span> Brackets & Bowls</a></li>
+    </ul>
+    <div class="sidebar-section">Sports</div>
+    <ul class="sidebar-nav">
+      <li><a href="#" onclick="filterSport('mlb')"><span class="nav-icon">⚾</span> MLB</a></li>
+      <li><a href="#" onclick="filterSport('nba')"><span class="nav-icon">🏀</span> NBA</a></li>
+      <li><a href="#" onclick="filterSport('nhl')"><span class="nav-icon">🏒</span> NHL</a></li>
+      <li><a href="#" onclick="filterSport('pga')"><span class="nav-icon">⛳</span> PGA</a></li>
+      <li><a href="#" onclick="filterSport('nfl')"><span class="nav-icon">🏈</span> NFL</a></li>
+    </ul>
+    <div class="sidebar-bottom">
+      <div class="upgrade-card">
+        <h4>Upgrade to Pro</h4>
+        <p>Get big game alerts pushed to your phone every morning.</p>
+        <button class="upgrade-btn">Get Pro — $9/mo</button>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-left">
+        <h1>Last Night's Results</h1>
+        <p id="dateLabel">Loading...</p>
+      </div>
+      <div class="topbar-right">
+        <div class="sport-filter-mini">
+          <button class="sfm active" data-sport="all" onclick="filterSport('all')">All</button>
+          <button class="sfm" data-sport="mlb" onclick="filterSport('mlb')">⚾</button>
+          <button class="sfm" data-sport="nba" onclick="filterSport('nba')">🏀</button>
+          <button class="sfm" data-sport="nhl" onclick="filterSport('nhl')">🏒</button>
+          <button class="sfm" data-sport="pga" onclick="filterSport('pga')">⛳</button>
+          <button class="sfm" data-sport="nfl" onclick="filterSport('nfl')">🏈</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- SUMMARY STRIP -->
+      <div class="summary-strip">
+        <div class="summary-card gold"><span class="summary-icon">⭐</span><div class="summary-info"><div class="summary-val" id="sumBig">0</div><div class="summary-lbl">Big Game Alerts</div></div></div>
+        <div class="summary-card green"><span class="summary-icon">🔥</span><div class="summary-info"><div class="summary-val" id="sumHot">0</div><div class="summary-lbl">Hot Streaks</div></div></div>
+        <div class="summary-card red"><span class="summary-icon">❄️</span><div class="summary-info"><div class="summary-val" id="sumCold">0</div><div class="summary-lbl">Cold Streaks</div></div></div>
+        <div class="summary-card orange"><span class="summary-icon">📈</span><div class="summary-info"><div class="summary-val" id="sumGames">0</div><div class="summary-lbl">Games Tracked</div></div></div>
+      </div>
+
+      <!-- TOP PERFORMER -->
+      <div class="hero-performer" id="heroPerformer"></div>
+
+      <!-- SECTION TABS -->
+      <div class="section-tabs">
+        <button class="stab active" onclick="switchTab('bigGames')">⭐ Big Games</button>
+        <button class="stab" onclick="switchTab('hotStreaks')">🔥 Hot Streaks</button>
+        <button class="stab" onclick="switchTab('coldStreaks')">❄️ Cold Streaks</button>
+        <button class="stab" onclick="switchTab('addDrop')">⚡ Add / Drop</button>
+      </div>
+
+      <!-- TAB CONTENT -->
+      <div id="tabContent"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── EMBEDDED TRACKER ENGINE ──────────────────────────────
+const LIVE_MODE = true;
+const API_KEY = '97d07cd5f6bd23355fe2282806c2ab06';
+
+const BIG_GAME_THRESHOLDS = {
+  mlb: {
+    hitter: [
+      { stat: 'hits', min: 3, label: '3+ Hit Game', points: 1 },
+      { stat: 'hr', min: 2, label: 'Multi-HR Game', points: 2 },
+      { stat: 'rbi', min: 4, label: '4+ RBI Game', points: 2 },
+      { stat: 'sb', min: 2, label: 'Multi-SB Game', points: 1 },
+      { stat: 'hits', min: 4, label: '4+ Hit Game', points: 2 },
+    ],
+    pitcher: [
+      { stat: 'k', min: 8, label: '8+ K Game', points: 1 },
+      { stat: 'k', min: 12, label: '12+ K Game', points: 3 },
+      { stat: 'ip', min: 7, label: '7+ IP Quality Start', points: 2 },
+      { stat: 'era_game', max: 1.0, label: 'Dominant Outing (≤1 ER)', points: 2 },
+    ],
+  },
+  nba: [
+    { stat: 'pts', min: 40, label: '40-Point Game', points: 3 },
+    { stat: 'pts', min: 30, label: '30-Point Game', points: 1 },
+    { stat: 'reb', min: 15, label: '15-Rebound Game', points: 2 },
+    { stat: 'ast', min: 12, label: '12-Assist Game', points: 2 },
+    { stat: 'tripleDouble', min: 1, label: 'Triple-Double', points: 3 },
+    { stat: 'stl', min: 4, label: '4-Steal Game', points: 2 },
+    { stat: 'blk', min: 5, label: '5-Block Game', points: 2 },
+  ],
+  nhl: [
+    { stat: 'goals', min: 3, label: 'Hat Trick', points: 3 },
+    { stat: 'goals', min: 2, label: 'Multi-Goal Game', points: 2 },
+    { stat: 'points', min: 3, label: '3-Point Game', points: 2 },
+    { stat: 'points', min: 4, label: '4-Point Game', points: 3 },
+    { stat: 'saves', min: 40, label: '40-Save Performance', points: 2 },
+  ],
+  pga: [
+    { stat: 'underPar', min: 7, label: '7-Under Round', points: 3 },
+    { stat: 'underPar', min: 5, label: '5-Under Round', points: 2 },
+    { stat: 'eagles', min: 1, label: 'Eagle Made', points: 1 },
+    { stat: 'birdies', min: 8, label: '8+ Birdie Round', points: 2 },
+  ],
+  nfl: [
+    { stat: 'passTD', min: 4, label: '4+ TD Pass Game', points: 2 },
+    { stat: 'passYds', min: 350, label: '350+ Pass Yards', points: 2 },
+    { stat: 'rushYds', min: 150, label: '150+ Rush Yards', points: 2 },
+    { stat: 'recYds', min: 150, label: '150+ Rec Yards', points: 2 },
+    { stat: 'recTD', min: 2, label: 'Multi-TD Receiver', points: 2 },
+    { stat: 'fantasyPts', min: 40, label: '40+ Fantasy Points', points: 3 },
+  ],
+};
+
+const STREAK_THRESHOLDS = {
+  mlb: { good: 3, great: 5, stat: 'hits', min: 2 },
+  nba: { good: 3, great: 5, stat: 'pts', min: 25 },
+  nhl: { good: 3, great: 5, stat: 'points', min: 1 },
+  pga: { good: 2, great: 4, stat: 'underPar', min: 3 },
+  nfl: { good: 3, great: 4, stat: 'fantasyPts', min: 20 },
+};
+
+const MOCK_NIGHTLY = {
+  date: new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' }),
+  mlb: [
+    { name:'Shohei Ohtani', team:'LAD', emoji:'⚾', pos:'SP/OF', game:'LAD 8, SF 3', stats:{ hits:4, hr:2, rbi:5, sb:0, k:0, ip:0 }, history:[{hits:2},{hits:3},{hits:1},{hits:3},{hits:4},{hits:2},{hits:4}] },
+    { name:'Yordan Alvarez', team:'HOU', emoji:'🦁', pos:'1B/OF', game:'HOU 6, OAK 2', stats:{ hits:3, hr:2, rbi:4, sb:0, k:0, ip:0 }, history:[{hits:2},{hits:1},{hits:3},{hits:2},{hits:3},{hits:1},{hits:3}] },
+    { name:'Jackson Chourio', team:'MIL', emoji:'💫', pos:'OF', game:'MIL 5, CHC 4', stats:{ hits:2, hr:0, rbi:1, sb:2, k:0, ip:0 }, history:[{hits:2},{hits:2},{hits:1},{hits:2},{hits:0},{hits:2},{hits:2}] },
+    { name:'Spencer Strider', team:'ATL', emoji:'🔥', pos:'SP', game:'ATL 3, NYM 1', stats:{ hits:0, hr:0, rbi:0, sb:0, k:13, ip:8, era_game:0.0 }, history:[{k:9},{k:11},{k:7},{k:10},{k:8},{k:12},{k:13}] },
+    { name:'Max Fried', team:'NYY', emoji:'❄️', pos:'SP', game:'NYY 3, BOS 8', stats:{ hits:0, hr:0, rbi:0, sb:0, k:4, ip:4, era_game:6.75 }, history:[{k:5},{k:6},{k:4},{k:3},{k:5},{k:4},{k:4}] },
+    { name:'Gunnar Henderson', team:'BAL', emoji:'⚡', pos:'SS', game:'BAL 7, TOR 4', stats:{ hits:3, hr:1, rbi:3, sb:1, k:0, ip:0 }, history:[{hits:2},{hits:3},{hits:1},{hits:2},{hits:2},{hits:3},{hits:3}] },
+    { name:'Pete Alonso', team:'NYM', emoji:'🐄', pos:'1B', game:'NYM 1, ATL 3', stats:{ hits:1, hr:0, rbi:0, sb:0, k:0, ip:0 }, history:[{hits:0},{hits:1},{hits:2},{hits:0},{hits:1},{hits:1},{hits:1}] },
+    { name:'Jose Ramirez', team:'CLE', emoji:'⚡', pos:'3B', game:'CLE 9, MIN 2', stats:{ hits:3, hr:1, rbi:4, sb:1, k:0, ip:0 }, history:[{hits:2},{hits:2},{hits:3},{hits:1},{hits:2},{hits:2},{hits:3}] },
+  ],
+  nba: [
+    { name:'Jayson Tatum', team:'BOS', emoji:'🍀', pos:'SF', game:'BOS 118, MIA 104', stats:{ pts:44, reb:9, ast:5, stl:2, blk:1, tripleDouble:0 }, history:[{pts:38},{pts:31},{pts:42},{pts:34},{pts:30},{pts:36},{pts:44}] },
+    { name:'Nikola Jokic', team:'DEN', emoji:'🃏', pos:'C', game:'DEN 121, LAL 108', stats:{ pts:28, reb:14, ast:11, stl:2, blk:0, tripleDouble:1 }, history:[{pts:24},{pts:31},{pts:26},{pts:29},{pts:28},{pts:32},{pts:28}] },
+    { name:'Luka Doncic', team:'LAL', emoji:'🎯', pos:'PG', game:'LAL 108, DEN 121', stats:{ pts:35, reb:10, ast:8, stl:1, blk:0, tripleDouble:0 }, history:[{pts:30},{pts:38},{pts:32},{pts:34},{pts:36},{pts:33},{pts:35}] },
+    { name:'Damian Lillard', team:'MIL', emoji:'🌹', pos:'PG', game:'MIL 99, CHI 102', stats:{ pts:21, reb:3, ast:7, stl:0, blk:0, tripleDouble:0 }, history:[{pts:28},{pts:24},{pts:22},{pts:19},{pts:21},{pts:20},{pts:21}] },
+    { name:'SGA', team:'OKC', emoji:'⚡', pos:'SG', game:'OKC 114, DAL 98', stats:{ pts:33, reb:5, ast:7, stl:3, blk:1, tripleDouble:0 }, history:[{pts:28},{pts:31},{pts:30},{pts:34},{pts:29},{pts:32},{pts:33}] },
+  ],
+  nhl: [
+    { name:'Connor McDavid', team:'EDM', emoji:'⚡', pos:'C', game:'EDM 5, VAN 2', stats:{ goals:2, assists:2, points:4, saves:0, plusMinus:3 }, history:[{points:2},{points:1},{points:3},{points:2},{points:3},{points:2},{points:4}] },
+    { name:'Nathan MacKinnon', team:'COL', emoji:'🏔', pos:'C', game:'COL 4, CGY 1', stats:{ goals:1, assists:2, points:3, saves:0, plusMinus:2 }, history:[{points:1},{points:2},{points:2},{points:1},{points:3},{points:2},{points:3}] },
+    { name:'Jake Guentzel', team:'CAR', emoji:'🎯', pos:'LW', game:'CAR 2, TBL 3', stats:{ goals:0, assists:0, points:0, saves:0, plusMinus:-1 }, history:[{points:1},{points:0},{points:2},{points:0},{points:0},{points:1},{points:0}] },
+    { name:'Auston Matthews', team:'TOR', emoji:'🌟', pos:'C', game:'TOR 6, OTT 2', stats:{ goals:3, assists:1, points:4, saves:0, plusMinus:4 }, history:[{points:1},{points:2},{points:0},{points:1},{points:2},{points:2},{points:4}] },
+  ],
+  pga: [
+    { name:'Scottie Scheffler', team:'USA', emoji:'🎯', pos:'Top 10', game:'Round 2 — TPC Sawgrass', stats:{ score:-8, underPar:8, birdies:9, eagles:1, bogeys:1 }, history:[{underPar:5},{underPar:7},{underPar:4},{underPar:6},{underPar:8},{underPar:6},{underPar:8}] },
+    { name:'Rory McIlroy', team:'NIR', emoji:'☘️', pos:'Top 10', game:'Round 2 — TPC Sawgrass', stats:{ score:-5, underPar:5, birdies:6, eagles:0, bogeys:1 }, history:[{underPar:4},{underPar:3},{underPar:5},{underPar:4},{underPar:6},{underPar:4},{underPar:5}] },
+    { name:'Patrick Cantlay', team:'USA', emoji:'🌴', pos:'Top 25', game:'Round 2 — TPC Sawgrass', stats:{ score:2, underPar:-2, birdies:2, eagles:0, bogeys:4 }, history:[{underPar:3},{underPar:1},{underPar:2},{underPar:-1},{underPar:0},{underPar:1},{underPar:-2}] },
+  ],
+};
+
+function detectBigGame(sport, player) {
+  const alerts = [];
+  const stats = player.stats;
+  const thresholds = sport === 'mlb' ? [...BIG_GAME_THRESHOLDS.mlb.hitter, ...BIG_GAME_THRESHOLDS.mlb.pitcher] : BIG_GAME_THRESHOLDS[sport];
+  if (!thresholds) return alerts;
+  thresholds.forEach(t => {
+    const val = stats[t.stat];
+    if (val === undefined) return;
+    const triggered = t.max !== undefined ? val <= t.max : val >= t.min;
+    if (triggered) alerts.push({ label: t.label, points: t.points, stat: t.stat, value: val });
+  });
+  return alerts;
+}
+
+function calculateStreak(sport, player) {
+  const history = player.history || [];
+  const threshold = STREAK_THRESHOLDS[sport];
+  if (!threshold || !history.length) return { type: 'none', length: 0 };
+  let hot = 0, cold = 0;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const val = history[i][threshold.stat];
+    if (val === undefined) break;
+    if (val >= threshold.min) { if (cold > 0) break; hot++; }
+    else { if (hot > 0) break; cold++; }
+  }
+  if (hot >= threshold.great) return { type: 'fire', length: hot, label: `${hot}-Game Hot Streak 🔥` };
+  if (hot >= threshold.good) return { type: 'hot', length: hot, label: `${hot}-Game Streak ↑` };
+  if (cold >= threshold.great) return { type: 'ice', length: cold, label: `${cold}-Game Slump ❄️` };
+  if (cold >= threshold.good) return { type: 'cold', length: cold, label: `${cold}-Game Cold Streak ↓` };
+  return { type: 'none', length: 0 };
+}
+
+function scorePerformance(alerts) {
+  const total = alerts.reduce((s, a) => s + a.points, 0);
+  if (total >= 5) return { grade: 'S', label: 'Elite', color: '#FFD700' };
+  if (total >= 3) return { grade: 'A', label: 'Outstanding', color: '#4CAF50' };
+  if (total >= 2) return { grade: 'B', label: 'Big Game', color: '#D4A017' };
+  if (total >= 1) return { grade: 'C', label: 'Solid', color: '#2196F3' };
+  return { grade: '-', label: 'Average', color: '#888' };
+}
+
+function processNightlyResults(data) {
+  const results = { date: data.date, bigGames: [], hotStreaks: [], coldStreaks: [], allPlayers: [] };
+  ['mlb','nba','nhl','pga','nfl'].forEach(sport => {
+    (data[sport] || []).forEach(player => {
+      const bigGameAlerts = detectBigGame(sport, player);
+      const streak = calculateStreak(sport, player);
+      const performance = scorePerformance(bigGameAlerts);
+      const processed = { ...player, sport, bigGameAlerts, streak, performance, isBigGame: bigGameAlerts.length > 0, isHot: streak.type==='fire'||streak.type==='hot', isCold: streak.type==='ice'||streak.type==='cold' };
+      results.allPlayers.push(processed);
+      if (processed.isBigGame) results.bigGames.push(processed);
+      if (processed.isHot) results.hotStreaks.push(processed);
+      if (processed.isCold) results.coldStreaks.push(processed);
+    });
+  });
+  results.bigGames.sort((a,b) => ({S:4,A:3,B:2,C:1}[b.performance.grade]||0) - ({S:4,A:3,B:2,C:1}[a.performance.grade]||0));
+  results.hotStreaks.sort((a,b) => b.streak.length - a.streak.length);
+  results.coldStreaks.sort((a,b) => b.streak.length - a.streak.length);
+  return results;
+}
+
+const PostGameTracker = {
+  async getNightlyResults() { return processNightlyResults(MOCK_NIGHTLY); },
+  async getDashboardSummary() {
+    const results = await this.getNightlyResults();
+    return { date: results.date, topPerformer: results.bigGames[0]||null, bigGameCount: results.bigGames.length, hotStreakCount: results.hotStreaks.length, coldStreakCount: results.coldStreaks.length, bigGames: results.bigGames.slice(0,10), hotStreaks: results.hotStreaks.slice(0,5), coldStreaks: results.coldStreaks.slice(0,5) };
+  },
+};
+window.PostGameTracker = PostGameTracker;
+// ── END TRACKER ENGINE ───────────────────────
+</script>
+<script>
+const cursor=document.getElementById('cursor'),ring=document.getElementById('cursorRing');
+let mx=0,my=0,rx=0,ry=0;
+document.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;});
+(function a(){cursor.style.left=mx+'px';cursor.style.top=my+'px';rx+=(mx-rx)*.15;ry+=(my-ry)*.15;ring.style.left=rx+'px';ring.style.top=ry+'px';requestAnimationFrame(a);})();
+
+let allData = null;
+let currentSport = 'all';
+let currentTab = 'bigGames';
+
+const sportEmoji = {mlb:'⚾',nba:'🏀',nhl:'🏒',pga:'⛳',nfl:'🏈'};
+
+function getGradeClass(grade) {
+  return {S:'grade-s',A:'grade-a',B:'grade-b',C:'grade-c','-':'grade-c'}[grade] || 'grade-c';
+}
+
+function getGradeColor(grade) {
+  return {S:'#FFD700',A:'#4CAF50',B:'#D4A017',C:'#2196F3','-':'#888'}[grade] || '#888';
+}
+
+function buildStatLine(sport, stats) {
+  const items = [];
+  switch(sport) {
+    case 'mlb':
+      if(stats.hits) items.push(`<span class="stat-bubble"><span class="sv gold">${stats.hits}</span> H</span>`);
+      if(stats.hr) items.push(`<span class="stat-bubble"><span class="sv gold">${stats.hr}</span> HR</span>`);
+      if(stats.rbi) items.push(`<span class="stat-bubble"><span class="sv">${stats.rbi}</span> RBI</span>`);
+      if(stats.sb) items.push(`<span class="stat-bubble"><span class="sv">${stats.sb}</span> SB</span>`);
+      if(stats.k) items.push(`<span class="stat-bubble"><span class="sv gold">${stats.k}</span> K</span>`);
+      if(stats.ip) items.push(`<span class="stat-bubble"><span class="sv">${stats.ip}</span> IP</span>`);
+      break;
+    case 'nba':
+      if(stats.pts) items.push(`<span class="stat-bubble"><span class="sv gold">${stats.pts}</span> PTS</span>`);
+      if(stats.reb) items.push(`<span class="stat-bubble"><span class="sv">${stats.reb}</span> REB</span>`);
+      if(stats.ast) items.push(`<span class="stat-bubble"><span class="sv">${stats.ast}</span> AST</span>`);
+      if(stats.stl) items.push(`<span class="stat-bubble"><span class="sv">${stats.stl}</span> STL</span>`);
+      if(stats.tripleDouble) items.push(`<span class="stat-bubble"><span class="sv gold">TD</span></span>`);
+      break;
+    case 'nhl':
+      if(stats.goals) items.push(`<span class="stat-bubble"><span class="sv gold">${stats.goals}</span> G</span>`);
+      if(stats.assists) items.push(`<span class="stat-bubble"><span class="sv">${stats.assists}</span> A</span>`);
+      if(stats.points) items.push(`<span class="stat-bubble"><span class="sv gold">${stats.points}</span> PTS</span>`);
+      if(stats.plusMinus) items.push(`<span class="stat-bubble"><span class="sv">${stats.plusMinus>0?'+':''}${stats.plusMinus}</span> +/-</span>`);
+      if(stats.saves) items.push(`<span class="stat-bubble"><span class="sv">${stats.saves}</span> SV</span>`);
+      break;
+    case 'pga':
+      if(stats.score!==undefined) items.push(`<span class="stat-bubble"><span class="sv gold">${stats.score>0?'+':''}${stats.score}</span></span>`);
+      if(stats.birdies) items.push(`<span class="stat-bubble"><span class="sv">${stats.birdies}</span> Birdies</span>`);
+      if(stats.eagles) items.push(`<span class="stat-bubble"><span class="sv gold">${stats.eagles}</span> Eagle</span>`);
+      break;
+    case 'nfl':
+      if(stats.passYds) items.push(`<span class="stat-bubble"><span class="sv gold">${stats.passYds}</span> Pass Yds</span>`);
+      if(stats.passTD) items.push(`<span class="stat-bubble"><span class="sv gold">${stats.passTD}</span> TD</span>`);
+      if(stats.rushYds) items.push(`<span class="stat-bubble"><span class="sv">${stats.rushYds}</span> Rush Yds</span>`);
+      if(stats.recYds) items.push(`<span class="stat-bubble"><span class="sv">${stats.recYds}</span> Rec Yds</span>`);
+      if(stats.fantasyPts) items.push(`<span class="stat-bubble"><span class="sv gold">${stats.fantasyPts}</span> Pts</span>`);
+      break;
+  }
+  return `<div class="stat-line">${items.join('')}</div>`;
+}
+
+function buildGameLog(history, sport) {
+  if (!history || !history.length) return '';
+  const key = {mlb:'hits',nba:'pts',nhl:'points',pga:'underPar',nfl:'fantasyPts'}[sport] || 'pts';
+  const vals = history.map(g => g[key] || 0);
+  const max = Math.max(...vals, 1);
+  const bars = vals.map(v => {
+    const h = Math.max(4, Math.round((v/max)*24));
+    const color = v >= (max*0.6) ? 'var(--green)' : v >= (max*0.3) ? 'var(--gold)' : 'var(--dark4)';
+    return `<div class="log-bar" style="height:${h}px;background:${color}"></div>`;
+  }).join('');
+  return `<div class="game-log">${bars}</div>`;
+}
+
+function renderHero(player) {
+  if (!player) { document.getElementById('heroPerformer').innerHTML = ''; return; }
+  const gc = getGradeClass(player.performance.grade);
+  const alertsHTML = player.bigGameAlerts.map(a =>
+    `<span class="alert-chip fire">🏆 ${a.label}</span>`
+  ).join('');
+  const streakHTML = player.streak.type !== 'none'
+    ? `<span class="alert-chip streak">${player.streak.label}</span>` : '';
+
+  document.getElementById('heroPerformer').innerHTML = `
+    <div>
+      <div class="hero-tag-row">
+        <span class="hero-eyebrow">⭐ Top Performer — ${player.game}</span>
+        <span class="grade-badge ${gc}">${player.performance.grade}</span>
+        <span style="font-size:11px;color:var(--gray);font-weight:600;letter-spacing:1px">${player.performance.label}</span>
+      </div>
+      <div class="hero-name">${player.name}</div>
+      <div class="hero-meta">${sportEmoji[player.sport]} ${player.sport.toUpperCase()} · ${player.pos} · ${player.team}</div>
+      <div class="hero-alerts">${alertsHTML}${streakHTML}</div>
+      ${buildStatLine(player.sport, player.stats)}
+      ${buildGameLog(player.history, player.sport)}
+    </div>
+    <div>
+      <div class="hero-big-num">${player.emoji}</div>
+      <div class="hero-streak-tag" style="color:${getGradeColor(player.performance.grade)};text-align:right;">
+        ${player.streak.type !== 'none' ? player.streak.label : player.performance.label}
+      </div>
+    </div>
+  `;
+}
+
+function renderBigGames(players) {
+  if (!players.length) return '<div style="padding:40px;text-align:center;color:var(--gray)">No big games to show for this filter.</div>';
+  return `
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="panel-title">⭐ Big Game Alerts</div>
+        <span class="panel-count">${players.length} performances</span>
+      </div>
+      <div class="panel-body">
+        ${players.map(p => {
+          const gc = getGradeClass(p.performance.grade);
+          const topAlert = p.bigGameAlerts[0];
+          return `<div class="player-row">
+            <div class="cold-indicator cold-fire"></div>
+            <div class="p-avatar">${p.emoji}</div>
+            <div class="p-info">
+              <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span></div>
+              <div class="p-meta">${p.pos} · ${p.team} · ${p.game}</div>
+              ${buildStatLine(p.sport, p.stats)}
+              ${buildGameLog(p.history, p.sport)}
+            </div>
+            <div class="p-right">
+              <div class="p-grade ${gc}" style="color:${getGradeColor(p.performance.grade)}">${p.performance.grade}</div>
+              ${topAlert ? `<div class="p-alert" style="color:var(--orange)">${topAlert.label}</div>` : ''}
+              ${p.streak.type !== 'none' ? `<div class="p-streak" style="color:var(--green)">${p.streak.label}</div>` : ''}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderHotStreaks(players) {
+  if (!players.length) return '<div style="padding:40px;text-align:center;color:var(--gray)">No hot streaks detected for this filter.</div>';
+  return `
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="panel-title">🔥 Hot Streaks</div>
+        <span class="panel-count">${players.length} players</span>
+      </div>
+      <div class="panel-body">
+        ${players.map(p => {
+          const barColor = p.streak.type === 'fire' ? 'cold-fire' : 'cold-hot';
+          return `<div class="player-row">
+            <div class="cold-indicator ${barColor}"></div>
+            <div class="p-avatar">${p.emoji}</div>
+            <div class="p-info">
+              <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span></div>
+              <div class="p-meta">${p.pos} · ${p.team}</div>
+              ${buildStatLine(p.sport, p.stats)}
+              ${buildGameLog(p.history, p.sport)}
+            </div>
+            <div class="p-right">
+              <div class="p-streak" style="color:${p.streak.type==='fire'?'var(--orange)':'var(--green)'};font-size:15px">${p.streak.label}</div>
+              ${p.isBigGame ? `<div class="p-alert" style="color:var(--gold)">Big Game Last Night</div>` : ''}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderColdStreaks(players) {
+  if (!players.length) return '<div style="padding:40px;text-align:center;color:var(--gray)">No slumps detected for this filter.</div>';
+  return `
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="panel-title">❄️ Cold Streaks & Slumps</div>
+        <span class="panel-count">${players.length} players</span>
+      </div>
+      <div class="panel-body">
+        ${players.map(p => {
+          const barColor = p.streak.type === 'ice' ? 'cold-ice' : 'cold-cold';
+          return `<div class="player-row">
+            <div class="cold-indicator ${barColor}"></div>
+            <div class="p-avatar">${p.emoji}</div>
+            <div class="p-info">
+              <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span></div>
+              <div class="p-meta">${p.pos} · ${p.team}</div>
+              ${buildStatLine(p.sport, p.stats)}
+              ${buildGameLog(p.history, p.sport)}
+            </div>
+            <div class="p-right">
+              <div class="p-streak" style="color:var(--red);font-size:15px">${p.streak.label}</div>
+              <div class="p-alert" style="color:var(--gray)">Consider Dropping</div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderAddDrop(data) {
+  const adds = data.bigGames.filter(p => !p.isCold).slice(0, 4);
+  const drops = data.coldStreaks.slice(0, 4);
+  const watches = data.hotStreaks.filter(p => !p.isBigGame).slice(0, 3);
+
+  return `
+    <div class="panel">
+      <div class="panel-hd"><div class="panel-title">⚡ Today's Add / Drop Recommendations</div></div>
+      <div class="add-drop-list">
+        ${adds.map(p => `
+          <div class="add-drop-row">
+            <span class="action-tag tag-add">+ Add</span>
+            <div class="p-avatar">${p.emoji}</div>
+            <div class="p-info">
+              <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span> · ${p.pos} · ${p.team}</div>
+              <div class="add-drop-reason">Big game last night${p.streak.type!=='none'?' and '+p.streak.label.toLowerCase():''}. Strong add candidate if available.</div>
+            </div>
+          </div>`).join('')}
+        ${drops.map(p => `
+          <div class="add-drop-row">
+            <span class="action-tag tag-drop">Drop</span>
+            <div class="p-avatar">${p.emoji}</div>
+            <div class="p-info">
+              <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span> · ${p.pos} · ${p.team}</div>
+              <div class="add-drop-reason">${p.streak.label} — production trending down. Consider dropping if better options are available.</div>
+            </div>
+          </div>`).join('')}
+        ${watches.map(p => `
+          <div class="add-drop-row">
+            <span class="action-tag tag-watch">Watch</span>
+            <div class="p-avatar">${p.emoji}</div>
+            <div class="p-info">
+              <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span> · ${p.pos} · ${p.team}</div>
+              <div class="add-drop-reason">${p.streak.label} — monitor ownership and pick up before ownership rises.</div>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function getFiltered(list) {
+  if (currentSport === 'all') return list;
+  return list.filter(p => p.sport === currentSport);
+}
+
+function renderTab() {
+  const content = document.getElementById('tabContent');
+  if (!allData) return;
+  switch(currentTab) {
+    case 'bigGames': content.innerHTML = renderBigGames(getFiltered(allData.bigGames)); break;
+    case 'hotStreaks': content.innerHTML = renderHotStreaks(getFiltered(allData.hotStreaks)); break;
+    case 'coldStreaks': content.innerHTML = renderColdStreaks(getFiltered(allData.coldStreaks)); break;
+    case 'addDrop': content.innerHTML = renderAddDrop(allData); break;
+  }
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.stab').forEach((t,i)=>{
+    t.classList.toggle('active', ['bigGames','hotStreaks','coldStreaks','addDrop'][i]===tab);
+  });
+  renderTab();
+}
+
+function filterSport(sport) {
+  currentSport = sport;
+  document.querySelectorAll('.sfm').forEach(b=>b.classList.toggle('active',b.dataset.sport===sport));
+  renderTab();
+}
+
+async function init() {
+  const summary = await PostGameTracker.getDashboardSummary();
+  allData = summary;
+
+  document.getElementById('dateLabel').textContent = summary.date;
+  document.getElementById('sumBig').textContent = summary.bigGameCount;
+  document.getElementById('sumHot').textContent = summary.hotStreakCount;
+  document.getElementById('sumCold').textContent = summary.coldStreakCount;
+  document.getElementById('sumGames').textContent = summary.bigGames.length + summary.hotStreaks.length + summary.coldStreaks.length;
+
+  renderHero(summary.topPerformer);
+  renderTab();
+}
+
+init();
+</script>
+</body>
+</html>

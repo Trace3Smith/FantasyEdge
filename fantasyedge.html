@@ -1,0 +1,1301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FantasyEdge — Dominate Every Sport</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700&family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --gold: #D4A017;
+    --gold-light: #F0C040;
+    --gold-dark: #A07810;
+    --black: #080808;
+    --dark: #111111;
+    --dark2: #1A1A1A;
+    --dark3: #222222;
+    --gray: #888888;
+    --gray-light: #AAAAAA;
+    --white: #F5F5F0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--black);
+    color: var(--white);
+    font-family: 'Barlow', sans-serif;
+    overflow-x: hidden;
+    cursor: none;
+  }
+
+  /* CUSTOM CURSOR */
+  .cursor {
+    width: 12px; height: 12px;
+    background: var(--gold);
+    border-radius: 50%;
+    position: fixed;
+    pointer-events: none;
+    z-index: 9999;
+    transform: translate(-50%, -50%);
+    transition: transform 0.1s ease, width 0.2s, height 0.2s;
+    mix-blend-mode: difference;
+  }
+  .cursor-ring {
+    width: 36px; height: 36px;
+    border: 1px solid var(--gold);
+    border-radius: 50%;
+    position: fixed;
+    pointer-events: none;
+    z-index: 9998;
+    transform: translate(-50%, -50%);
+    transition: all 0.15s ease;
+    opacity: 0.6;
+  }
+
+  /* NAV */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 24px 60px;
+    background: linear-gradient(to bottom, rgba(8,8,8,0.98), transparent);
+  }
+
+  .nav-logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    letter-spacing: 4px;
+    color: var(--white);
+  }
+  .nav-logo span { color: var(--gold); }
+
+  .nav-links {
+    display: flex;
+    gap: 40px;
+    list-style: none;
+  }
+  .nav-links a {
+    color: var(--gray-light);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    transition: color 0.2s;
+  }
+  .nav-links a:hover { color: var(--gold); }
+
+  .nav-cta {
+    background: var(--gold);
+    color: var(--black) !important;
+    padding: 10px 24px;
+    font-weight: 700 !important;
+    transition: background 0.2s, transform 0.2s !important;
+  }
+  .nav-cta:hover { background: var(--gold-light) !important; transform: translateY(-1px); }
+
+  /* HERO */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 60px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero-bg {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 60% 50% at 70% 50%, rgba(212,160,23,0.08) 0%, transparent 70%),
+      radial-gradient(ellipse 40% 60% at 20% 80%, rgba(212,160,23,0.04) 0%, transparent 60%);
+  }
+
+  .hero-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(212,160,23,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(212,160,23,0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
+    mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black, transparent);
+  }
+
+  .hero-eyebrow {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 5px;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 20px;
+    opacity: 0;
+    animation: fadeUp 0.8s ease 0.2s forwards;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .hero-eyebrow::before {
+    content: '';
+    width: 40px; height: 1px;
+    background: var(--gold);
+  }
+
+  .hero-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(72px, 10vw, 140px);
+    line-height: 0.9;
+    letter-spacing: 2px;
+    margin-bottom: 30px;
+    opacity: 0;
+    animation: fadeUp 0.8s ease 0.4s forwards;
+  }
+
+  .hero-title .outline {
+    -webkit-text-stroke: 1px rgba(212,160,23,0.5);
+    color: transparent;
+  }
+  .hero-title .gold { color: var(--gold); }
+
+  .hero-sub {
+    font-size: 18px;
+    font-weight: 300;
+    color: var(--gray-light);
+    max-width: 520px;
+    line-height: 1.7;
+    margin-bottom: 50px;
+    opacity: 0;
+    animation: fadeUp 0.8s ease 0.6s forwards;
+  }
+  .hero-sub strong { color: var(--white); font-weight: 600; }
+
+  .hero-actions {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    opacity: 0;
+    animation: fadeUp 0.8s ease 0.8s forwards;
+  }
+
+  .btn-primary {
+    background: var(--gold);
+    color: var(--black);
+    padding: 16px 40px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    border: none;
+    cursor: none;
+    transition: all 0.25s;
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+  }
+  .btn-primary:hover {
+    background: var(--gold-light);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 40px rgba(212,160,23,0.3);
+  }
+
+  .btn-secondary {
+    color: var(--gray-light);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: color 0.2s;
+    cursor: none;
+    background: none;
+    border: none;
+  }
+  .btn-secondary:hover { color: var(--gold); }
+  .btn-secondary::after { content: '→'; transition: transform 0.2s; }
+  .btn-secondary:hover::after { transform: translateX(4px); }
+
+  /* SPORTS TICKER */
+  .ticker {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    background: var(--dark2);
+    border-top: 1px solid rgba(212,160,23,0.2);
+    padding: 14px 0;
+    overflow: hidden;
+    opacity: 0;
+    animation: fadeIn 1s ease 1.2s forwards;
+  }
+
+  .ticker-track {
+    display: flex;
+    gap: 0;
+    animation: ticker 30s linear infinite;
+    white-space: nowrap;
+  }
+
+  .ticker-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 40px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: var(--gray-light);
+    border-right: 1px solid rgba(255,255,255,0.08);
+  }
+  .ticker-item .up { color: #4CAF50; }
+  .ticker-item .down { color: #F44336; }
+  .ticker-item .sport-tag {
+    background: rgba(212,160,23,0.15);
+    color: var(--gold);
+    padding: 2px 8px;
+    font-size: 10px;
+    letter-spacing: 2px;
+  }
+
+  @keyframes ticker {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+
+  /* SPORTS SECTION */
+  .sports-section {
+    padding: 120px 60px;
+    position: relative;
+  }
+
+  .section-label {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 5px;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .section-label::before {
+    content: '';
+    width: 30px; height: 1px;
+    background: var(--gold);
+  }
+
+  .section-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(42px, 5vw, 72px);
+    line-height: 1;
+    margin-bottom: 16px;
+  }
+
+  .section-sub {
+    color: var(--gray);
+    font-size: 16px;
+    font-weight: 300;
+    max-width: 500px;
+    line-height: 1.7;
+    margin-bottom: 60px;
+  }
+
+  .sports-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2px;
+  }
+
+  .sport-card {
+    background: var(--dark2);
+    padding: 40px 36px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s;
+    border: 1px solid transparent;
+    cursor: none;
+  }
+  .sport-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(212,160,23,0.05) 0%, transparent 60%);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .sport-card:hover {
+    border-color: rgba(212,160,23,0.3);
+    transform: translateY(-4px);
+  }
+  .sport-card:hover::before { opacity: 1; }
+
+  .sport-icon {
+    font-size: 40px;
+    margin-bottom: 20px;
+    display: block;
+  }
+
+  .sport-name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 32px;
+    letter-spacing: 2px;
+    color: var(--white);
+    margin-bottom: 8px;
+  }
+
+  .sport-desc {
+    font-size: 14px;
+    color: var(--gray);
+    line-height: 1.6;
+    margin-bottom: 20px;
+    font-weight: 300;
+  }
+
+  .sport-tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .sport-tag-chip {
+    background: rgba(212,160,23,0.1);
+    border: 1px solid rgba(212,160,23,0.2);
+    color: var(--gold);
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .sport-card-corner {
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 60px; height: 60px;
+    border-top: 1px solid rgba(212,160,23,0.15);
+    border-left: 1px solid rgba(212,160,23,0.15);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .sport-card:hover .sport-card-corner { opacity: 1; }
+
+  /* ROSTER ANALYZER SECTION */
+  .analyzer-section {
+    padding: 120px 60px;
+    background: var(--dark);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .analyzer-section::before {
+    content: '';
+    position: absolute;
+    top: -200px; right: -200px;
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(212,160,23,0.06) 0%, transparent 70%);
+  }
+
+  .analyzer-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 80px;
+    align-items: center;
+  }
+
+  .analyzer-ui {
+    background: var(--dark2);
+    border: 1px solid rgba(212,160,23,0.15);
+    position: relative;
+  }
+
+  .analyzer-header {
+    background: var(--dark3);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid rgba(212,160,23,0.1);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot-r { background: #FF5F57; }
+  .dot-y { background: #FFBD2E; }
+  .dot-g { background: #28C840; }
+
+  .analyzer-title-bar {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: var(--gray);
+    text-transform: uppercase;
+    margin-left: 8px;
+  }
+
+  .analyzer-body { padding: 24px; }
+
+  .analyzer-sport-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+  }
+  .a-tab {
+    padding: 8px 16px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--gray);
+    border: 1px solid var(--dark3);
+    background: none;
+    cursor: none;
+    transition: all 0.2s;
+  }
+  .a-tab.active {
+    color: var(--black);
+    background: var(--gold);
+    border-color: var(--gold);
+  }
+
+  .player-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+  .player-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--dark3);
+    border-left: 3px solid transparent;
+    transition: all 0.2s;
+  }
+  .player-row.hot { border-left-color: #4CAF50; }
+  .player-row.cold { border-left-color: #F44336; }
+  .player-row.neutral { border-left-color: var(--gold); }
+
+  .player-info { display: flex; flex-direction: column; gap: 2px; }
+  .player-name { font-size: 13px; font-weight: 600; color: var(--white); }
+  .player-pos { font-size: 11px; color: var(--gray); letter-spacing: 1px; }
+
+  .player-right { display: flex; align-items: center; gap: 12px; }
+  .player-stat { font-family: 'Barlow Condensed', sans-serif; font-size: 16px; font-weight: 700; color: var(--gold); }
+  .recommendation {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    padding: 3px 10px;
+    text-transform: uppercase;
+  }
+  .rec-hold { background: rgba(212,160,23,0.15); color: var(--gold); }
+  .rec-add { background: rgba(76,175,80,0.15); color: #4CAF50; }
+  .rec-drop { background: rgba(244,67,54,0.15); color: #F44336; }
+
+  .analyzer-input {
+    display: flex;
+    gap: 8px;
+  }
+  .a-input {
+    flex: 1;
+    background: var(--dark3);
+    border: 1px solid rgba(212,160,23,0.2);
+    color: var(--white);
+    padding: 12px 16px;
+    font-family: 'Barlow', sans-serif;
+    font-size: 13px;
+    outline: none;
+  }
+  .a-input::placeholder { color: var(--gray); }
+  .a-btn {
+    background: var(--gold);
+    color: var(--black);
+    border: none;
+    padding: 12px 20px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    cursor: none;
+    transition: background 0.2s;
+    white-space: nowrap;
+  }
+  .a-btn:hover { background: var(--gold-light); }
+
+  /* STATS SECTION */
+  .stats-section {
+    padding: 100px 60px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 2px;
+  }
+
+  .stat-block {
+    background: var(--dark2);
+    padding: 50px 40px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-block::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 40px; height: 2px;
+    background: var(--gold);
+  }
+
+  .stat-number {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 72px;
+    color: var(--gold);
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+  .stat-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gray);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  /* PRICING */
+  .pricing-section {
+    padding: 120px 60px;
+    position: relative;
+  }
+
+  .pricing-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2px;
+    margin-top: 60px;
+  }
+
+  .price-card {
+    background: var(--dark2);
+    padding: 50px 40px;
+    position: relative;
+    border: 1px solid transparent;
+    transition: all 0.3s;
+  }
+  .price-card.featured {
+    background: var(--dark3);
+    border-color: var(--gold);
+  }
+  .price-card:hover:not(.featured) {
+    border-color: rgba(212,160,23,0.3);
+  }
+
+  .price-badge {
+    position: absolute;
+    top: -1px; left: 50%; transform: translateX(-50%);
+    background: var(--gold);
+    color: var(--black);
+    padding: 6px 20px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+
+  .price-tier {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    color: var(--gold);
+    text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+
+  .price-amount {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 72px;
+    line-height: 1;
+    color: var(--white);
+    margin-bottom: 4px;
+  }
+  .price-amount sup { font-size: 30px; vertical-align: super; }
+  .price-amount sub { font-size: 20px; color: var(--gray); }
+
+  .price-desc {
+    font-size: 13px;
+    color: var(--gray);
+    margin-bottom: 36px;
+    font-weight: 300;
+    line-height: 1.6;
+  }
+
+  .price-features { list-style: none; display: flex; flex-direction: column; gap: 14px; margin-bottom: 40px; }
+  .price-features li {
+    font-size: 14px;
+    color: var(--gray-light);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-weight: 300;
+  }
+  .price-features li::before {
+    content: '✓';
+    color: var(--gold);
+    font-weight: 700;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .price-features li.inactive { color: var(--gray); }
+  .price-features li.inactive::before { content: '—'; color: var(--dark3); }
+
+  .price-btn {
+    width: 100%;
+    padding: 16px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    border: none;
+    cursor: none;
+    transition: all 0.25s;
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+  }
+  .price-btn-outline {
+    background: transparent;
+    border: 1px solid rgba(212,160,23,0.4);
+    color: var(--gold);
+  }
+  .price-btn-outline:hover { background: rgba(212,160,23,0.1); }
+  .price-btn-gold {
+    background: var(--gold);
+    color: var(--black);
+  }
+  .price-btn-gold:hover { background: var(--gold-light); box-shadow: 0 8px 30px rgba(212,160,23,0.3); }
+
+  /* HOT PLAYERS */
+  .trending-section {
+    padding: 120px 60px;
+    background: var(--dark);
+  }
+
+  .trending-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-top: 50px;
+  }
+
+  .trend-card {
+    background: var(--dark2);
+    padding: 28px 24px;
+    border: 1px solid rgba(212,160,23,0.08);
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s;
+    cursor: none;
+  }
+  .trend-card:hover {
+    border-color: rgba(212,160,23,0.25);
+    transform: translateY(-4px);
+  }
+
+  .trend-sport {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: var(--gold);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  .trend-name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 24px;
+    letter-spacing: 1px;
+    color: var(--white);
+    margin-bottom: 4px;
+  }
+  .trend-team { font-size: 12px; color: var(--gray); margin-bottom: 16px; }
+
+  .trend-stats { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  .trend-stat-row { display: flex; justify-content: space-between; align-items: center; }
+  .trend-stat-key { font-size: 11px; color: var(--gray); letter-spacing: 1px; text-transform: uppercase; }
+  .trend-stat-val { font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 700; color: var(--white); }
+
+  .trend-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 5px 12px;
+  }
+  .trend-hot { background: rgba(76,175,80,0.15); color: #4CAF50; }
+  .trend-fire { background: rgba(255,152,0,0.15); color: #FF9800; }
+
+  /* CTA */
+  .cta-section {
+    padding: 160px 60px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .cta-section::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 60% 60% at 50% 50%, rgba(212,160,23,0.07) 0%, transparent 70%);
+  }
+  .cta-section .section-label { justify-content: center; }
+  .cta-section .section-label::before { display: none; }
+
+  .cta-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(60px, 8vw, 100px);
+    line-height: 0.95;
+    margin: 20px 0 30px;
+  }
+  .cta-sub {
+    color: var(--gray-light);
+    font-size: 18px;
+    font-weight: 300;
+    max-width: 480px;
+    margin: 0 auto 50px;
+    line-height: 1.7;
+  }
+  .cta-actions {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    align-items: center;
+  }
+
+  /* FOOTER */
+  footer {
+    background: var(--dark2);
+    border-top: 1px solid rgba(212,160,23,0.1);
+    padding: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .footer-logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 24px;
+    letter-spacing: 4px;
+  }
+  .footer-logo span { color: var(--gold); }
+  .footer-copy {
+    font-size: 13px;
+    color: var(--gray);
+    font-weight: 300;
+  }
+  .footer-links {
+    display: flex;
+    gap: 30px;
+    list-style: none;
+  }
+  .footer-links a {
+    font-size: 12px;
+    color: var(--gray);
+    text-decoration: none;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    font-weight: 600;
+    transition: color 0.2s;
+  }
+  .footer-links a:hover { color: var(--gold); }
+
+  /* ANIMATIONS */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .reveal {
+    opacity: 0;
+    transform: translateY(40px);
+    transition: all 0.7s ease;
+  }
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* DIVIDER */
+  .gold-line {
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--gold), transparent);
+    margin: 0 60px;
+    opacity: 0.3;
+  }
+</style>
+</head>
+<body>
+
+<div class="cursor" id="cursor"></div>
+<div class="cursor-ring" id="cursorRing"></div>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">Fantasy<span>Edge</span></div>
+  <ul class="nav-links">
+    <li><a href="fantasyedge-rankings.html">Sports</a></li>
+    <li><a href="fantasyedge-analyzer.html">Analyzer</a></li>
+    <li><a href="fantasyedge-trending.html">Trending</a></li>
+    <li><a href="fantasyedge-dashboard.html">Pricing</a></li>
+    <li><a href="fantasyedge-dashboard.html" class="nav-cta">Start Free</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-grid"></div>
+
+  <div class="hero-eyebrow">The Fantasy Intelligence Platform</div>
+
+  <h1 class="hero-title">
+    STOP<br>
+    <span class="outline">GUESSING.</span><br>
+    <span class="gold">START</span> WINNING.
+  </h1>
+
+  <p class="hero-sub">
+    Deep analytics for <strong>every sport</strong> — not just football.
+    Live stats, hot player alerts, and AI-powered roster recommendations
+    built for serious fantasy competitors.
+  </p>
+
+  <div class="hero-actions">
+    <button class="btn-primary">Get The Edge — Free</button>
+    <button class="btn-secondary">See How It Works</button>
+  </div>
+
+  <!-- TICKER -->
+  <div class="ticker">
+    <div class="ticker-track" id="ticker">
+      <span class="ticker-item"><span class="sport-tag">MLB</span> Shohei Ohtani <span class="up">▲ .412 Last 7</span></span>
+      <span class="ticker-item"><span class="sport-tag">NHL</span> Connor McDavid <span class="up">▲ 3 PPG Streak</span></span>
+      <span class="ticker-item"><span class="sport-tag">PGA</span> Scottie Scheffler <span class="up">▲ T2 Last 3 Events</span></span>
+      <span class="ticker-item"><span class="sport-tag">NBA</span> Luka Doncic <span class="up">▲ 34 PPG March</span></span>
+      <span class="ticker-item"><span class="sport-tag">NFL</span> CeeDee Lamb <span class="down">▼ Questionable</span></span>
+      <span class="ticker-item"><span class="sport-tag">MLB</span> Yordan Alvarez <span class="up">▲ 5 HR Last 10</span></span>
+      <span class="ticker-item"><span class="sport-tag">NHL</span> Nathan MacKinnon <span class="up">▲ Point/Game Pace</span></span>
+      <span class="ticker-item"><span class="sport-tag">PGA</span> Rory McIlroy <span class="down">▼ Missed Cut</span></span>
+      <span class="ticker-item"><span class="sport-tag">NBA</span> Jayson Tatum <span class="up">▲ 8 Straight 30+</span></span>
+      <!-- Duplicate for seamless loop -->
+      <span class="ticker-item"><span class="sport-tag">MLB</span> Shohei Ohtani <span class="up">▲ .412 Last 7</span></span>
+      <span class="ticker-item"><span class="sport-tag">NHL</span> Connor McDavid <span class="up">▲ 3 PPG Streak</span></span>
+      <span class="ticker-item"><span class="sport-tag">PGA</span> Scottie Scheffler <span class="up">▲ T2 Last 3 Events</span></span>
+      <span class="ticker-item"><span class="sport-tag">NBA</span> Luka Doncic <span class="up">▲ 34 PPG March</span></span>
+      <span class="ticker-item"><span class="sport-tag">NFL</span> CeeDee Lamb <span class="down">▼ Questionable</span></span>
+      <span class="ticker-item"><span class="sport-tag">MLB</span> Yordan Alvarez <span class="up">▲ 5 HR Last 10</span></span>
+      <span class="ticker-item"><span class="sport-tag">NHL</span> Nathan MacKinnon <span class="up">▲ Point/Game Pace</span></span>
+      <span class="ticker-item"><span class="sport-tag">PGA</span> Rory McIlroy <span class="down">▼ Missed Cut</span></span>
+      <span class="ticker-item"><span class="sport-tag">NBA</span> Jayson Tatum <span class="up">▲ 8 Straight 30+</span></span>
+    </div>
+  </div>
+</section>
+
+<!-- SPORTS -->
+<section class="sports-section" id="sports">
+  <div class="section-label reveal">Coverage</div>
+  <h2 class="section-title reveal">EVERY SPORT.<br>EVERY EDGE.</h2>
+  <p class="section-sub reveal">While everyone else focuses on football, we've built the deepest analytics for the sports where you can actually gain an edge.</p>
+
+  <div class="sports-grid reveal">
+    <div class="sport-card">
+      <span class="sport-icon">⚾</span>
+      <div class="sport-name">Baseball</div>
+      <p class="sport-desc">Statcast data, pitcher matchups, ballpark factors, exit velocity trends, and weekly streaming recommendations.</p>
+      <div class="sport-tag-list">
+        <span class="sport-tag-chip">Statcast</span>
+        <span class="sport-tag-chip">Pitching</span>
+        <span class="sport-tag-chip">Streamers</span>
+      </div>
+      <div class="sport-card-corner"></div>
+    </div>
+
+    <div class="sport-card">
+      <span class="sport-icon">🏒</span>
+      <div class="sport-name">Hockey</div>
+      <p class="sport-desc">Power play units, ice time trends, goalie starts, shot quality metrics, and line combination trackers.</p>
+      <div class="sport-tag-list">
+        <span class="sport-tag-chip">Power Play</span>
+        <span class="sport-tag-chip">Ice Time</span>
+        <span class="sport-tag-chip">Goalies</span>
+      </div>
+      <div class="sport-card-corner"></div>
+    </div>
+
+    <div class="sport-card">
+      <span class="sport-icon">⛳</span>
+      <div class="sport-name">Golf</div>
+      <p class="sport-desc">Course history, strokes gained breakdown, DraftKings value picks, cut probability, and weather impact scoring.</p>
+      <div class="sport-tag-list">
+        <span class="sport-tag-chip">Strokes Gained</span>
+        <span class="sport-tag-chip">Course Fit</span>
+        <span class="sport-tag-chip">Value Picks</span>
+      </div>
+      <div class="sport-card-corner"></div>
+    </div>
+
+    <div class="sport-card">
+      <span class="sport-icon">🏀</span>
+      <div class="sport-name">Basketball</div>
+      <p class="sport-desc">Usage rate shifts, back-to-back schedules, rest days, matchup grades, and pace-of-play analysis.</p>
+      <div class="sport-tag-list">
+        <span class="sport-tag-chip">Usage Rate</span>
+        <span class="sport-tag-chip">Matchups</span>
+        <span class="sport-tag-chip">Schedule</span>
+      </div>
+      <div class="sport-card-corner"></div>
+    </div>
+
+    <div class="sport-card">
+      <span class="sport-icon">🏈</span>
+      <div class="sport-name">Football</div>
+      <p class="sport-desc">Air yards, target share, red zone looks, snap counts, and next-gen stats to complement your instincts.</p>
+      <div class="sport-tag-list">
+        <span class="sport-tag-chip">Air Yards</span>
+        <span class="sport-tag-chip">Target Share</span>
+        <span class="sport-tag-chip">Red Zone</span>
+      </div>
+      <div class="sport-card-corner"></div>
+    </div>
+
+    <div class="sport-card">
+      <span class="sport-icon">🏆</span>
+      <div class="sport-name">Brackets & Bowls</div>
+      <p class="sport-desc">March Madness bracket generators, bowl game picks, model-based upset alerts, and historical trend analysis.</p>
+      <div class="sport-tag-list">
+        <span class="sport-tag-chip">March Madness</span>
+        <span class="sport-tag-chip">Bowl Games</span>
+        <span class="sport-tag-chip">Upsets</span>
+      </div>
+      <div class="sport-card-corner"></div>
+    </div>
+  </div>
+</section>
+
+<div class="gold-line"></div>
+
+<!-- STATS -->
+<section class="stats-section">
+  <div class="stat-block reveal">
+    <div class="stat-number">6</div>
+    <div class="stat-label">Sports Covered</div>
+  </div>
+  <div class="stat-block reveal">
+    <div class="stat-number">500+</div>
+    <div class="stat-label">Data Points Per Player</div>
+  </div>
+  <div class="stat-block reveal">
+    <div class="stat-number">Live</div>
+    <div class="stat-label">Real-Time Stat Updates</div>
+  </div>
+  <div class="stat-block reveal">
+    <div class="stat-number">AI</div>
+    <div class="stat-label">Powered Recommendations</div>
+  </div>
+</section>
+
+<!-- ANALYZER -->
+<section class="analyzer-section" id="analyzer">
+  <div class="analyzer-layout">
+    <div>
+      <div class="section-label reveal">Roster Analyzer</div>
+      <h2 class="section-title reveal">PLUG IN YOUR<br>TEAM. GET<br><span style="color:var(--gold)">YOUR ANSWER.</span></h2>
+      <p class="section-sub reveal">Stop guessing who to add or drop. Input your roster, tell us your league settings, and FantasyEdge gives you instant, data-backed recommendations tailored to your specific team needs.</p>
+      <ul style="list-style:none; display:flex; flex-direction:column; gap:16px;" class="reveal">
+        <li style="display:flex; align-items:flex-start; gap:16px;">
+          <span style="color:var(--gold); font-family:'Bebas Neue'; font-size:24px; line-height:1; flex-shrink:0;">01</span>
+          <div>
+            <div style="font-weight:600; margin-bottom:4px;">Input your roster</div>
+            <div style="color:var(--gray); font-size:14px; font-weight:300;">Paste your players or search by name across any sport</div>
+          </div>
+        </li>
+        <li style="display:flex; align-items:flex-start; gap:16px;">
+          <span style="color:var(--gold); font-family:'Bebas Neue'; font-size:24px; line-height:1; flex-shrink:0;">02</span>
+          <div>
+            <div style="font-weight:600; margin-bottom:4px;">We analyze your weaknesses</div>
+            <div style="color:var(--gray); font-size:14px; font-weight:300;">Compare your stats vs. league leaders to find gaps</div>
+          </div>
+        </li>
+        <li style="display:flex; align-items:flex-start; gap:16px;">
+          <span style="color:var(--gold); font-family:'Bebas Neue'; font-size:24px; line-height:1; flex-shrink:0;">03</span>
+          <div>
+            <div style="font-weight:600; margin-bottom:4px;">Get your add/drop/hold list</div>
+            <div style="color:var(--gray); font-size:14px; font-weight:300;">Ranked recommendations with reasoning for each move</div>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <div class="analyzer-ui reveal">
+      <div class="analyzer-header">
+        <div class="dot dot-r"></div>
+        <div class="dot dot-y"></div>
+        <div class="dot dot-g"></div>
+        <span class="analyzer-title-bar">Roster Analyzer</span>
+      </div>
+      <div class="analyzer-body">
+        <div class="analyzer-sport-tabs">
+          <button class="a-tab active">MLB</button>
+          <button class="a-tab">NHL</button>
+          <button class="a-tab">NBA</button>
+          <button class="a-tab">PGA</button>
+          <button class="a-tab">NFL</button>
+        </div>
+        <div class="player-list">
+          <div class="player-row hot">
+            <div class="player-info">
+              <span class="player-name">Shohei Ohtani</span>
+              <span class="player-pos">SP/OF · LAD</span>
+            </div>
+            <div class="player-right">
+              <span class="player-stat">.412</span>
+              <span class="recommendation rec-hold">Hold</span>
+            </div>
+          </div>
+          <div class="player-row cold">
+            <div class="player-info">
+              <span class="player-name">Max Fried</span>
+              <span class="player-pos">SP · NYY</span>
+            </div>
+            <div class="player-right">
+              <span class="player-stat">6.84 ERA</span>
+              <span class="recommendation rec-drop">Drop</span>
+            </div>
+          </div>
+          <div class="player-row neutral">
+            <div class="player-info">
+              <span class="player-name">Gunnar Henderson</span>
+              <span class="player-pos">SS · BAL</span>
+            </div>
+            <div class="player-right">
+              <span class="player-stat">.284</span>
+              <span class="recommendation rec-hold">Hold</span>
+            </div>
+          </div>
+          <div class="player-row hot">
+            <div class="player-info">
+              <span class="player-name">Jackson Chourio</span>
+              <span class="player-pos">OF · MIL</span>
+            </div>
+            <div class="player-right">
+              <span class="player-stat">8 SB</span>
+              <span class="recommendation rec-add">Add</span>
+            </div>
+          </div>
+        </div>
+        <div class="analyzer-input">
+          <input class="a-input" placeholder="Search a player to add..." />
+          <button class="a-btn">Analyze</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TRENDING -->
+<section class="trending-section" id="trending">
+  <div class="section-label reveal">Hot Right Now</div>
+  <h2 class="section-title reveal">PLAYERS ON FIRE<br>ACROSS EVERY SPORT</h2>
+
+  <div class="trending-grid reveal">
+    <div class="trend-card">
+      <div class="trend-sport">⚾ MLB</div>
+      <div class="trend-name">Yordan Alvarez</div>
+      <div class="trend-team">1B/OF · Houston Astros</div>
+      <div class="trend-stats">
+        <div class="trend-stat-row"><span class="trend-stat-key">Last 10 AVG</span><span class="trend-stat-val">.380</span></div>
+        <div class="trend-stat-row"><span class="trend-stat-key">HR (10 days)</span><span class="trend-stat-val">5</span></div>
+        <div class="trend-stat-row"><span class="trend-stat-key">RBI</span><span class="trend-stat-val">14</span></div>
+      </div>
+      <span class="trend-badge trend-fire">🔥 Must Start</span>
+    </div>
+
+    <div class="trend-card">
+      <div class="trend-sport">🏒 NHL</div>
+      <div class="trend-name">Connor McDavid</div>
+      <div class="trend-team">C · Edmonton Oilers</div>
+      <div class="trend-stats">
+        <div class="trend-stat-row"><span class="trend-stat-key">Points (7 days)</span><span class="trend-stat-val">9</span></div>
+        <div class="trend-stat-row"><span class="trend-stat-key">PP Points</span><span class="trend-stat-val">5</span></div>
+        <div class="trend-stat-row"><span class="trend-stat-key">+/-</span><span class="trend-stat-val">+7</span></div>
+      </div>
+      <span class="trend-badge trend-fire">🔥 Must Start</span>
+    </div>
+
+    <div class="trend-card">
+      <div class="trend-sport">⛳ PGA</div>
+      <div class="trend-name">Scottie Scheffler</div>
+      <div class="trend-team">World Rank #1</div>
+      <div class="trend-stats">
+        <div class="trend-stat-row"><span class="trend-stat-key">SG: Total</span><span class="trend-stat-val">+4.2</span></div>
+        <div class="trend-stat-row"><span class="trend-stat-key">Top 10s (3 events)</span><span class="trend-stat-val">3</span></div>
+        <div class="trend-stat-row"><span class="trend-stat-key">Course Fit</span><span class="trend-stat-val">A+</span></div>
+      </div>
+      <span class="trend-badge trend-hot">✓ High Value</span>
+    </div>
+
+    <div class="trend-card">
+      <div class="trend-sport">🏀 NBA</div>
+      <div class="trend-name">Jayson Tatum</div>
+      <div class="trend-team">SF · Boston Celtics</div>
+      <div class="trend-stats">
+        <div class="trend-stat-row"><span class="trend-stat-key">PPG (March)</span><span class="trend-stat-val">34.1</span></div>
+        <div class="trend-stat-row"><span class="trend-stat-key">30+ Pt Streak</span><span class="trend-stat-val">8</span></div>
+        <div class="trend-stat-row"><span class="trend-stat-key">Usage %</span><span class="trend-stat-val">38%</span></div>
+      </div>
+      <span class="trend-badge trend-fire">🔥 Must Start</span>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section class="pricing-section" id="pricing">
+  <div class="section-label reveal">Pricing</div>
+  <h2 class="section-title reveal">PICK YOUR EDGE</h2>
+  <p class="section-sub reveal">No contracts. Cancel anytime. Dominate your league on day one.</p>
+
+  <div class="pricing-grid reveal">
+    <div class="price-card">
+      <div class="price-tier">Free</div>
+      <div class="price-amount"><sup>$</sup>0<sub>/mo</sub></div>
+      <p class="price-desc">Get a taste of what winning with data feels like.</p>
+      <ul class="price-features">
+        <li>Basic player rankings (all sports)</li>
+        <li>Delayed stats (24hr)</li>
+        <li>Weekly top 10 trending players</li>
+        <li class="inactive">Live stat updates</li>
+        <li class="inactive">Roster analyzer</li>
+        <li class="inactive">Add/Drop alerts</li>
+        <li class="inactive">Bracket tools</li>
+      </ul>
+      <button class="price-btn price-btn-outline">Start Free</button>
+    </div>
+
+    <div class="price-card featured">
+      <div class="price-badge">Most Popular</div>
+      <div class="price-tier">Pro</div>
+      <div class="price-amount"><sup>$</sup>9<sub>/mo</sub></div>
+      <p class="price-desc">Everything you need to consistently win your leagues.</p>
+      <ul class="price-features">
+        <li>Everything in Free</li>
+        <li>Live stat updates (all sports)</li>
+        <li>Hot/cold player alerts</li>
+        <li>Full roster analyzer</li>
+        <li>Add/Drop recommendations</li>
+        <li>Matchup grades & start/sit</li>
+        <li class="inactive">Weekly AI-powered reports</li>
+      </ul>
+      <button class="price-btn price-btn-gold">Get Pro Access</button>
+    </div>
+
+    <div class="price-card">
+      <div class="price-tier">Elite</div>
+      <div class="price-amount"><sup>$</sup>19<sub>/mo</sub></div>
+      <p class="price-desc">For the competitor who plays in multiple leagues and refuses to lose.</p>
+      <ul class="price-features">
+        <li>Everything in Pro</li>
+        <li>Weekly AI-powered reports</li>
+        <li>March Madness bracket builder</li>
+        <li>Bowl game pick optimizer</li>
+        <li>Multi-league roster manager</li>
+        <li>Discord community access</li>
+        <li>Priority support</li>
+      </ul>
+      <button class="price-btn price-btn-outline">Go Elite</button>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+  <div class="section-label">Ready</div>
+  <h2 class="cta-title">YOUR LEAGUE<br>WON'T KNOW<br><span style="color:var(--gold)">WHAT HIT THEM.</span></h2>
+  <p class="cta-sub">Join thousands of fantasy players who stopped guessing and started winning with FantasyEdge.</p>
+  <div class="cta-actions">
+    <button class="btn-primary">Get The Edge — Free</button>
+    <button class="btn-secondary">View All Features</button>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-logo">Fantasy<span>Edge</span></div>
+  <ul class="footer-links">
+    <li><a href="#">Sports</a></li>
+    <li><a href="#">Pricing</a></li>
+    <li><a href="#">Blog</a></li>
+    <li><a href="#">Contact</a></li>
+  </ul>
+  <p class="footer-copy">© 2026 FantasyEdge. All rights reserved.</p>
+</footer>
+
+<script>
+  // CURSOR
+  const cursor = document.getElementById('cursor');
+  const ring = document.getElementById('cursorRing');
+  let mx = 0, my = 0, rx = 0, ry = 0;
+  document.addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; });
+  function animateCursor() {
+    cursor.style.left = mx + 'px';
+    cursor.style.top = my + 'px';
+    rx += (mx - rx) * 0.15;
+    ry += (my - ry) * 0.15;
+    ring.style.left = rx + 'px';
+    ring.style.top = ry + 'px';
+    requestAnimationFrame(animateCursor);
+  }
+  animateCursor();
+
+  // SCROLL REVEAL
+  const reveals = document.querySelectorAll('.reveal');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry, i) => {
+      if (entry.isIntersecting) {
+        setTimeout(() => entry.target.classList.add('visible'), 100);
+      }
+    });
+  }, { threshold: 0.1 });
+  reveals.forEach(el => observer.observe(el));
+
+  // SPORT TABS
+  document.querySelectorAll('.a-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.a-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+    });
+  });
+
+  // NAV SHRINK
+  window.addEventListener('scroll', () => {
+    const nav = document.querySelector('nav');
+    if (window.scrollY > 80) {
+      nav.style.background = 'rgba(8,8,8,0.98)';
+      nav.style.padding = '16px 60px';
+      nav.style.backdropFilter = 'blur(10px)';
+    } else {
+      nav.style.background = 'linear-gradient(to bottom, rgba(8,8,8,0.98), transparent)';
+      nav.style.padding = '24px 60px';
+      nav.style.backdropFilter = 'none';
+    }
+  });
+</script>
+</body>
+</html>

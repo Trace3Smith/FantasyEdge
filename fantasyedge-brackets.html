@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FantasyEdge — Brackets & Bowls</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700&family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{--gold:#D4A017;--gold-light:#F0C040;--black:#080808;--dark:#111111;--dark2:#1A1A1A;--dark3:#222222;--dark4:#2A2A2A;--gray:#888888;--gray-light:#AAAAAA;--white:#F5F5F0;--green:#4CAF50;--red:#F44336;--orange:#FF9800;--blue:#2196F3;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--black);color:var(--white);font-family:'Barlow',sans-serif;min-height:100vh;cursor:none;}
+  .cursor{width:10px;height:10px;background:var(--gold);border-radius:50%;position:fixed;pointer-events:none;z-index:9999;transform:translate(-50%,-50%);mix-blend-mode:difference;}
+  .cursor-ring{width:32px;height:32px;border:1px solid var(--gold);border-radius:50%;position:fixed;pointer-events:none;z-index:9998;transform:translate(-50%,-50%);transition:all .15s ease;opacity:.5;}
+  .app{display:flex;min-height:100vh;}
+  .sidebar{width:240px;flex-shrink:0;background:var(--dark);border-right:1px solid rgba(212,160,23,0.1);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:50;}
+  .sidebar-logo{padding:28px 24px;border-bottom:1px solid rgba(212,160,23,0.1);font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;}
+  .sidebar-logo span{color:var(--gold);}
+  .sidebar-section{padding:20px 16px 8px;font-size:10px;font-weight:700;letter-spacing:3px;color:var(--gray);text-transform:uppercase;}
+  .sidebar-nav{list-style:none;padding:0 8px;}
+  .sidebar-nav li a{display:flex;align-items:center;gap:12px;padding:11px 16px;border-radius:4px;color:var(--gray-light);text-decoration:none;font-size:14px;font-weight:500;transition:all 0.2s;cursor:none;}
+  .sidebar-nav li a:hover{background:var(--dark2);color:var(--white);}
+  .sidebar-nav li a.active{background:rgba(212,160,23,0.12);color:var(--gold);}
+  .nav-icon{font-size:16px;width:20px;text-align:center;}
+  .sidebar-bottom{margin-top:auto;padding:20px 16px;border-top:1px solid rgba(212,160,23,0.1);}
+  .upgrade-card{background:linear-gradient(135deg,rgba(212,160,23,0.15),rgba(212,160,23,0.05));border:1px solid rgba(212,160,23,0.25);padding:16px;}
+  .upgrade-card h4{font-size:13px;font-weight:700;margin-bottom:6px;}
+  .upgrade-card p{font-size:11px;color:var(--gray);line-height:1.5;margin-bottom:12px;}
+  .upgrade-btn{width:100%;background:var(--gold);color:var(--black);border:none;padding:9px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:800;letter-spacing:2px;text-transform:uppercase;cursor:none;transition:background 0.2s;}
+  .upgrade-btn:hover{background:var(--gold-light);}
+  .main{margin-left:240px;flex:1;display:flex;flex-direction:column;}
+  .topbar{background:var(--dark);border-bottom:1px solid rgba(212,160,23,0.1);padding:0 36px;height:64px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:40;}
+  .topbar-left h1{font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2px;}
+  .topbar-left p{font-size:12px;color:var(--gray);margin-top:1px;}
+  .content{padding:28px 36px;flex:1;}
+
+  /* MODE TABS */
+  .mode-tabs{display:flex;gap:0;margin-bottom:32px;border:1px solid rgba(212,160,23,0.15);width:fit-content;}
+  .mode-tab{padding:14px 32px;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;letter-spacing:3px;text-transform:uppercase;background:none;border:none;color:var(--gray);cursor:none;transition:all 0.2s;}
+  .mode-tab:not(:last-child){border-right:1px solid rgba(212,160,23,0.15);}
+  .mode-tab.active{background:rgba(212,160,23,0.12);color:var(--gold);}
+  .mode-tab:hover:not(.active){color:var(--gray-light);}
+
+  /* MARCH MADNESS */
+  #marchView,.bowl-view{display:none;}
+  #marchView.active,.bowl-view.active{display:block;}
+
+  .bracket-intro{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:32px;}
+  .intro-card{background:var(--dark2);border:1px solid rgba(212,160,23,0.08);padding:20px;display:flex;align-items:center;gap:16px;}
+  .intro-icon{font-size:28px;}
+  .intro-title{font-size:13px;font-weight:600;margin-bottom:3px;}
+  .intro-sub{font-size:12px;color:var(--gray);font-weight:300;}
+
+  .bracket-section-title{font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:2px;margin-bottom:6px;}
+  .bracket-section-sub{font-size:14px;color:var(--gray);margin-bottom:20px;font-weight:300;}
+
+  /* BRACKET REGION */
+  .regions-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:32px;}
+  .region-card{background:var(--dark2);border:1px solid rgba(212,160,23,0.08);}
+  .region-header{padding:14px 20px;border-bottom:1px solid rgba(212,160,23,0.08);display:flex;align-items:center;justify-content:space-between;}
+  .region-name{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;}
+  .region-tag{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);background:rgba(212,160,23,0.1);padding:4px 10px;}
+  .region-body{padding:16px 20px;}
+
+  .matchup{display:flex;gap:6px;margin-bottom:8px;align-items:stretch;}
+  .matchup-label{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gray);writing-mode:vertical-rl;padding:6px 0;width:20px;text-align:center;flex-shrink:0;}
+
+  .matchup-teams{display:flex;flex-direction:column;gap:4px;flex:1;}
+  .team-pick{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--dark3);border:1px solid transparent;cursor:none;transition:all 0.2s;position:relative;}
+  .team-pick:hover{border-color:rgba(212,160,23,0.25);background:var(--dark4);}
+  .team-pick.selected{background:rgba(212,160,23,0.1);border-color:var(--gold);}
+  .team-pick.selected .team-name{color:var(--gold);}
+  .team-seed{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--gray);width:24px;text-align:center;flex-shrink:0;}
+  .team-pick.selected .team-seed{color:var(--gold);}
+  .team-name{font-size:13px;font-weight:600;flex:1;}
+  .team-edge{font-size:11px;color:var(--gray);font-family:'Barlow Condensed',sans-serif;font-weight:600;}
+  .team-pick.selected .team-edge{color:var(--gold-light);}
+  .upset-badge{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;background:rgba(255,152,0,0.15);color:var(--orange);padding:2px 8px;}
+
+  .region-pick-bar{height:3px;background:var(--dark4);margin-top:12px;}
+  .region-pick-fill{height:100%;background:var(--gold);transition:width 0.5s;}
+
+  /* CHAMPION PICK */
+  .champion-section{background:var(--dark2);border:1px solid rgba(212,160,23,0.2);padding:28px;text-align:center;margin-bottom:24px;}
+  .champ-title{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:3px;color:var(--gold);margin-bottom:4px;}
+  .champ-sub{font-size:13px;color:var(--gray);margin-bottom:20px;}
+  .champ-picks{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+  .champ-pick{padding:10px 20px;background:var(--dark3);border:1px solid rgba(212,160,23,0.15);font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gray);cursor:none;transition:all 0.2s;}
+  .champ-pick:hover{border-color:var(--gold);color:var(--gold-light);}
+  .champ-pick.selected{background:rgba(212,160,23,0.15);border-color:var(--gold);color:var(--gold);}
+
+  /* SUBMIT */
+  .submit-row{display:flex;align-items:center;justify-content:space-between;padding:20px;background:var(--dark2);border:1px solid rgba(212,160,23,0.08);}
+  .submit-progress{display:flex;flex-direction:column;gap:4px;}
+  .submit-label{font-size:13px;color:var(--gray-light);}
+  .submit-label span{color:var(--gold);font-weight:700;}
+  .progress-bar{height:4px;width:200px;background:var(--dark4);border-radius:2px;overflow:hidden;}
+  .progress-fill{height:100%;background:var(--gold);border-radius:2px;transition:width 0.4s;}
+  .submit-btn{background:var(--gold);color:var(--black);border:none;padding:14px 36px;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:800;letter-spacing:3px;text-transform:uppercase;cursor:none;transition:all 0.25s;clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,10px 100%,0 calc(100% - 10px));}
+  .submit-btn:hover{background:var(--gold-light);box-shadow:0 6px 24px rgba(212,160,23,0.3);}
+
+  /* BOWL GAMES */
+  .bowl-header-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;}
+  .bowl-score-card{display:flex;align-items:center;gap:20px;background:var(--dark2);border:1px solid rgba(212,160,23,0.15);padding:14px 24px;}
+  .bowl-score-label{font-size:12px;color:var(--gray);}
+  .bowl-score-val{font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--gold);}
+
+  .bowl-games-list{display:flex;flex-direction:column;gap:8px;}
+  .bowl-game{background:var(--dark2);border:1px solid rgba(212,160,23,0.06);display:grid;grid-template-columns:140px 1fr auto;align-items:center;gap:0;overflow:hidden;transition:border-color 0.2s;}
+  .bowl-game:hover{border-color:rgba(212,160,23,0.2);}
+  .bowl-info{padding:14px 20px;border-right:1px solid rgba(212,160,23,0.06);}
+  .bowl-name{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;letter-spacing:1px;color:var(--white);margin-bottom:2px;}
+  .bowl-date{font-size:11px;color:var(--gray);}
+  .bowl-matchup{display:flex;align-items:center;gap:0;flex:1;}
+  .bowl-team{flex:1;display:flex;align-items:center;gap:12px;padding:14px 20px;cursor:none;transition:background 0.2s;border:1px solid transparent;}
+  .bowl-team:hover{background:rgba(212,160,23,0.04);}
+  .bowl-team.picked{background:rgba(212,160,23,0.08);border-color:rgba(212,160,23,0.25);}
+  .bowl-team.picked .bowl-team-name{color:var(--gold);}
+  .bowl-team:first-child{justify-content:flex-start;border-right:none;}
+  .bowl-team:last-child{justify-content:flex-end;flex-direction:row-reverse;border-left:1px solid rgba(212,160,23,0.06);}
+  .bowl-team-name{font-weight:600;font-size:14px;}
+  .bowl-team-rank{font-size:11px;color:var(--gray);font-family:'Barlow Condensed',sans-serif;}
+  .bowl-vs{padding:0 16px;font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--gray);flex-shrink:0;}
+  .bowl-edge{padding:14px 16px;text-align:center;border-left:1px solid rgba(212,160,23,0.06);min-width:80px;}
+  .edge-label{font-size:10px;color:var(--gray);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;}
+  .edge-val{font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;}
+  .edge-favor{font-size:10px;margin-top:3px;}
+  .edge-green{color:var(--green);}
+  .edge-gold{color:var(--gold);}
+  .edge-orange{color:var(--orange);}
+
+  .bowl-upset-banner{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;background:rgba(255,152,0,0.12);color:var(--orange);padding:2px 8px;margin-left:8px;}
+</style>
+</head>
+<body>
+<div class="cursor" id="cursor"></div>
+<div class="cursor-ring" id="cursorRing"></div>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-logo">Fantasy<span>Edge</span></div>
+    <div class="sidebar-section">Main</div>
+    <ul class="sidebar-nav">
+      <li><a href="fantasyedge.html"><span class="nav-icon">🏠</span> Home</a></li>
+      <li><a href="fantasyedge-dashboard.html"><span class="nav-icon">🌙</span> Last Night</a></li>
+      <li><a href="fantasyedge-rankings.html"><span class="nav-icon">📊</span> Rankings</a></li>
+      <li><a href="fantasyedge-analyzer.html"><span class="nav-icon">🔍</span> Roster Analyzer</a></li>
+      <li><a href="fantasyedge-trending.html"><span class="nav-icon">🔥</span> Trending Players</a></li>
+      <li><a href="fantasyedge-brackets.html" class="active"><span class="nav-icon">🏆</span> Brackets & Bowls</a></li>
+    </ul>
+    <div class="sidebar-section">Sports</div>
+    <ul class="sidebar-nav">
+      <li><a href="#"><span class="nav-icon">⚾</span> MLB</a></li>
+      <li><a href="#"><span class="nav-icon">🏀</span> NBA</a></li>
+      <li><a href="#"><span class="nav-icon">🏒</span> NHL</a></li>
+      <li><a href="#"><span class="nav-icon">⛳</span> PGA</a></li>
+      <li><a href="#"><span class="nav-icon">🏈</span> NFL</a></li>
+    </ul>
+    <div class="sidebar-bottom">
+      <div class="upgrade-card">
+        <h4>Upgrade to Elite</h4>
+        <p>Unlock bracket optimizer and bowl game AI picks.</p>
+        <button class="upgrade-btn">Go Elite — $19/mo</button>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-left">
+        <h1>Brackets & Bowl Games</h1>
+        <p>Data-backed picks for March Madness and College Football Bowl Season</p>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- MODE TABS -->
+      <div class="mode-tabs">
+        <button class="mode-tab active" onclick="switchMode('march')">🏀 March Madness</button>
+        <button class="mode-tab" onclick="switchMode('bowl')">🏈 Bowl Games</button>
+      </div>
+
+      <!-- MARCH MADNESS -->
+      <div id="marchView" class="active">
+        <!-- INTRO -->
+        <div class="bracket-intro">
+          <div class="intro-card">
+            <span class="intro-icon">📊</span>
+            <div><div class="intro-title">Model-Based Picks</div><div class="intro-sub">KenPom + NET + recent form combined</div></div>
+          </div>
+          <div class="intro-card">
+            <span class="intro-icon">⚡</span>
+            <div><div class="intro-title">Upset Alerts</div><div class="intro-sub">3 high-probability upsets flagged this year</div></div>
+          </div>
+          <div class="intro-card">
+            <span class="intro-icon">🎯</span>
+            <div><div class="intro-title">Pick Optimizer</div><div class="intro-sub">Picks weighted for max league scoring</div></div>
+          </div>
+        </div>
+
+        <div class="bracket-section-title">First Round Picks</div>
+        <div class="bracket-section-sub">Click a team to lock in your pick. FantasyEdge recommends are pre-selected based on our model.</div>
+
+        <!-- REGIONS -->
+        <div class="regions-grid" id="regionsGrid"></div>
+
+        <!-- CHAMPION -->
+        <div class="champion-section">
+          <div class="champ-title">🏆 National Champion</div>
+          <div class="champ-sub">Who's cutting the nets? Our model gives Kansas a 24% championship probability.</div>
+          <div class="champ-picks" id="champPicks"></div>
+        </div>
+
+        <!-- SUBMIT -->
+        <div class="submit-row">
+          <div class="submit-progress">
+            <div class="submit-label">Picks made: <span id="pickCount">0</span> of 32</div>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+          </div>
+          <button class="submit-btn" onclick="submitBracket()">Lock In Bracket →</button>
+        </div>
+      </div>
+
+      <!-- BOWL GAMES -->
+      <div id="bowlView" class="bowl-view">
+        <div class="bowl-header-row">
+          <div>
+            <div class="bracket-section-title">Bowl Game Picks</div>
+            <div class="bracket-section-sub">Click a team to make your pick. FantasyEdge confidence score shown on the right.</div>
+          </div>
+          <div class="bowl-score-card">
+            <div><div class="bowl-score-label">Picks Made</div><div class="bowl-score-val" id="bowlPickCount">0</div></div>
+            <div style="width:1px;height:40px;background:rgba(212,160,23,0.15)"></div>
+            <div><div class="bowl-score-label">Total Games</div><div class="bowl-score-val">10</div></div>
+          </div>
+        </div>
+        <div class="bowl-games-list" id="bowlGamesList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const cursor=document.getElementById('cursor'),ring=document.getElementById('cursorRing');
+let mx=0,my=0,rx=0,ry=0;
+document.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;});
+(function a(){cursor.style.left=mx+'px';cursor.style.top=my+'px';rx+=(mx-rx)*.15;ry+=(my-ry)*.15;ring.style.left=rx+'px';ring.style.top=ry+'px';requestAnimationFrame(a);})();
+
+function switchMode(mode) {
+  document.querySelectorAll('.mode-tab').forEach((t,i)=>{t.classList.toggle('active',i===(mode==='march'?0:1));});
+  document.getElementById('marchView').classList.toggle('active', mode==='march');
+  document.getElementById('bowlView').classList.toggle('active', mode==='bowl');
+}
+
+// MARCH MADNESS DATA
+const regions = [
+  { name:'East', tag:'Strong Chalk', matchups:[
+    {round:'R32',t1:{seed:1,name:'Connecticut',edge:'74%'},t2:{seed:16,name:'Stetson',edge:'26%'},rec:0},
+    {round:'R32',t1:{seed:2,name:'Iowa State',edge:'68%'},t2:{seed:15,name:'South Dakota St',edge:'32%'},rec:0},
+    {round:'R32',t1:{seed:3,name:'Illinois',edge:'65%'},t2:{seed:14,name:'Morehead St',edge:'35%'},rec:0},
+    {round:'R32',t1:{seed:4,name:'Auburn',edge:'60%'},t2:{seed:13,name:'Yale',edge:'40%',upset:true},rec:0},
+  ]},
+  { name:'West', tag:'Upset Zone', matchups:[
+    {round:'R32',t1:{seed:1,name:'North Carolina',edge:'72%'},t2:{seed:16,name:'Wagner',edge:'28%'},rec:0},
+    {round:'R32',t1:{seed:2,name:'Arizona',edge:'63%'},t2:{seed:15,name:'Long Beach St',edge:'37%'},rec:0},
+    {round:'R32',t1:{seed:3,name:'Baylor',edge:'58%'},t2:{seed:14,name:'Colgate',edge:'42%',upset:true},rec:0},
+    {round:'R32',t1:{seed:4,name:'Alabama',edge:'55%'},t2:{seed:13,name:'Charleston',edge:'45%',upset:true},rec:0},
+  ]},
+  { name:'South', tag:'Favorite Friendly', matchups:[
+    {round:'R32',t1:{seed:1,name:'Houston',edge:'78%'},t2:{seed:16,name:'Longwood',edge:'22%'},rec:0},
+    {round:'R32',t1:{seed:2,name:'Marquette',edge:'64%'},t2:{seed:15,name:'Western KY',edge:'36%'},rec:0},
+    {round:'R32',t1:{seed:3,name:'Kentucky',edge:'62%'},t2:{seed:14,name:'Oakland',edge:'38%'},rec:0},
+    {round:'R32',t1:{seed:4,name:'Duke',edge:'61%'},t2:{seed:13,name:'Vermont',edge:'39%'},rec:0},
+  ]},
+  { name:'Midwest', tag:'Wide Open', matchups:[
+    {round:'R32',t1:{seed:1,name:'Kansas',edge:'76%'},t2:{seed:16,name:'Samford',edge:'24%'},rec:0},
+    {round:'R32',t1:{seed:2,name:'Tennessee',edge:'66%'},t2:{seed:15,name:'Saint Peter\'s',edge:'34%'},rec:0},
+    {round:'R32',t1:{seed:3,name:'Creighton',edge:'60%'},t2:{seed:14,name:'Akron',edge:'40%'},rec:0},
+    {round:'R32',t1:{seed:4,name:'Texas',edge:'57%'},t2:{seed:13,name:'Colgate',edge:'43%',upset:true},rec:0},
+  ]}
+];
+
+const champTeams = ['Connecticut','Kansas','North Carolina','Houston','Arizona','Iowa State','Tennessee','Kentucky'];
+let picks = {};
+let champPick = null;
+
+function renderRegions() {
+  const grid = document.getElementById('regionsGrid');
+  grid.innerHTML = regions.map((r,ri) => `
+    <div class="region-card">
+      <div class="region-header">
+        <div class="region-name">${r.name} Region</div>
+        <span class="region-tag">${r.tag}</span>
+      </div>
+      <div class="region-body">
+        ${r.matchups.map((m,mi) => `
+          <div class="matchup">
+            <div class="matchup-label">${m.round}</div>
+            <div class="matchup-teams">
+              ${[0,1].map(ti => {
+                const t = ti===0?m.t1:m.t2;
+                const id = `${ri}-${mi}-${ti}`;
+                const sel = picks[`${ri}-${mi}`]===ti;
+                const isRec = m.rec===ti;
+                return `<div class="team-pick ${sel?'selected':''}" onclick="makePick(${ri},${mi},${ti})">
+                  <span class="team-seed">${t.seed}</span>
+                  <span class="team-name">${t.name}${isRec?' ✓':''}</span>
+                  <span class="team-edge">${t.edge}</span>
+                  ${t.upset?'<span class="upset-badge">Upset Alert</span>':''}
+                </div>`;
+              }).join('')}
+            </div>
+          </div>
+        `).join('')}
+        <div class="region-pick-bar"><div class="region-pick-fill" id="fill-${ri}" style="width:${getRegionPct(ri)}%"></div></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function getRegionPct(ri) {
+  const total = regions[ri].matchups.length;
+  const made = regions[ri].matchups.filter((_,mi)=>picks[`${ri}-${mi}`]!==undefined).length;
+  return (made/total)*100;
+}
+
+function makePick(ri,mi,ti) {
+  const key=`${ri}-${mi}`;
+  picks[key]=ti;
+  updatePickCount();
+  renderRegions();
+}
+
+function updatePickCount() {
+  const count = Object.keys(picks).length;
+  document.getElementById('pickCount').textContent=count;
+  document.getElementById('progressFill').style.width=(count/32*100)+'%';
+}
+
+function renderChamp() {
+  document.getElementById('champPicks').innerHTML = champTeams.map(t =>
+    `<button class="champ-pick ${champPick===t?'selected':''}" onclick="pickChamp('${t}')">${t}</button>`
+  ).join('');
+}
+
+function pickChamp(t) {
+  champPick=t;
+  renderChamp();
+}
+
+function submitBracket() {
+  const count=Object.keys(picks).length;
+  if(count<8){alert('Make at least 8 picks before locking in your bracket!');return;}
+  alert(`🏆 Bracket locked with ${count} picks! ${champPick?'Champion pick: '+champPick:'Add a champion pick to complete your bracket.'}`);
+}
+
+// BOWL GAMES DATA
+const bowlGames = [
+  {name:'Rose Bowl',date:'Jan 1 · 5:00 PM ET',t1:{name:'Michigan',rank:'#3',seed:'B1G'},t2:{name:'Alabama',rank:'#6',seed:'SEC'},edge:62,favor:'Michigan',confidence:'medium'},
+  {name:'Sugar Bowl',date:'Jan 1 · 8:45 PM ET',t1:{name:'Georgia',rank:'#1',seed:'SEC'},t2:{name:'Texas',rank:'#4',seed:'B12'},edge:71,favor:'Georgia',confidence:'high'},
+  {name:'Orange Bowl',date:'Dec 30 · 8:00 PM ET',t1:{name:'Penn State',rank:'#9',seed:'B1G'},t2:{name:'Ole Miss',rank:'#12',seed:'SEC'},edge:54,favor:'Penn State',confidence:'low'},
+  {name:'Cotton Bowl',date:'Dec 28 · 4:00 PM ET',t1:{name:'Ohio State',rank:'#2',seed:'B1G'},t2:{name:'Missouri',rank:'#18',seed:'SEC'},edge:78,favor:'Ohio State',confidence:'high'},
+  {name:'Peach Bowl',date:'Dec 28 · 8:00 PM ET',t1:{name:'Tennessee',rank:'#8',seed:'SEC'},t2:{name:'Iowa',rank:'#14',seed:'B1G'},edge:58,favor:'Tennessee',confidence:'medium'},
+  {name:'Fiesta Bowl',date:'Jan 1 · 1:00 PM ET',t1:{name:'Oklahoma',rank:'#11',seed:'B12'},t2:{name:'Oregon',rank:'#5',seed:'PAC'},edge:57,favor:'Oregon',confidence:'medium'},
+  {name:'Alamo Bowl',date:'Dec 29 · 8:00 PM ET',t1:{name:'Washington',rank:'#7',seed:'PAC'},t2:{name:'Texas A&M',rank:'#15',seed:'SEC'},edge:60,favor:'Washington',confidence:'medium'},
+  {name:'Citrus Bowl',date:'Jan 1 · 1:00 PM ET',t1:{name:'LSU',rank:'#10',seed:'SEC'},t2:{name:'Wisconsin',rank:'#20',seed:'B1G'},edge:65,favor:'LSU',confidence:'medium'},
+  {name:'Holiday Bowl',date:'Dec 27 · 8:00 PM ET',t1:{name:'UCLA',rank:'NR',seed:'PAC'},t2:{name:'Boise State',rank:'#22',seed:'MWC'},edge:52,favor:'Boise State',confidence:'low'},
+  {name:'Liberty Bowl',date:'Dec 27 · 5:30 PM ET',t1:{name:'Arkansas',rank:'NR',seed:'SEC'},t2:{name:'Kansas',rank:'NR',seed:'B12'},edge:51,favor:'Arkansas',confidence:'low'},
+];
+
+let bowlPicks = {};
+
+function renderBowl() {
+  const list = document.getElementById('bowlGamesList');
+  const madeCount = Object.keys(bowlPicks).length;
+  document.getElementById('bowlPickCount').textContent = madeCount;
+
+  const edgeClass = g => g.confidence==='high'?'edge-green':g.confidence==='medium'?'edge-gold':'edge-orange';
+  const upsetGame = g => {
+    const fav = g.favor;
+    const pick = bowlPicks[g.name];
+    if(pick && pick!==fav) return `<span class="bowl-upset-banner">⚡ Upset Pick</span>`;
+    return '';
+  };
+
+  list.innerHTML = bowlGames.map(g => `
+    <div class="bowl-game">
+      <div class="bowl-info">
+        <div class="bowl-name">${g.name}</div>
+        <div class="bowl-date">${g.date}</div>
+      </div>
+      <div class="bowl-matchup">
+        <div class="bowl-team ${bowlPicks[g.name]===g.t1.name?'picked':''}" onclick="makeBowlPick('${g.name}','${g.t1.name}')">
+          <div>
+            <div class="bowl-team-name">${g.t1.name}${upsetGame(g)&&bowlPicks[g.name]===g.t1.name?upsetGame(g):''}</div>
+            <div class="bowl-team-rank">${g.t1.rank} · ${g.t1.seed}</div>
+          </div>
+        </div>
+        <div class="bowl-vs">VS</div>
+        <div class="bowl-team ${bowlPicks[g.name]===g.t2.name?'picked':''}" onclick="makeBowlPick('${g.name}','${g.t2.name}')">
+          <div style="text-align:right">
+            <div class="bowl-team-name">${g.t2.name}${upsetGame(g)&&bowlPicks[g.name]===g.t2.name?upsetGame(g):''}</div>
+            <div class="bowl-team-rank">${g.t2.rank} · ${g.t2.seed}</div>
+          </div>
+        </div>
+      </div>
+      <div class="bowl-edge">
+        <div class="edge-label">Edge</div>
+        <div class="edge-val ${edgeClass(g)}">${g.edge}%</div>
+        <div class="edge-favor" style="font-size:10px;color:var(--gray);margin-top:3px;">${g.favor}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function makeBowlPick(game, team) {
+  bowlPicks[game]=team;
+  renderBowl();
+}
+
+renderRegions();
+renderChamp();
+renderBowl();
+</script>
+</body>
+</html>
