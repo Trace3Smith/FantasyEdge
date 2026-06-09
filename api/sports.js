@@ -7,7 +7,7 @@
 
     if (sport === 'mlb') {
       const r = await fetch(
-        'https://statsapi.mlb.com/api/v1/stats?stats=season&group=hitting&gameType=R&season=2025&limit=50&sortStat=battingAverage&order=desc',
+        'https://statsapi.mlb.com/api/v1/stats?stats=season&group=hitting&gameType=R&season=2026&limit=50&sortStat=battingAverage&order=desc',
         { headers: { 'User-Agent': 'Mozilla/5.0' } }
       );
       const d = await r.json();
