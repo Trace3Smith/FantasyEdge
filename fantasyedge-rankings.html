@@ -260,6 +260,8 @@
   .tag-fire { background: rgba(255,152,0,0.2); color: var(--orange); border: 1px solid rgba(255,152,0,0.4); }
   .tag-trending { background: rgba(76,175,80,0.15); color: var(--green); border: 1px solid rgba(76,175,80,0.3); }
   .tag-slump { background: rgba(244,67,54,0.15); color: var(--red); border: 1px solid rgba(244,67,54,0.3); }
+  .tag-searchonly { background: rgba(255,255,255,0.06); color: var(--gray-light); border: 1px solid rgba(255,255,255,0.14); }
+  .search-only-row td { opacity: 0.78; }
   .pos-badge { display: inline-block; padding: 4px 8px; border: 1px solid rgba(255,255,255,0.15); border-radius: 3px; font-size: 11px; font-weight: 600; color: var(--gray-light); min-width: 50px; text-align: center; }
   .td-stat { color: var(--gold-light); font-weight: 600; font-size: 13px; }
   .td-stat.muted { color: var(--gray); font-weight: 400; }
@@ -436,10 +438,17 @@
       const t = x.trim();
       return (t === 'CF' || t === 'LF' || t === 'RF') ? 'OF' : t;
     }).includes(currentPos));
-    // Search stacks on top of the position filter (both must match).
+    // searchOnly players (statless roster players, sub-PA hitters, and — in
+    // Phase 2 — prospects) never appear in the default ranked table. They only
+    // surface when the user is actively searching. Search also stacks on top of
+    // the position filter (both must match).
     const term = searchTerm.trim().toLowerCase();
-    if (term) filtered = filtered.filter(p =>
-      (p.name||'').toLowerCase().includes(term) || (p.team||'').toLowerCase().includes(term));
+    if (term) {
+      filtered = filtered.filter(p =>
+        (p.name||'').toLowerCase().includes(term) || (p.team||'').toLowerCase().includes(term));
+    } else {
+      filtered = filtered.filter(p => !p.searchOnly);
+    }
     if (!filtered.length) {
       tbody.innerHTML = '<tr class="loading-row"><td colspan="13"><div class="loading-title">No Players Found</div><div class="loading-sub">Try a different position filter</div></td></tr>';
       return;
@@ -447,15 +456,21 @@
     tbody.innerHTML = filtered.map(p => {
       const cats = Array.isArray(p.cats) ? p.cats : [];
       const sc = getStarCount(cats);
-      return `<tr>
-        <td class="td-rank">${p.rank}</td>
-        <td><div class="player-cell"><div class="player-avatar">${p.emoji||'⚾'}</div><div><div class="player-name">${p.name}${getTagHTML(p.tag)}</div><div class="player-meta">${p.team}</div></div></div></td>
+      const so = !!p.searchOnly;
+      // statless players carry no statLabels; sub-PA hitters do (real numbers).
+      const soBadge = so
+        ? `<span class="tag-badge tag-searchonly">${p.statLabels ? 'UNRANKED' : 'NO MLB STATS'}</span>`
+        : '';
+      const muted = '<span class="td-stat muted">—</span>';
+      return `<tr class="${so ? 'search-only-row' : ''}">
+        <td class="td-rank">${p.rank ?? '—'}</td>
+        <td><div class="player-cell"><div class="player-avatar">${p.emoji||'⚾'}</div><div><div class="player-name">${p.name}${getTagHTML(p.tag)}${soBadge}</div><div class="player-meta">${p.team}</div></div></div></td>
         <td><span class="pos-badge">${p.pos||'—'}</span></td>
         <td style="color:var(--gray-light)">${p.team||'—'}</td>
         <td>${formatStat(p.s1, showInline ? p.statLabels?.[0] : null)}</td><td>${formatStat(p.s2, showInline ? p.statLabels?.[1] : null)}</td><td>${formatStat(p.s3, showInline ? p.statLabels?.[2] : null)}</td><td>${formatStat(p.s4, showInline ? p.statLabels?.[3] : null)}</td><td>${formatStat(p.s5, showInline ? p.statLabels?.[4] : null)}</td><td>${formatStat(p.s6, showInline ? p.statLabels?.[5] : null)}</td>
-        <td class="stars-cell"><div class="stars-row">${renderStars(sc)}</div><div class="stars-label">${getStarLabel(sc)}</div><div class="stars-cats">${cats.map(c=>`<span class="stars-cat-pill">${c}</span>`).join('')}</div></td>
-        <td>${getTrendHTML(p.trend, p.trendVal)}</td>
-        <td class="own-pct">${p.own!=null?p.own+'%':'—'}</td>
+        <td class="stars-cell">${so ? muted : `<div class="stars-row">${renderStars(sc)}</div><div class="stars-label">${getStarLabel(sc)}</div><div class="stars-cats">${cats.map(c=>`<span class="stars-cat-pill">${c}</span>`).join('')}</div>`}</td>
+        <td>${so ? muted : getTrendHTML(p.trend, p.trendVal)}</td>
+        <td class="own-pct">${so ? '—' : (p.own!=null?p.own+'%':'—')}</td>
       </tr>`;
     }).join('');
   }
