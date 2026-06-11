@@ -219,6 +219,22 @@
   }
   .pos-btn:hover { border-color: var(--gold); color: var(--gold); }
   .pos-btn.active { background: var(--gold); border-color: var(--gold); color: var(--black); }
+  .search-row { padding: 0 28px 14px; }
+  .search-box { position: relative; display: inline-flex; align-items: center; width: 100%; max-width: 320px; }
+  .search-box .search-icon { position: absolute; left: 12px; color: var(--gray); font-size: 13px; pointer-events: none; }
+  .search-input {
+    width: 100%;
+    padding: 8px 12px 8px 32px;
+    border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: var(--dark2);
+    color: var(--white);
+    font-size: 13px;
+    font-family: 'Barlow', sans-serif;
+    transition: all 0.15s;
+  }
+  .search-input::placeholder { color: var(--gray); }
+  .search-input:focus { outline: none; border-color: var(--gold); background: var(--dark3); }
   .table-wrap { padding: 0 28px 40px; overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; min-width: 900px; }
   thead th {
@@ -325,6 +341,12 @@
     <span class="cat-pill">W</span><span class="cat-pill">SV</span><span class="cat-pill">HD</span>
   </div>
 
+  <div class="search-row">
+    <div class="search-box">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="playerSearch" class="search-input" placeholder="Search player or team..." autocomplete="off">
+    </div>
+  </div>
   <div class="pos-filters" id="posFilters">
     <button class="pos-btn active" data-pos="ALL">ALL</button>
     <button class="pos-btn" data-pos="SP">SP</button>
@@ -356,6 +378,7 @@
 <script>
   let currentSport = 'mlb';
   let currentPos = 'ALL';
+  let searchTerm = '';
   let allPlayers = [];
 
   function getStarCount(cats) {
@@ -409,10 +432,14 @@
     // cell labels; in the mixed ALL view they disambiguate hitter vs pitcher rows.
     const showInline = currentPos === 'ALL';
     const tbody = document.getElementById('tableBody');
-    const filtered = currentPos === 'ALL' ? players : players.filter(p => (p.pos||'').toUpperCase().split('/').map(x => {
+    let filtered = currentPos === 'ALL' ? players : players.filter(p => (p.pos||'').toUpperCase().split('/').map(x => {
       const t = x.trim();
       return (t === 'CF' || t === 'LF' || t === 'RF') ? 'OF' : t;
     }).includes(currentPos));
+    // Search stacks on top of the position filter (both must match).
+    const term = searchTerm.trim().toLowerCase();
+    if (term) filtered = filtered.filter(p =>
+      (p.name||'').toLowerCase().includes(term) || (p.team||'').toLowerCase().includes(term));
     if (!filtered.length) {
       tbody.innerHTML = '<tr class="loading-row"><td colspan="13"><div class="loading-title">No Players Found</div><div class="loading-sub">Try a different position filter</div></td></tr>';
       return;
@@ -489,6 +516,11 @@
     document.querySelectorAll('.pos-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentPos = btn.dataset.pos;
+    renderTable(allPlayers);
+  });
+
+  document.getElementById('playerSearch').addEventListener('keyup', e => {
+    searchTerm = e.target.value;
     renderTable(allPlayers);
   });
 
