@@ -24,6 +24,15 @@ import { snapshotOf, detectEvent, generateSynopsis } from './synopsis.js';
 const API = 'https://statsapi.mlb.com/api/v1';
 const HEADERS = { 'User-Agent': 'Mozilla/5.0' };
 const GEN_CONCURRENCY = 6;
+// The cron must finish under the Vercel Hobby 60s function cap, so we CANNOT
+// generate every synopsis in one run (the first run alone has ~234 first-timers).
+// Each run instead generates: (a) all real change events — promotion/hot/cold/
+// stalled, only a handful per day — plus (b) a small batch of prospects that have
+// no synopsis yet. The first-timer backlog drains over several days while any one
+// run stays well under 60s. Eligibility for (b) is "no synopsis on record" (not
+// the 'first' event), so prospects deferred by the budget on one run are retried
+// on the next instead of being stranded without a synopsis forever.
+const FIRST_SYNOPSIS_BATCH = 18;
 
 // FanGraphs org abbreviations that differ from statsapi's, for team-name display.
 const ORG_ALIAS = { WSN: 'WSH', CHW: 'CWS', KCR: 'KC', SDP: 'SD', SFG: 'SF', TBR: 'TB' };
@@ -129,7 +138,8 @@ export async function enrichProspects(dataset, { season = new Date().getFullYear
 
   // --- Build work items (everything except the synopsis API call) -----------
   const newPlayers = {};
-  const work = []; // items needing a (re)generated synopsis
+  const changeWork = []; // real events (promotion/hot/cold/stalled) — always run
+  const firstWork = []; // prospects with no synopsis yet — batched per run
   let created = 0;
   let retired = 0;
 
@@ -199,14 +209,24 @@ export async function enrichProspects(dataset, { season = new Date().getFullYear
     newPlayers[mlbam] = state;
     if (target.synopsis === undefined && state.synopsis) target.synopsis = state.synopsis;
 
-    if (event && lines.length) {
-      work.push({ mlbam, target, state, cur, event, meta, lines });
+    if (lines.length) {
+      const item = { mlbam, target, state, cur, event, meta, lines };
+      if (!p?.synopsis) {
+        // No synopsis on record yet (brand-new, or deferred by a prior run's
+        // budget) — eligible for the per-run first-timer batch.
+        firstWork.push(item);
+      } else if (event && event !== 'first') {
+        // Already has a synopsis; a real change event triggers a regeneration.
+        changeWork.push(item);
+      }
     }
   }
 
-  // --- Generate synopses for tripped events (bounded concurrency) -----------
+  // --- Generate synopses (bounded concurrency, bounded per-run count) --------
+  // All change events run; first-timers are capped so the run stays under 60s.
+  const batch = changeWork.concat(firstWork.slice(0, FIRST_SYNOPSIS_BATCH));
   let generated = 0;
-  await mapLimit(work, GEN_CONCURRENCY, async (w) => {
+  await mapLimit(batch, GEN_CONCURRENCY, async (w) => {
     const text = await generateSynopsis({
       name: w.meta.name,
       pos: w.meta.pos,
@@ -233,6 +253,8 @@ export async function enrichProspects(dataset, { season = new Date().getFullYear
     created,
     retired,
     generated,
+    eventRegen: changeWork.length, // change events generated this run
+    pendingSynopsis: Math.max(0, firstWork.length - FIRST_SYNOPSIS_BATCH), // backlog deferred to next run(s)
     unmatched,
     degraded,
     withSynopsis: Object.values(newPlayers).filter((s) => s.synopsis).length,

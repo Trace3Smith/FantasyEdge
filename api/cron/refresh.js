@@ -8,10 +8,11 @@ import { buildDataset } from '../_lib/buildDataset.js';
 import { enrichProspects } from '../_lib/enrichProspects.js';
 import { redis, DATASET_KEY } from '../_lib/kv.js';
 
-// The Phase 2 enrichment (FanGraphs + Chadwick + MiLB + Anthropic) makes the
-// cron run much longer than a bare dataset build, especially the first run that
-// generates ~300 synopses. Give it room (requires a Vercel plan that allows it).
-export const maxDuration = 300;
+// Vercel Hobby caps a function at 60s (and defaults to 10s if unset), so we ask
+// for the full 60. The Phase 2 enrichment stays within that budget by generating
+// synopses in small per-run batches (see FIRST_SYNOPSIS_BATCH in enrichProspects):
+// the ~234-prospect backlog drains over several daily runs rather than in one.
+export const maxDuration = 60;
 
 export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
