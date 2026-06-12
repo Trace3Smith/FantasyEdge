@@ -5,7 +5,13 @@
 // Protected by CRON_SECRET: Vercel Cron sends `Authorization: Bearer <secret>`
 // when the CRON_SECRET env var is set, so unauthenticated calls are rejected.
 import { buildDataset } from '../_lib/buildDataset.js';
+import { enrichProspects } from '../_lib/enrichProspects.js';
 import { redis, DATASET_KEY } from '../_lib/kv.js';
+
+// The Phase 2 enrichment (FanGraphs + Chadwick + MiLB + Anthropic) makes the
+// cron run much longer than a bare dataset build, especially the first run that
+// generates ~300 synopses. Give it room (requires a Vercel plan that allows it).
+export const maxDuration = 300;
 
 export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
@@ -14,7 +20,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    const dataset = await buildDataset({ season: new Date().getFullYear() });
+    const season = new Date().getFullYear();
+    const dataset = await buildDataset({ season });
+    // Phase 2: bolt on prospect MiLB stats + AI synopsis (hitters). Additive and
+    // failure-tolerant — if it throws, we still serve the Phase 1 dataset.
+    try {
+      await enrichProspects(dataset, { season }, redis);
+    } catch (err) {
+      dataset.counts = { ...dataset.counts, prospectsError: err.message };
+    }
     await redis.set(DATASET_KEY, dataset);
     return res.status(200).json({ ok: true, builtAt: dataset.builtAt, counts: dataset.counts });
   } catch (err) {

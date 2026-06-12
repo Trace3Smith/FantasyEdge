@@ -5,6 +5,12 @@
 import { Redis } from '@upstash/redis';
 
 export const DATASET_KEY = 'dataset:mlb';
+// Persistent Phase 2 state, survives the daily dataset rebuild:
+//   PROSPECT_STATE_KEY — per-player prospect record (milb lines, synopsis cache,
+//     event-detection snapshot) + the last good FanGraphs board for graceful degrade.
+//   XWALK_KEY — cached FanGraphs playerId -> MLBAM id crosswalk (Chadwick-derived).
+export const PROSPECT_STATE_KEY = 'prospects:mlb';
+export const XWALK_KEY = 'xwalk:fg_mlbam';
 
 export const redis = new Redis({
   url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL,
