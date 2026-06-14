@@ -148,6 +148,11 @@ function decorate(rec, i) {
 export async function buildDataset({ season = new Date().getFullYear() } = {}) {
   // 1. Teams (30) → 2. 40-man rosters (canonical universe).
   const teams = (await getJson(`${API}/teams?sportId=1&season=${season}`)).teams || [];
+  // League per team id (AL=103, NL=104) — drives the AL/NL rankings filter. A
+  // player's league follows his roster, so trades auto-update on the next build.
+  const leagueByTeamId = new Map(
+    teams.map((t) => [t.id, t.league?.id === 103 ? 'AL' : t.league?.id === 104 ? 'NL' : null])
+  );
   const rosters = await mapLimit(teams, 5, (t) =>
     getJson(`${API}/teams/${t.id}/roster?rosterType=40Man&season=${season}`)
       .then((d) => ({ team: t, roster: d.roster || [] }))
@@ -182,6 +187,7 @@ export async function buildDataset({ season = new Date().getFullYear() } = {}) {
         id,
         name: e.person.fullName || 'Unknown',
         team: team.name || '—',
+        league: leagueByTeamId.get(team.id) || null,
         pos: e.position?.abbreviation || '—',
         posType: e.position?.type || '',
         rostered: true,
@@ -199,6 +205,7 @@ export async function buildDataset({ season = new Date().getFullYear() } = {}) {
         id,
         name: split.player?.fullName || 'Unknown',
         team: split.team?.name || '—',
+        league: leagueByTeamId.get(split.team?.id) || null,
         pos: split.position?.abbreviation || '—',
         posType: split.position?.type || '',
         rostered: false,
