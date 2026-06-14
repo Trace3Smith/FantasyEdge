@@ -21,9 +21,10 @@ import { readFileSync } from 'fs';
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
-// Positions on the board that are hitters (everything else is a pitcher:
-// SP / SIRP / MIRP). TWP (two-way) is treated as a hitter for this pass.
+// Positions on the board that are hitters; the pitcher set is SP / SIRP / MIRP.
+// TWP (two-way) is treated as a hitter so a player is never tracked twice.
 const HITTER_POS = new Set(['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH', 'UTIL', 'TWP']);
+const PITCHER_POS = new Set(['SP', 'SIRP', 'MIRP', 'RP', 'P']);
 
 function parseBoard(html) {
   const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
@@ -40,10 +41,11 @@ function parseBoard(html) {
   throw new Error('FanGraphs: prospect list not found in page data');
 }
 
-// Returns { hitters: [{ fgId, fgIdRaw, name, org, pos, fv, orgRank, bats, eta }] }
-// for hitters only. fgId is the numeric FanGraphs PlayerId when present (used by
-// the Chadwick crosswalk); fgIdRaw keeps the original (may be an "sa…" minor id
-// that won't crosswalk and falls through to name-matching).
+// Returns { hitters: [...], pitchers: [...] } where each row is
+// { fgId, fgIdRaw, name, org, pos, fv, orgRank, bats, throws, eta }. fgId is the
+// numeric FanGraphs PlayerId when present (used by the Chadwick crosswalk);
+// fgIdRaw keeps the original (may be an "sa…" minor id that won't crosswalk and
+// falls through to name-matching). Hitters carry bats; pitchers carry throws.
 export async function fetchBoard({ season = new Date().getFullYear() } = {}) {
   // Prefer the current-year list; fall back to the prior year early in the season
   // before the new board is published.
@@ -67,12 +69,15 @@ export async function fetchBoard({ season = new Date().getFullYear() } = {}) {
   if (!rows) throw new Error(`FanGraphs board fetch failed: ${lastErr?.message || 'unknown'}`);
 
   const hitters = [];
+  const pitchers = [];
   for (const r of rows) {
     const pos = r.Position || r.pos;
-    if (!HITTER_POS.has(pos)) continue;
+    const isHitter = HITTER_POS.has(pos);
+    const isPitcher = !isHitter && PITCHER_POS.has(pos);
+    if (!isHitter && !isPitcher) continue;
     const raw = r.PlayerId ?? r.UPID ?? r.ID;
     const numeric = /^\d+$/.test(String(raw)) ? String(raw) : null;
-    hitters.push({
+    const row = {
       fgId: numeric, // null when only an "sa…" id exists → name-match fallback
       fgIdRaw: String(raw),
       name: r.playerName || `${r.FirstName || ''} ${r.LastName || ''}`.trim(),
@@ -81,19 +86,27 @@ export async function fetchBoard({ season = new Date().getFullYear() } = {}) {
       fv: r.FV_Current ?? (r.cFV != null ? Number(r.cFV) : null),
       orgRank: r.Org_Rank ?? r.Org_Rk ?? null,
       bats: r.Bats || null,
+      throws: r.Throws || null,
       eta: r.ETA_Current ?? r.cETA ?? null,
-    });
+    };
+    (isHitter ? hitters : pitchers).push(row);
   }
-  return { hitters, slug: usedSlug, fetchedAt: new Date().toISOString() };
+  return { hitters, pitchers, slug: usedSlug, fetchedAt: new Date().toISOString() };
 }
 
 // The committed snapshot, used when the live fetch is blocked (the normal case).
 export function loadBoardSnapshot() {
   try {
     const json = JSON.parse(readFileSync(new URL('./prospect-board.json', import.meta.url), 'utf8'));
-    return { hitters: json.hitters || [], slug: 'snapshot', fetchedAt: json._meta?.capturedAt || null, snapshot: true };
+    return {
+      hitters: json.hitters || [],
+      pitchers: json.pitchers || [], // absent in pre-Phase-3 snapshots → no pitchers tracked
+      slug: 'snapshot',
+      fetchedAt: json._meta?.capturedAt || null,
+      snapshot: true,
+    };
   } catch {
-    return { hitters: [], slug: 'snapshot', fetchedAt: null, snapshot: true };
+    return { hitters: [], pitchers: [], slug: 'snapshot', fetchedAt: null, snapshot: true };
   }
 }
 
@@ -110,11 +123,12 @@ export async function loadBoard({ season = new Date().getFullYear() } = {}) {
   return { ...loadBoardSnapshot(), live: false };
 }
 
-// Top-N hitting prospects per org, ordered by Org_Rank ascending (1 = best).
-// Rows missing an Org_Rank sort to the back.
-export function topHittersByOrg(hitters, n = 10) {
+// Top-N prospects per org, ordered by Org_Rank ascending (1 = best). Rows
+// missing an Org_Rank sort to the back. Org_Rank is shared across the whole
+// system (hitters and pitchers interleave), so each pool gets its own top-N.
+function topByOrg(rows, n) {
   const byOrg = new Map();
-  for (const h of hitters) {
+  for (const h of rows) {
     if (!byOrg.has(h.org)) byOrg.set(h.org, []);
     byOrg.get(h.org).push(h);
   }
@@ -125,3 +139,6 @@ export function topHittersByOrg(hitters, n = 10) {
   }
   return out;
 }
+
+export const topHittersByOrg = (hitters, n = 10) => topByOrg(hitters, n);
+export const topPitchersByOrg = (pitchers, n = 10) => topByOrg(pitchers, n);

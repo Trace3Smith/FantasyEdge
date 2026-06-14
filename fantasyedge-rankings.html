@@ -509,17 +509,30 @@
   // shown in the expandable detail row beneath a prospect.
   function renderProspectDetail(p) {
     const milb = Array.isArray(p.milb) ? p.milb : [];
-    const milbTable = milb.length ? `<table class="milb-table"><thead><tr>
+    const isPitcher = p.kind === 'pitcher';
+    let milbTable;
+    if (!milb.length) {
+      milbTable = `<div class="prospect-meta-bits">No minor-league line recorded this season.</div>`;
+    } else if (isPitcher) {
+      milbTable = `<table class="milb-table"><thead><tr>
+        <th class="lvl">Level</th><th>IP</th><th>ERA</th><th>WHIP</th><th>K</th><th>BB</th><th>W-L</th><th>SV</th>
+      </tr></thead><tbody>${milb.map(l => `<tr>
+        <td class="lvl"><span class="milb-level">${l.level}</span> <span class="milb-team">${l.team||''}</span></td>
+        <td>${l.ip}</td><td>${l.era}</td><td>${l.whip}</td><td>${l.k}</td><td>${l.bb}</td>
+        <td>${l.w}-${l.l}</td><td>${l.sv}</td></tr>`).join('')}</tbody></table>`;
+    } else {
+      milbTable = `<table class="milb-table"><thead><tr>
         <th class="lvl">Level</th><th>PA</th><th>AVG</th><th>OBP</th><th>SLG</th><th>OPS</th><th>HR</th><th>R</th><th>RBI</th><th>SB</th>
       </tr></thead><tbody>${milb.map(l => `<tr>
         <td class="lvl"><span class="milb-level">${l.level}</span> <span class="milb-team">${l.team||''}</span></td>
         <td>${l.pa}</td><td>${l.avg}</td><td>${l.obp}</td><td>${l.slg}</td><td>${l.ops}</td>
-        <td>${l.hr}</td><td>${l.r}</td><td>${l.rbi}</td><td>${l.sb}</td></tr>`).join('')}</tbody></table>`
-      : `<div class="prospect-meta-bits">No minor-league line recorded this season.</div>`;
+        <td>${l.hr}</td><td>${l.r}</td><td>${l.rbi}</td><td>${l.sb}</td></tr>`).join('')}</tbody></table>`;
+    }
     const syn = p.synopsis
       ? `<div class="prospect-synopsis"><span class="synopsis-label">Scouting Take</span>${p.synopsis}</div>`
       : '';
-    const eta = p.eta != null ? `<div class="prospect-meta-bits">Projected ETA: ${p.eta}${p.bats ? ' · Bats: ' + p.bats : ''}</div>` : '';
+    const hand = isPitcher ? (p.throws ? ' · Throws: ' + p.throws : '') : (p.bats ? ' · Bats: ' + p.bats : '');
+    const eta = p.eta != null ? `<div class="prospect-meta-bits">Projected ETA: ${p.eta}${hand}</div>` : '';
     return `<div class="milb-wrap"><div>${milbTable}${eta}</div>${syn}</div>`;
   }
 

@@ -1,14 +1,17 @@
-// Phase 2 orchestrator. Bolts minor-league stats + an AI fantasy synopsis onto
-// the Phase 1 dataset for hitting prospects, then persists prospect state to KV.
-// Runs ONLY in the daily cron (refresh.js) — never in the request-path cold
-// start — because it fans out to FanGraphs, Chadwick, MiLB leaderboards, and the
-// Anthropic API.
+// Phase 2/3 orchestrator. Bolts minor-league stats + an AI fantasy synopsis onto
+// the Phase 1 dataset for hitting AND pitching prospects, then persists prospect
+// state to KV. Runs ONLY in the daily cron (refresh.js) — never in the request-
+// path cold start — because it fans out to FanGraphs, Chadwick, MiLB
+// leaderboards, and the Anthropic API.
 //
-// Rich-treatment pools (hitters only):
-//   1. Proactive — each org's top-10 hitting prospects (FanGraphs THE BOARD).
+// Rich-treatment pools (hitters: Phase 2; pitchers: Phase 3):
+//   1. Proactive — each org's top-10 prospects per pool (FanGraphs THE BOARD).
 //   2. On-demand — a player who newly appears on a 40-man with no MLB stats yet
 //      and isn't already tracked: enriched once, then maintained until he records
 //      an MLB stat.
+//
+// Each tracked/maintained player carries a `kind` ('hitter' | 'pitcher') that
+// selects the MiLB pool, snapshot, event detector, and synopsis prompt.
 //
 // Lifecycle: MiLB lines + synopsis ride a record ONLY while it has zero MLB stats
 // this season. The first MLB stat retires the prospect treatment and the player
@@ -16,10 +19,16 @@
 // person.id, so a promoted prospect merges into one record — never a duplicate.
 
 import { PROSPECT_STATE_KEY } from './kv.js';
-import { loadBoard, topHittersByOrg } from './fangraphs.js';
+import { loadBoard, topHittersByOrg, topPitchersByOrg } from './fangraphs.js';
 import { resolveCrosswalk } from './crosswalk.js';
-import { fetchMilbHitting } from './milb.js';
-import { snapshotOf, detectEvent, generateSynopsis } from './synopsis.js';
+import { fetchMilbHitting, fetchMilbPitching } from './milb.js';
+import {
+  snapshotOf,
+  snapshotOfPitching,
+  detectEvent,
+  detectEventPitching,
+  generateSynopsis,
+} from './synopsis.js';
 
 const API = 'https://statsapi.mlb.com/api/v1';
 const HEADERS = { 'User-Agent': 'Mozilla/5.0' };
@@ -67,34 +76,41 @@ export async function enrichProspects(dataset, { season = new Date().getFullYear
   const prior = (await redis.get(PROSPECT_STATE_KEY).catch(() => null)) || { players: {}, board: null };
   const priorPlayers = prior.players || {};
 
-  // MiLB stats always come fresh (independent of the FanGraphs fetch).
-  const milb = await fetchMilbHitting({ season });
+  // MiLB stats always come fresh (independent of the FanGraphs fetch). Each pool
+  // is keyed by MLBAM id; `pool(kind)` selects between them.
+  const milbHit = await fetchMilbHitting({ season });
+  const milbPitch = await fetchMilbPitching({ season });
+  const pool = (kind) => (kind === 'pitcher' ? milbPitch : milbHit);
   const orgNames = await orgNameMap();
 
-  // --- Resolve the tracked top-10-hitters-per-org list to MLBAM ids ---------
+  // --- Resolve the tracked top-10-per-org list (both pools) to MLBAM ids -----
   // The board comes from the committed snapshot (the live FanGraphs fetch is
   // Cloudflare-blocked server-side); loadBoard tries live first, falls back to
   // the snapshot. `degraded` here means we did NOT get a fresh live board.
-  let tracked = []; // [{ mlbam, name, org, pos, fv, orgRank, bats, eta }]
+  let tracked = []; // [{ mlbam, name, org, pos, fv, orgRank, bats, throws, eta, kind }]
   let unmatched = 0;
   const loaded = await loadBoard({ season });
   const degraded = !loaded.live;
-  const top = topHittersByOrg(loaded.hitters, 10);
+  const top = [
+    ...topHittersByOrg(loaded.hitters || [], 10).map((h) => ({ ...h, kind: 'hitter' })),
+    ...topPitchersByOrg(loaded.pitchers || [], 10).map((h) => ({ ...h, kind: 'pitcher' })),
+  ];
   const xwalk = await resolveCrosswalk(top.map((h) => h.fgId).filter(Boolean), redis);
   const seen = new Set();
   for (const h of top) {
     let mlbam = h.fgId ? xwalk.get(h.fgId) : null;
     if (mlbam == null) {
-      // Name-match fallback against the MLBAM-keyed MiLB pool (recovers board
-      // rows that carry only an "sa…" id or that Chadwick doesn't cover).
-      const id = milb.byName.get(milb.normName(h.name));
+      // Name-match fallback against the MLBAM-keyed MiLB pool for this kind
+      // (recovers board rows with only an "sa…" id or that Chadwick misses).
+      const p = pool(h.kind);
+      const id = p.byName.get(p.normName(h.name));
       if (id) mlbam = id;
     }
     if (mlbam == null) {
       unmatched++;
       continue;
     }
-    if (seen.has(mlbam)) continue;
+    if (seen.has(mlbam)) continue; // a TWP can't collide (board lists him once), but guard anyway
     seen.add(mlbam);
     tracked.push({
       mlbam,
@@ -104,7 +120,9 @@ export async function enrichProspects(dataset, { season = new Date().getFullYear
       fv: h.fv,
       orgRank: h.orgRank,
       bats: h.bats,
+      throws: h.throws,
       eta: h.eta,
+      kind: h.kind,
     });
   }
   const board = { fetchedAt: loaded.fetchedAt, slug: loaded.slug, live: loaded.live, tracked };
@@ -122,6 +140,14 @@ export async function enrichProspects(dataset, { season = new Date().getFullYear
     const seenBefore = !!priorPlayers[rec.id]; // already enriched on an earlier rebuild
     const isNew = !seenBefore; // "newly appears on a 40-man, not already tracked"
     if (seenBefore || isNew) {
+      // Classify by where the player has MiLB lines; fall back to his position.
+      const kind = milbPitch.byId.has(rec.id)
+        ? 'pitcher'
+        : milbHit.byId.has(rec.id)
+        ? 'hitter'
+        : ['P', 'SP', 'RP', 'LHP', 'RHP'].includes(rec.pos)
+        ? 'pitcher'
+        : 'hitter';
       maintain.set(rec.id, {
         mlbam: rec.id,
         name: rec.name,
@@ -130,7 +156,9 @@ export async function enrichProspects(dataset, { season = new Date().getFullYear
         fv: null,
         orgRank: null,
         bats: null,
+        throws: null,
         eta: null,
+        kind,
         source: 'oncall',
       });
     }
@@ -151,17 +179,20 @@ export async function enrichProspects(dataset, { season = new Date().getFullYear
       continue;
     }
 
-    const lines = milb.byId.get(mlbam) || [];
-    const cur = snapshotOf(lines);
+    const lines = pool(meta.kind).byId.get(mlbam) || [];
+    const cur = meta.kind === 'pitcher' ? snapshotOfPitching(lines) : snapshotOf(lines);
     const p = priorPlayers[mlbam];
-    const event = lines.length ? detectEvent(p, cur, now) : null;
+    const detect = meta.kind === 'pitcher' ? detectEventPitching : detectEvent;
+    const event = lines.length ? detect(p, cur, now) : null;
 
-    // Stalled-detection bookkeeping (independent of synopsis baseline).
-    let lastTotalPa = p?.lastTotalPa ?? cur.totalPa;
-    let lastPaGainAt = p?.lastPaGainAt ?? nowIso;
-    if (cur.totalPa > lastTotalPa) {
-      lastTotalPa = cur.totalPa;
-      lastPaGainAt = nowIso;
+    // Stalled-detection bookkeeping (independent of synopsis baseline). Tracks
+    // the kind-agnostic workload counter (PA for hitters, outs for pitchers);
+    // reads the pre-Phase-3 field names so existing state records migrate cleanly.
+    let lastWorkload = p?.lastWorkload ?? p?.lastTotalPa ?? cur.workload;
+    let lastWorkloadAt = p?.lastWorkloadAt ?? p?.lastPaGainAt ?? nowIso;
+    if (cur.workload > lastWorkload) {
+      lastWorkload = cur.workload;
+      lastWorkloadAt = nowIso;
     }
 
     // Attach the display fields now (synopsis filled in below).
@@ -183,10 +214,12 @@ export async function enrichProspects(dataset, { season = new Date().getFullYear
     }
     target.searchOnly = true;
     target.prospect = true;
+    target.kind = meta.kind;
     if (meta.fv != null) target.fv = meta.fv;
     if (meta.orgRank != null) target.prospectRank = meta.orgRank;
     if (meta.eta != null) target.eta = meta.eta;
     if (meta.bats) target.bats = meta.bats;
+    if (meta.throws) target.throws = meta.throws;
     target.milb = lines;
     target.topLevel = cur.topLevel;
 
@@ -194,6 +227,7 @@ export async function enrichProspects(dataset, { season = new Date().getFullYear
       name: meta.name,
       org: meta.org,
       pos: meta.pos,
+      kind: meta.kind,
       fv: meta.fv,
       orgRank: meta.orgRank,
       status: meta.source,
@@ -201,8 +235,8 @@ export async function enrichProspects(dataset, { season = new Date().getFullYear
       synopsis: p?.synopsis || null,
       synopsisAt: p?.synopsisAt || null,
       snapshot: p?.snapshot || cur,
-      lastTotalPa,
-      lastPaGainAt,
+      lastWorkload,
+      lastWorkloadAt,
       stalledFiredAt: p?.stalledFiredAt || null,
       firstSeen: p?.firstSeen || nowIso,
     };
@@ -230,7 +264,9 @@ export async function enrichProspects(dataset, { season = new Date().getFullYear
     const text = await generateSynopsis({
       name: w.meta.name,
       pos: w.meta.pos,
+      kind: w.meta.kind,
       bats: w.meta.bats,
+      throws: w.meta.throws,
       org: w.meta.org,
       fv: w.meta.fv,
       eta: w.meta.eta,
@@ -249,6 +285,8 @@ export async function enrichProspects(dataset, { season = new Date().getFullYear
   // --- Persist state --------------------------------------------------------
   const counts = {
     tracked: tracked.length,
+    trackedHitters: tracked.filter((t) => t.kind === 'hitter').length,
+    trackedPitchers: tracked.filter((t) => t.kind === 'pitcher').length,
     onCall: [...maintain.values()].filter((m) => m.source === 'oncall').length,
     created,
     retired,
