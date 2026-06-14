@@ -1,17 +1,21 @@
-// NBA data assembly for FantasyEdge — the basketball analog of buildDataset.js.
+// Basketball (NBA + WNBA) data assembly for FantasyEdge — the analog of
+// buildDataset.js. Both leagues share this module; only the ESPN league slug
+// differs.
 //
 // Source: ESPN's public "byathlete" season-statistics endpoint (free, no key, no
 // special headers — chosen over stats.nba.com, which commonly IP-blocks
 // datacenter egress, and balldontlie, which now requires a key). One paginated
-// call set returns every qualified player's per-game season averages.
+// call set returns every qualified player's per-game season averages. Stats are
+// read BY NAME via an index map, so the two leagues' differing column orders are
+// handled transparently.
 //
 // Ranking: standard 9-category roto z-score (PTS, REB, AST, STL, BLK, 3PM, plus
 // turnovers as a negative and FG%/FT% as volume-weighted rate impacts), summed
 // into one value. Mirrors the MLB pipeline's record shape so the same frontend
-// renders both. Output: { builtAt, sport:'nba', players, counts }.
+// renders both. Output: { builtAt, sport, players, counts }.
 
-const ESPN =
-  'https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/statistics/byathlete';
+const ESPN = (league) =>
+  `https://site.web.api.espn.com/apis/common/v3/sports/basketball/${league}/statistics/byathlete`;
 const HEADERS = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
@@ -41,14 +45,15 @@ async function getJson(url, tries = 3) {
 
 // Pull every page of the byathlete leaderboard (sorted by points; order doesn't
 // matter, we re-rank). Returns { athletes, categories, season }.
-async function fetchAllAthletes() {
+async function fetchAllAthletes(league) {
+  const base = ESPN(league);
   const athletes = [];
   let categories = null;
   let season = null;
   let page = 1;
   let pages = 1;
   do {
-    const url = `${ESPN}?region=us&lang=en&contentorigin=espn&limit=50&page=${page}&sort=offensive.avgPoints:desc`;
+    const url = `${base}?region=us&lang=en&contentorigin=espn&limit=50&page=${page}&sort=offensive.avgPoints:desc`;
     const j = await getJson(url);
     if (page === 1) {
       categories = j.categories || [];
@@ -137,8 +142,8 @@ function decorate(rec, i) {
   rec.tag = i < 5 ? 'fire' : i < 15 ? 'trending' : i > 40 ? 'slump' : null;
 }
 
-export async function buildNbaDataset() {
-  const { athletes, categories, season } = await fetchAllAthletes();
+async function buildBasketballDataset(sport) {
+  const { athletes, categories, season } = await fetchAllAthletes(sport);
   const idx = buildIndex(categories);
   const val = reader(idx);
 
@@ -204,7 +209,7 @@ export async function buildNbaDataset() {
 
   return {
     builtAt: new Date().toISOString(),
-    sport: 'nba',
+    sport,
     players,
     counts: {
       season,
@@ -217,3 +222,6 @@ export async function buildNbaDataset() {
     },
   };
 }
+
+export const buildNbaDataset = () => buildBasketballDataset('nba');
+export const buildWnbaDataset = () => buildBasketballDataset('wnba');

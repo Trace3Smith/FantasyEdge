@@ -4,14 +4,15 @@
 // an evicted key — it builds the dataset inline once, backfills the cache, and
 // serves it, so the endpoint self-heals.
 import { buildDataset } from './_lib/buildDataset.js';
-import { buildNbaDataset } from './_lib/buildNbaDataset.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY } from './_lib/kv.js';
+import { buildNbaDataset, buildWnbaDataset } from './_lib/buildNbaDataset.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY } from './_lib/kv.js';
 
 // Per-sport dataset wiring: which KV key holds it and how to (re)build it on a
 // cold-start cache miss. Add a sport here + a frontend tab to light it up.
 const SPORTS = {
   mlb: { key: DATASET_KEY, build: () => buildDataset({ season: new Date().getFullYear() }) },
   nba: { key: NBA_DATASET_KEY, build: () => buildNbaDataset() },
+  wnba: { key: WNBA_DATASET_KEY, build: () => buildWnbaDataset() },
 };
 
 export default async function handler(req, res) {

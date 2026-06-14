@@ -358,10 +358,7 @@
 
   <div class="roto-bar">
     <span class="roto-label">★ Stars = Roto Categories Impacted:</span>
-    <span class="cat-pill">AVG</span><span class="cat-pill">HR</span><span class="cat-pill">R</span>
-    <span class="cat-pill">RBI</span><span class="cat-pill">SB</span><span class="cat-pill">OBP</span>
-    <span class="cat-pill">ERA</span><span class="cat-pill">K</span><span class="cat-pill">WHIP</span>
-    <span class="cat-pill">W</span><span class="cat-pill">SV</span><span class="cat-pill">HD</span>
+    <span id="rotoCats"></span>
   </div>
 
   <div class="search-row">
@@ -460,11 +457,12 @@
     hitter:  ['AVG', 'HR', 'RBI', 'R', 'SB', 'OBP'],
     generic: ['AVG', 'HR', 'RBI', 'SB', 'ERA', 'WHIP'],
     nba:     ['PTS', 'REB', 'AST', '3PM', 'STL', 'BLK'],
+    wnba:    ['PTS', 'REB', 'AST', '3PM', 'STL', 'BLK'],
   };
   function updateStatHeaders() {
     let labels;
-    if (currentSport === 'nba') {
-      labels = STAT_HEADERS.nba; // NBA columns are fixed regardless of position
+    if (STAT_HEADERS[currentSport]) {
+      labels = STAT_HEADERS[currentSport]; // basketball columns are fixed regardless of position
     } else {
       labels =
         (currentPos === 'SP' || currentPos === 'RP') ? STAT_HEADERS.pitcher
@@ -634,15 +632,25 @@
   const POS_SETS = {
     mlb: ['ALL', 'SP', 'RP', 'C', '1B', '2B', '3B', 'SS', 'OF'],
     nba: ['ALL', 'G', 'F', 'C'],
+    wnba: ['ALL', 'G', 'F', 'C'],
   };
-  // Rebuild the position filters for a sport and reset both filters to their
-  // defaults; the AL/NL league toggle is MLB-only (hidden for other sports).
+  // Roto categories the Stars rating reflects, per sport (drives the banner).
+  const ROTO_CATS = {
+    mlb: ['AVG', 'HR', 'R', 'RBI', 'SB', 'OBP', 'ERA', 'K', 'WHIP', 'W', 'SV', 'HD'],
+    nba: ['PTS', 'REB', 'AST', 'STL', 'BLK', 'TO', 'FG%', 'FT%', '3PM'],
+    wnba: ['PTS', 'REB', 'AST', 'STL', 'BLK', 'TO', 'FG%', 'FT%', '3PM'],
+  };
+  // Rebuild the position filters + roto-category banner for a sport and reset both
+  // filters to their defaults; the AL/NL league toggle is MLB-only (hidden else).
   function applySport(sport) {
     currentPos = 'ALL';
     currentLeague = 'ALL';
     const set = POS_SETS[sport] || POS_SETS.mlb;
     document.getElementById('posFilters').innerHTML =
       set.map(p => `<button class="pos-btn${p === 'ALL' ? ' active' : ''}" data-pos="${p}">${p}</button>`).join('');
+    const cats = ROTO_CATS[sport] || ROTO_CATS.mlb;
+    document.getElementById('rotoCats').innerHTML =
+      cats.map(c => `<span class="cat-pill">${c}</span>`).join('');
     const lf = document.getElementById('leagueFilters');
     lf.style.display = sport === 'mlb' ? '' : 'none';
     lf.querySelectorAll('.pos-btn').forEach(b => b.classList.toggle('active', b.dataset.league === 'ALL'));
