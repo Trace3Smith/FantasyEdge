@@ -5,6 +5,7 @@
 import { Redis } from '@upstash/redis';
 
 export const DATASET_KEY = 'dataset:mlb';
+export const NBA_DATASET_KEY = 'dataset:nba';
 // Persistent Phase 2 state, survives the daily dataset rebuild:
 //   PROSPECT_STATE_KEY — per-player prospect record (milb lines, synopsis cache,
 //     event-detection snapshot) + the last good FanGraphs board for graceful degrade.

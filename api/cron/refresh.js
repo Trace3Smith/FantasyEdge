@@ -5,8 +5,9 @@
 // Protected by CRON_SECRET: Vercel Cron sends `Authorization: Bearer <secret>`
 // when the CRON_SECRET env var is set, so unauthenticated calls are rejected.
 import { buildDataset } from '../_lib/buildDataset.js';
+import { buildNbaDataset } from '../_lib/buildNbaDataset.js';
 import { enrichProspects } from '../_lib/enrichProspects.js';
-import { redis, DATASET_KEY } from '../_lib/kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY } from '../_lib/kv.js';
 
 // Vercel Hobby caps a function at 60s (and defaults to 10s if unset), so we ask
 // for the full 60. The Phase 2 enrichment stays within that budget by generating
@@ -31,7 +32,24 @@ export default async function handler(req, res) {
       dataset.counts = { ...dataset.counts, prospectsError: err.message };
     }
     await redis.set(DATASET_KEY, dataset);
-    return res.status(200).json({ ok: true, builtAt: dataset.builtAt, counts: dataset.counts });
+
+    // NBA dataset — independent of MLB; a failure here must not drop the MLB
+    // write above. Built fresh each run from ESPN (no prospects/enrichment).
+    let nbaCounts = null;
+    try {
+      const nba = await buildNbaDataset();
+      await redis.set(NBA_DATASET_KEY, nba);
+      nbaCounts = nba.counts;
+    } catch (err) {
+      nbaCounts = { error: err.message };
+    }
+
+    return res.status(200).json({
+      ok: true,
+      builtAt: dataset.builtAt,
+      counts: dataset.counts,
+      nba: nbaCounts,
+    });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
   }

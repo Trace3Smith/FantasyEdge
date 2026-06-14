@@ -459,12 +459,18 @@
     pitcher: ['K', 'W', 'SV', 'HD', 'ERA', 'WHIP'],
     hitter:  ['AVG', 'HR', 'RBI', 'R', 'SB', 'OBP'],
     generic: ['AVG', 'HR', 'RBI', 'SB', 'ERA', 'WHIP'],
+    nba:     ['PTS', 'REB', 'AST', '3PM', 'STL', 'BLK'],
   };
   function updateStatHeaders() {
-    const labels =
-      (currentPos === 'SP' || currentPos === 'RP') ? STAT_HEADERS.pitcher
-      : ['C', '1B', '2B', '3B', 'SS', 'OF'].includes(currentPos) ? STAT_HEADERS.hitter
-      : STAT_HEADERS.generic;
+    let labels;
+    if (currentSport === 'nba') {
+      labels = STAT_HEADERS.nba; // NBA columns are fixed regardless of position
+    } else {
+      labels =
+        (currentPos === 'SP' || currentPos === 'RP') ? STAT_HEADERS.pitcher
+        : ['C', '1B', '2B', '3B', 'SS', 'OF'].includes(currentPos) ? STAT_HEADERS.hitter
+        : STAT_HEADERS.generic;
+    }
     labels.forEach((l, i) => { document.getElementById('h' + (i + 1)).textContent = l; });
   }
 
@@ -606,7 +612,7 @@
     tab.classList.add('active');
     const sport = tab.dataset.sport;
     document.querySelector(`#sidebarSports a[data-sport="${sport}"]`)?.classList.add('active');
-    resetFilters();
+    applySport(sport);
     loadAndRender(sport);
   });
 
@@ -618,17 +624,28 @@
     link.classList.add('active');
     const sport = link.dataset.sport;
     document.querySelector(`.sport-tab[data-sport="${sport}"]`)?.classList.add('active');
-    resetFilters();
+    applySport(sport);
     loadAndRender(sport);
   });
 
   // Reset position + league filters to their defaults (used on sport switch).
   // Keeps the default ALL view untouched.
-  function resetFilters() {
+  // Position-filter button sets per sport. ALL is always first.
+  const POS_SETS = {
+    mlb: ['ALL', 'SP', 'RP', 'C', '1B', '2B', '3B', 'SS', 'OF'],
+    nba: ['ALL', 'G', 'F', 'C'],
+  };
+  // Rebuild the position filters for a sport and reset both filters to their
+  // defaults; the AL/NL league toggle is MLB-only (hidden for other sports).
+  function applySport(sport) {
     currentPos = 'ALL';
     currentLeague = 'ALL';
-    document.querySelectorAll('#posFilters .pos-btn').forEach(b => b.classList.toggle('active', b.dataset.pos === 'ALL'));
-    document.querySelectorAll('#leagueFilters .pos-btn').forEach(b => b.classList.toggle('active', b.dataset.league === 'ALL'));
+    const set = POS_SETS[sport] || POS_SETS.mlb;
+    document.getElementById('posFilters').innerHTML =
+      set.map(p => `<button class="pos-btn${p === 'ALL' ? ' active' : ''}" data-pos="${p}">${p}</button>`).join('');
+    const lf = document.getElementById('leagueFilters');
+    lf.style.display = sport === 'mlb' ? '' : 'none';
+    lf.querySelectorAll('.pos-btn').forEach(b => b.classList.toggle('active', b.dataset.league === 'ALL'));
   }
 
   document.getElementById('posFilters').addEventListener('click', e => {
@@ -667,6 +684,7 @@
     detail.classList.toggle('open');
   });
 
+  applySport('mlb');
   loadAndRender('mlb');
 </script>
 </body>
