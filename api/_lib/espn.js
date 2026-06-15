@@ -30,8 +30,15 @@ export async function getJson(url, tries = 3) {
 
 // Pull every page of a byathlete leaderboard. sportPath is the ESPN sport/league
 // segment, e.g. 'basketball/nba' or 'hockey/nhl'; sort is any valid sort key (the
-// order doesn't matter — callers re-rank). Returns { athletes, categories, season }.
-export async function fetchByAthlete({ sportPath, sort, limit = 50 }) {
+// order doesn't matter — callers re-rank).
+//
+// seasonType defaults to 2 (REGULAR SEASON). This is load-bearing: without it the
+// endpoint returns whatever season type is *currently active* on the real-world
+// calendar, which during spring/summer is the Postseason (type 3) — only the
+// playoff teams' players, ~1/3 of the league. Fantasy rankings want full-season
+// regular-season stats, so we always ask for type 2 explicitly.
+// Returns { athletes, categories, season }.
+export async function fetchByAthlete({ sportPath, sort, limit = 50, seasonType = 2 }) {
   const base = `https://site.web.api.espn.com/apis/common/v3/sports/${sportPath}/statistics/byathlete`;
   const athletes = [];
   let categories = null;
@@ -39,7 +46,7 @@ export async function fetchByAthlete({ sportPath, sort, limit = 50 }) {
   let page = 1;
   let pages = 1;
   do {
-    const url = `${base}?region=us&lang=en&contentorigin=espn&limit=${limit}&page=${page}&sort=${sort}`;
+    const url = `${base}?region=us&lang=en&contentorigin=espn&seasontype=${seasonType}&limit=${limit}&page=${page}&sort=${sort}`;
     const j = await getJson(url);
     if (page === 1) {
       categories = j.categories || [];
