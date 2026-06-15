@@ -14,75 +14,14 @@
 // into one value. Mirrors the MLB pipeline's record shape so the same frontend
 // renders both. Output: { builtAt, sport, players, counts }.
 
-const ESPN = (league) =>
-  `https://site.web.api.espn.com/apis/common/v3/sports/basketball/${league}/statistics/byathlete`;
-const HEADERS = {
-  'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-  Accept: 'application/json',
-};
+import { fetchByAthlete, buildIndex, makeReader } from './espn.js';
+
 // z-score pool gate. Like the MLB PA gate, it adapts to how far the season has
 // progressed (40% of the leader's games played) so it's right early- AND full-
 // season; MIN_MINUTES additionally drops deep-bench players from the rate pool.
 const GAMES_FRAC = 0.4;
 const GAMES_FLOOR = 5;
 const MIN_MINUTES = 10;
-
-async function getJson(url, tries = 3) {
-  let lastErr;
-  for (let t = 0; t < tries; t++) {
-    try {
-      const r = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(15000) });
-      if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
-      return await r.json();
-    } catch (e) {
-      lastErr = e;
-      await new Promise((res) => setTimeout(res, 400 * (t + 1)));
-    }
-  }
-  throw lastErr;
-}
-
-// Pull every page of the byathlete leaderboard (sorted by points; order doesn't
-// matter, we re-rank). Returns { athletes, categories, season }.
-async function fetchAllAthletes(league) {
-  const base = ESPN(league);
-  const athletes = [];
-  let categories = null;
-  let season = null;
-  let page = 1;
-  let pages = 1;
-  do {
-    const url = `${base}?region=us&lang=en&contentorigin=espn&limit=50&page=${page}&sort=offensive.avgPoints:desc`;
-    const j = await getJson(url);
-    if (page === 1) {
-      categories = j.categories || [];
-      season = j.requestedSeason?.displayName || j.currentSeason?.displayName || null;
-      pages = j.pagination?.pages || 1;
-    }
-    if (Array.isArray(j.athletes)) athletes.push(...j.athletes);
-    page++;
-  } while (page <= pages);
-  return { athletes, categories, season };
-}
-
-// Map of statName -> column index, per category, from the leaderboard header.
-function buildIndex(categories) {
-  const idx = {};
-  for (const c of categories || []) idx[c.name] = new Map((c.names || []).map((n, i) => [n, i]));
-  return idx;
-}
-
-function reader(idx) {
-  return (athlete, cat, name) => {
-    const c = athlete.categories?.find((x) => x.name === cat);
-    if (!c) return null;
-    const i = idx[cat]?.get(name);
-    if (i == null) return null;
-    const v = c.totals?.[i];
-    return v == null || v === '' ? null : parseFloat(v);
-  };
-}
 
 // Category-strength pills (drives the star count, like the MLB cats).
 function buildNbaCats(n) {
@@ -143,9 +82,12 @@ function decorate(rec, i) {
 }
 
 async function buildBasketballDataset(sport) {
-  const { athletes, categories, season } = await fetchAllAthletes(sport);
+  const { athletes, categories, season } = await fetchByAthlete({
+    sportPath: `basketball/${sport}`,
+    sort: 'offensive.avgPoints:desc',
+  });
   const idx = buildIndex(categories);
-  const val = reader(idx);
+  const val = makeReader(idx);
 
   const records = [];
   for (const a of athletes) {

@@ -458,10 +458,15 @@
     generic: ['AVG', 'HR', 'RBI', 'SB', 'ERA', 'WHIP'],
     nba:     ['PTS', 'REB', 'AST', '3PM', 'STL', 'BLK'],
     wnba:    ['PTS', 'REB', 'AST', '3PM', 'STL', 'BLK'],
+    nhl_skater: ['G', 'A', 'PTS', '+/-', 'SOG', 'PPP'],
+    nhl_goalie: ['W', 'GAA', 'SV%', 'SO', 'SV', 'SA'],
   };
   function updateStatHeaders() {
     let labels;
-    if (STAT_HEADERS[currentSport]) {
+    if (currentSport === 'nhl') {
+      // Skaters and goalies have different columns; the G filter is all goalies.
+      labels = currentPos === 'G' ? STAT_HEADERS.nhl_goalie : STAT_HEADERS.nhl_skater;
+    } else if (STAT_HEADERS[currentSport]) {
       labels = STAT_HEADERS[currentSport]; // basketball columns are fixed regardless of position
     } else {
       labels =
@@ -633,12 +638,14 @@
     mlb: ['ALL', 'SP', 'RP', 'C', '1B', '2B', '3B', 'SS', 'OF'],
     nba: ['ALL', 'G', 'F', 'C'],
     wnba: ['ALL', 'G', 'F', 'C'],
+    nhl: ['ALL', 'F', 'D', 'G'],
   };
   // Roto categories the Stars rating reflects, per sport (drives the banner).
   const ROTO_CATS = {
     mlb: ['AVG', 'HR', 'R', 'RBI', 'SB', 'OBP', 'ERA', 'K', 'WHIP', 'W', 'SV', 'HD'],
     nba: ['PTS', 'REB', 'AST', 'STL', 'BLK', 'TO', 'FG%', 'FT%', '3PM'],
     wnba: ['PTS', 'REB', 'AST', 'STL', 'BLK', 'TO', 'FG%', 'FT%', '3PM'],
+    nhl: ['G', 'A', 'PTS', '+/-', 'PIM', 'PPP', 'SOG', 'FOW', 'GWG'],
   };
   // Rebuild the position filters + roto-category banner for a sport and reset both
   // filters to their defaults; the AL/NL league toggle is MLB-only (hidden else).

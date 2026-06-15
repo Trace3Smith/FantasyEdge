@@ -6,8 +6,9 @@
 // when the CRON_SECRET env var is set, so unauthenticated calls are rejected.
 import { buildDataset } from '../_lib/buildDataset.js';
 import { buildNbaDataset, buildWnbaDataset } from '../_lib/buildNbaDataset.js';
+import { buildNhlDataset } from '../_lib/buildNhlDataset.js';
 import { enrichProspects } from '../_lib/enrichProspects.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY } from '../_lib/kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY } from '../_lib/kv.js';
 
 // Secondary sports (ESPN-sourced, no prospects/enrichment). Each is built and
 // cached independently so one league's source failure can't drop another's
@@ -15,6 +16,7 @@ import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY } from '../_lib/k
 const SECONDARY = [
   { sport: 'nba', key: NBA_DATASET_KEY, build: buildNbaDataset },
   { sport: 'wnba', key: WNBA_DATASET_KEY, build: buildWnbaDataset },
+  { sport: 'nhl', key: NHL_DATASET_KEY, build: buildNhlDataset },
 ];
 
 // Vercel Hobby caps a function at 60s (and defaults to 10s if unset), so we ask
