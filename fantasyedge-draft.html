@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FantasyEdge — Mock Draft</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --gold: #D4A017; --gold-light: #F0C040; --black: #080808; --dark: #111111;
+    --dark2: #1A1A1A; --dark3: #222222; --dark4: #2A2A2A; --white: #F5F5F0;
+    --gray: #888888; --gray-light: #AAAAAA; --green: #4CAF50; --red: #F44336; --orange: #FF9800;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--dark); color: var(--white); font-family: 'Barlow', sans-serif; display: flex; min-height: 100vh; }
+  .sidebar { width: 200px; min-width: 200px; background: var(--black); border-right: 1px solid rgba(212,160,23,0.15);
+    display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; overflow-y: auto; }
+  .sidebar-logo { padding: 24px 20px 20px; border-bottom: 1px solid rgba(212,160,23,0.15);
+    font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 3px; color: var(--white); }
+  .sidebar-logo span { color: var(--gold); }
+  .sidebar-section-label { padding: 18px 20px 6px; font-size: 10px; font-weight: 600; letter-spacing: 2px; color: var(--gray); text-transform: uppercase; }
+  .sidebar-nav { list-style: none; }
+  .sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: var(--gray-light);
+    text-decoration: none; font-size: 14px; font-weight: 500; }
+  .sidebar-nav a:hover, .sidebar-nav a.active { color: var(--white); background: rgba(212,160,23,0.08); border-left: 2px solid var(--gold); }
+  .sidebar-nav .icon { width: 18px; text-align: center; }
+  .upgrade-box { margin: auto 16px 18px; padding: 16px; background: linear-gradient(135deg, rgba(212,160,23,0.15), rgba(212,160,23,0.04));
+    border: 1px solid rgba(212,160,23,0.3); border-radius: 10px; }
+  .upgrade-box p { font-size: 12px; color: var(--gray-light); margin-bottom: 10px; }
+  .upgrade-btn { display: block; text-align: center; padding: 9px; background: var(--gold); color: #111;
+    border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 13px; }
+
+  .main { margin-left: 200px; flex: 1; padding: 28px 34px; max-width: 1200px; }
+  .top-header { margin-bottom: 22px; }
+  .page-title { font-family: 'Bebas Neue', sans-serif; font-size: 34px; letter-spacing: 2px; }
+  .page-subtitle { color: var(--gray); font-size: 14px; }
+
+  .panel { background: var(--dark2); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+  .start-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .btn { padding: 11px 20px; border-radius: 8px; border: none; cursor: pointer; font-family: inherit; font-weight: 700; font-size: 14px; }
+  .btn-gold { background: var(--gold); color: #111; }
+  .btn-ghost { background: transparent; border: 1px solid var(--gold); color: var(--gold); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  select { background: var(--dark3); color: var(--white); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 8px 10px; font-family: inherit; }
+
+  .free-banner { background: rgba(212,160,23,0.12); border: 1px solid rgba(212,160,23,0.3); color: var(--gold-light);
+    padding: 10px 16px; border-radius: 8px; font-size: 13px; margin-bottom: 18px; }
+
+  .draft-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; }
+  @media (max-width: 900px) { .draft-grid { grid-template-columns: 1fr; } }
+
+  .clock { font-size: 13px; color: var(--gray); margin-bottom: 12px; }
+  .clock b { color: var(--white); }
+  .on-clock-you { color: var(--gold); font-weight: 700; }
+
+  .reco-top { background: rgba(212,160,23,0.08); border: 1px solid rgba(212,160,23,0.25); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+  .reco-top .rl { font-size: 11px; letter-spacing: 1px; color: var(--gold); text-transform: uppercase; }
+  .reco-rationale { color: var(--gray-light); font-size: 13px; margin-top: 6px; line-height: 1.5; }
+  .cand { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 8px;
+    background: var(--dark3); margin-bottom: 8px; cursor: pointer; border: 1px solid transparent; }
+  .cand:hover { border-color: var(--gold); }
+  .cand .nm { font-weight: 600; }
+  .cand .meta { font-size: 12px; color: var(--gray); }
+  .cand .pos { display: inline-block; min-width: 34px; text-align: center; font-size: 11px; font-weight: 700;
+    padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.08); margin-right: 8px; }
+  .cand .need { color: var(--green); font-size: 11px; font-weight: 700; }
+  .runs { font-size: 12px; color: var(--orange); margin-bottom: 10px; }
+
+  .roster h3, .avail h3 { font-size: 13px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray); margin-bottom: 10px; }
+  .roster-list, .pick-list { list-style: none; font-size: 13px; }
+  .roster-list li, .pick-list li { padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; gap: 8px; }
+  .pos-q{color:#e85d75}.pos-r{color:#4ec9b0}.pos-w{color:#7aa2f7}.pos-t{color:#e0af68}.pos-k{color:#bb9af7}.pos-d{color:#9ece6a}
+
+  .lock-overlay { position: relative; }
+  .lock-overlay .lock-inner { text-align: center; padding: 30px 20px; }
+  .lock-inner .lock-title { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+  .lock-inner p { color: var(--gray-light); font-size: 13px; margin-bottom: 16px; }
+  .hidden { display: none !important; }
+  .muted { color: var(--gray); }
+  .search-input { width: 100%; background: var(--dark3); color: var(--white); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px; padding: 9px 12px; font-family: inherit; margin-bottom: 10px; }
+  .avail-list { max-height: 360px; overflow-y: auto; }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">FANTASY<span>EDGE</span></div>
+  <div class="sidebar-section-label">Main</div>
+  <ul class="sidebar-nav">
+    <li><a href="fantasyedge.html"><span class="icon">🏠</span> Home</a></li>
+    <li><a href="fantasyedge-rankings.html"><span class="icon">📊</span> Rankings</a></li>
+    <li><a href="fantasyedge-analyzer.html"><span class="icon">🔍</span> Roster Analyzer</a></li>
+    <li><a href="fantasyedge-trending.html"><span class="icon">🔥</span> Trending Players</a></li>
+    <li><a href="fantasyedge-brackets.html"><span class="icon">🏆</span> Brackets &amp; Bowls</a></li>
+  </ul>
+  <div class="upgrade-box">
+    <p>Unlimited mock drafts, full-draft assistant &amp; real draft mode.</p>
+    <a href="#" class="upgrade-btn">Get Pro — $9.99/mo</a>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="top-header">
+    <div class="page-title">MOCK DRAFT</div>
+    <div class="page-subtitle">Practice your NFL draft with an AI draft assistant.</div>
+  </div>
+
+  <!-- Signed-out state -->
+  <div class="panel" id="signedOut">
+    <p class="muted">Sign in to run a mock draft. Free users get <b>1 mock draft per day</b> with assistant suggestions for rounds 1–7.</p>
+    <br><button class="btn btn-gold" id="signInBtn">Sign in</button>
+  </div>
+
+  <!-- Pre-draft setup -->
+  <div class="panel hidden" id="setup">
+    <div class="start-row">
+      <button class="btn btn-gold" id="startBtn">Start Mock Draft</button>
+      <span class="premium-only">
+        <label class="muted" style="font-size:13px">Scoring
+          <select id="scoringSel"><option value="ppr">PPR</option><option value="standard">Standard</option></select>
+        </label>
+        <label class="muted" style="font-size:13px">Teams
+          <select id="teamsSel"><option>8</option><option selected>10</option><option>12</option><option>14</option></select>
+        </label>
+      </span>
+      <span class="muted" id="usageNote"></span>
+    </div>
+  </div>
+
+  <!-- Active draft -->
+  <div class="hidden" id="draftArea">
+    <div class="free-banner hidden" id="freeBanner"></div>
+    <div class="clock" id="clock"></div>
+    <div class="draft-grid">
+      <div class="panel">
+        <div class="reco" id="recoPanel">
+          <div class="runs hidden" id="runs"></div>
+          <div class="reco-top" id="recoTop"></div>
+          <div id="candList"></div>
+        </div>
+        <div class="lock-overlay hidden" id="lockPanel">
+          <div class="lock-inner">
+            <div class="lock-title">🔒 Rounds 8+ are Premium</div>
+            <p>Upgrade to get full-draft assistant advice, unlimited mocks, and real draft mode.</p>
+            <button class="btn btn-gold" id="lockUpgrade">Go Premium</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="avail">
+          <h3>Available Players</h3>
+          <input class="search-input" id="availSearch" placeholder="Search to draft anyone…">
+          <div class="avail-list" id="availList"></div>
+        </div>
+      </div>
+    </div>
+    <div class="draft-grid" style="margin-top:20px">
+      <div class="panel roster">
+        <h3>Your Roster</h3>
+        <ul class="roster-list" id="rosterList"></ul>
+      </div>
+      <div class="panel roster">
+        <h3>Recent Picks</h3>
+        <ul class="pick-list" id="recentList"></ul>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script type="module" src="/auth.js"></script>
+<script type="module">
+// --- Mock draft controller ----------------------------------------------------
+let players = [];           // full NFL pool (rank-sorted)
+let byId = new Map();
+let state = null;           // active draft state
+
+const $ = (id) => document.getElementById(id);
+const posClass = (p) => ({ QB:'pos-q', RB:'pos-r', WR:'pos-w', TE:'pos-t', K:'pos-k', DST:'pos-d' }[p] || '');
+
+async function loadPool() {
+  if (players.length) return;
+  const r = await fetch('/api/sports?sport=nfl');
+  const j = await r.json();
+  players = (j.players || []).filter((p) => p.rank != null && !p.searchOnly)
+    .sort((a, b) => a.rank - b.rank);
+  byId = new Map(players.map((p) => [p.id, p]));
+}
+
+// Auth wiring -------------------------------------------------------------------
+document.addEventListener('fe-auth-ready', refreshAuthUI);
+$('signInBtn').addEventListener('click', () => window.FE?.openSignIn());
+$('lockUpgrade').addEventListener('click', () => window.FE?.openPricing());
+
+function refreshAuthUI() {
+  const signedIn = window.FE?.isSignedIn();
+  $('signedOut').classList.toggle('hidden', !!signedIn);
+  $('setup').classList.toggle('hidden', !signedIn);
+}
+
+// Start a draft -----------------------------------------------------------------
+$('startBtn').addEventListener('click', startDraft);
+
+async function startDraft() {
+  $('startBtn').disabled = true;
+  $('startBtn').textContent = 'Starting…';
+  const settings = {};
+  if (window.FE?.isPremium()) {
+    settings.scoring = $('scoringSel').value;
+    settings.teams = Number($('teamsSel').value);
+  }
+  const { ok, status, data } = await window.FE.apiPost('/api/draft/mock-start', { settings });
+  $('startBtn').disabled = false;
+  $('startBtn').textContent = 'Start Mock Draft';
+
+  if (!ok) {
+    if (status === 403 && data?.error === 'mock_limit_reached') {
+      $('usageNote').innerHTML = `You've used today's free mock draft. <a href="#" id="limitUp" style="color:var(--gold)">Go Premium</a> for unlimited.`;
+      $('limitUp').onclick = (e) => { e.preventDefault(); window.FE.openPricing(); };
+    } else {
+      $('usageNote').textContent = data?.error || 'Could not start draft.';
+    }
+    return;
+  }
+
+  await loadPool();
+  state = {
+    settings: data.settings,
+    userTeam: data.userSlot - 1,
+    premium: data.premium,
+    freeMaxRound: data.freeMaxRound,
+    pickIndex: 0,
+    totalPicks: data.settings.teams * data.settings.rounds,
+    drafted: new Set(),
+    picks: [],                 // { id, name, pos, team, teamIndex, round }
+    roster: [],                // user's [{id,pos}]
+  };
+
+  $('setup').classList.add('hidden');
+  $('draftArea').classList.remove('hidden');
+  if (!data.premium) {
+    $('freeBanner').classList.remove('hidden');
+    $('freeBanner').textContent = `Free mock: assistant advice for rounds 1–${data.freeMaxRound}. Upgrade for the full draft & unlimited mocks.`;
+  }
+  advance();
+}
+
+// Draft flow --------------------------------------------------------------------
+const roundOf = (i, teams) => Math.floor(i / teams) + 1;
+function teamOnClock(i, teams) {
+  const round = roundOf(i, teams), inRound = i % teams;
+  return round % 2 === 1 ? inRound : teams - 1 - inRound; // snake
+}
+
+function advance() {
+  const { settings } = state;
+  // AI auto-picks until it's the user's turn or the draft ends.
+  while (state.pickIndex < state.totalPicks) {
+    const teamIdx = teamOnClock(state.pickIndex, settings.teams);
+    if (teamIdx === state.userTeam) { renderUserTurn(); return; }
+    aiPick(teamIdx);
+  }
+  finishDraft();
+}
+
+function bestForAI(round) {
+  const lateK = round >= state.settings.rounds - 2;
+  const pool = players.filter((p) => !state.drafted.has(p.id) && (lateK || (p.pos !== 'K' && p.pos !== 'DST')));
+  const top = pool.slice(0, 4);
+  return top[Math.floor(Math.random() * Math.min(3, top.length))] || pool[0] || null;
+}
+
+function recordPick(player, teamIdx) {
+  const round = roundOf(state.pickIndex, state.settings.teams);
+  state.drafted.add(player.id);
+  state.picks.push({ id: player.id, name: player.name, pos: player.pos, team: player.team, teamIndex: teamIdx, round });
+  if (teamIdx === state.userTeam) state.roster.push({ id: player.id, pos: player.pos });
+  state.pickIndex++;
+}
+
+function aiPick(teamIdx) {
+  const p = bestForAI(roundOf(state.pickIndex, state.settings.teams));
+  if (!p) { state.pickIndex++; return; }
+  recordPick(p, teamIdx);
+}
+
+function userDraft(playerId) {
+  const p = byId.get(playerId);
+  if (!p || state.drafted.has(p.id)) return;
+  recordPick(p, state.userTeam);
+  renderRoster();
+  renderRecent();
+  advance();
+}
+
+// User's turn: render roster/board, then fetch assistant advice -----------------
+function renderUserTurn() {
+  const round = roundOf(state.pickIndex, state.settings.teams);
+  $('clock').innerHTML = `Round <b>${round}</b> · Pick <b>${state.pickIndex + 1}</b> — <span class="on-clock-you">You're on the clock</span>`;
+  renderRoster();
+  renderRecent();
+  renderAvailable();
+  fetchAdvice(round);
+}
+
+async function fetchAdvice(round) {
+  const recoTop = $('recoTop'), candList = $('candList'), runs = $('runs');
+  $('lockPanel').classList.add('hidden');
+  $('recoPanel').classList.remove('hidden');
+  recoTop.innerHTML = '<span class="muted">Analyzing best picks…</span>';
+  candList.innerHTML = '';
+  runs.classList.add('hidden');
+
+  const body = {
+    sport: 'nfl', round,
+    drafted: [...state.drafted],
+    roster: state.roster,
+    recentPicks: state.picks.slice(-6).map((p) => ({ pos: p.pos })),
+    settings: state.premium ? state.settings : undefined,
+  };
+  const { ok, status, data } = await window.FE.apiPost('/api/draft/advise', body);
+
+  if (!ok && status === 403 && data?.error === 'round_locked') {
+    $('recoPanel').classList.add('hidden');
+    $('lockPanel').classList.remove('hidden');
+    return;
+  }
+  if (!ok) { recoTop.innerHTML = '<span class="muted">Advice unavailable — pick from the list.</span>'; return; }
+
+  const top = data.candidates[0];
+  recoTop.innerHTML = top
+    ? `<div class="rl">Recommended Pick</div><div style="font-size:18px;font-weight:700;margin-top:4px">${top.name} <span class="muted" style="font-size:13px">${top.pos} · ${top.team}</span></div>`
+      + (data.rationale ? `<div class="reco-rationale">${escapeHtml(data.rationale)}</div>` : '')
+    : '<span class="muted">No candidates.</span>';
+
+  if (data.runs?.length) { runs.classList.remove('hidden'); runs.textContent = `⚠ Run on ${data.runs.join(', ')} — these positions are going fast.`; }
+
+  candList.innerHTML = '';
+  data.candidates.forEach((c) => {
+    const el = document.createElement('div');
+    el.className = 'cand';
+    el.innerHTML = `<div><span class="pos ${posClass(c.pos)}">${c.pos}</span><span class="nm">${c.name}</span>
+      <span class="meta"> · ${c.team} · #${c.rank ?? '—'}${c.need ? ' · <span class="need">NEED</span>' : ''}</span></div>
+      <div class="meta">VORP ${c.vorp}</div>`;
+    el.addEventListener('click', () => userDraft(c.id));
+    candList.appendChild(el);
+  });
+}
+
+// Renders ----------------------------------------------------------------------
+function renderRoster() {
+  $('rosterList').innerHTML = state.roster.map((r) => {
+    const p = byId.get(r.id);
+    return `<li><span class="pos ${posClass(p.pos)}">${p.pos}</span> ${p.name} <span class="muted">${p.team}</span></li>`;
+  }).join('') || '<li class="muted">No picks yet</li>';
+}
+function renderRecent() {
+  $('recentList').innerHTML = state.picks.slice(-12).reverse().map((p) =>
+    `<li><span class="muted">R${p.round}</span> <span class="pos ${posClass(p.pos)}">${p.pos}</span> ${p.name}${p.teamIndex === state.userTeam ? ' <span style="color:var(--gold)">(you)</span>' : ''}</li>`
+  ).join('') || '<li class="muted">—</li>';
+}
+function renderAvailable(filter = '') {
+  const f = filter.toLowerCase();
+  const list = players.filter((p) => !state.drafted.has(p.id) && (!f || p.name.toLowerCase().includes(f) || p.pos.toLowerCase() === f)).slice(0, 60);
+  $('availList').innerHTML = list.map((p) =>
+    `<div class="cand" data-id="${p.id}"><div><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>
+      <span class="meta"> · ${p.team} · #${p.rank}</span></div></div>`
+  ).join('');
+  $('availList').querySelectorAll('.cand').forEach((el) => el.addEventListener('click', () => userDraft(el.dataset.id)));
+}
+$('availSearch').addEventListener('input', (e) => renderAvailable(e.target.value));
+
+function finishDraft() {
+  $('clock').innerHTML = '✅ <b>Draft complete!</b>';
+  $('recoPanel').classList.add('hidden');
+  $('lockPanel').classList.add('hidden');
+  renderRoster();
+}
+
+function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// If auth is already ready before this script runs.
+if (window.FE) refreshAuthUI();
+</script>
+</body>
+</html>
