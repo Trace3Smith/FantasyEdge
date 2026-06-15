@@ -41,9 +41,20 @@ function buildNbaCats(n) {
 const fmt = (v, d = 1) => (v == null ? '—' : v.toFixed(d));
 const pct = (v) => (v == null ? '—' : '.' + Math.round(v * 1000)); // 0.465 -> ".465"
 
-// Standard 9-cat z-score. Counting cats are plain z-scores; turnovers subtract;
-// FG%/FT% use a volume-weighted marginal impact so high-usage efficient players
-// outscore low-volume percentage merchants. Sets rec.score in place.
+// Per-game counting cats z-scored with a small-sample dampener (below); FG%/FT%
+// use a volume-weighted marginal impact so high-usage efficient players outscore
+// low-volume percentage merchants (and which is itself sample-aware via attempts).
+const COUNTING_CATS = ['pts', 'reb', 'ast', 'stl', 'blk', 'tpm', 'to'];
+
+// Shrinkage prior, in games of league-average play. A player's per-game rate is
+// regressed toward the league mean as if he'd also played GAMES_PRIOR league-
+// average games, so an outlier early-season rate (e.g. 3.0 STL over 15 games)
+// is pulled toward the mean and can't dominate the z-score. The pull fades as
+// games accumulate, vanishing to a negligible nudge by a full season.
+const GAMES_PRIOR = 8;
+
+// Standard 9-cat z-score. Counting cats are regressed-then-z-scored; turnovers
+// subtract; FG%/FT% are volume-weighted marginal impacts. Sets rec.score in place.
 function scoreNba(pool) {
   if (!pool.length) return;
   const sum = (f) => pool.reduce((a, p) => a + f(p._n), 0);
@@ -54,6 +65,16 @@ function scoreNba(pool) {
     n.impFG = (n.fgPct - lgFG) * n.fga; // makes above expectation, weighted by volume
     n.impFT = (n.ftPct - lgFT) * n.fta;
   }
+  // Games-weighted league per-game mean for each counting cat (the shrink target).
+  const totalG = sum((n) => n.g) || 1;
+  const lgRate = {};
+  for (const k of COUNTING_CATS) lgRate[k] = sum((n) => n[k] * n.g) / totalG;
+  // Regressed per-game value used for ranking (display stats stay the real rates).
+  const valOf = (n, k) => {
+    if (k === 'impFG' || k === 'impFT') return n[k];
+    return (n[k] * n.g + lgRate[k] * GAMES_PRIOR) / (n.g + GAMES_PRIOR);
+  };
+
   // sign: +1 helps, -1 hurts (turnovers)
   const keys = [
     ['pts', 1], ['reb', 1], ['ast', 1], ['stl', 1], ['blk', 1],
@@ -61,13 +82,13 @@ function scoreNba(pool) {
   ];
   const norm = {};
   for (const [k] of keys) {
-    const xs = pool.map((p) => p._n[k]);
+    const xs = pool.map((p) => valOf(p._n, k));
     const m = xs.reduce((a, b) => a + b, 0) / xs.length;
     const sd = Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / xs.length) || 1;
     norm[k] = { m, sd };
   }
   for (const p of pool) {
-    p.score = keys.reduce((a, [k, sign]) => a + (sign * (p._n[k] - norm[k].m)) / norm[k].sd, 0);
+    p.score = keys.reduce((a, [k, sign]) => a + (sign * (valOf(p._n, k) - norm[k].m)) / norm[k].sd, 0);
   }
 }
 
