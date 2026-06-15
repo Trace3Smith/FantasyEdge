@@ -7,16 +7,19 @@ import { buildDataset } from './_lib/buildDataset.js';
 import { buildNbaDataset, buildWnbaDataset } from './_lib/buildNbaDataset.js';
 import { buildNhlDataset } from './_lib/buildNhlDataset.js';
 import { buildNflDataset } from './_lib/buildNflDataset.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY } from './_lib/kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, DATASET_VERSION } from './_lib/kv.js';
 
 // Per-sport dataset wiring: which KV key holds it and how to (re)build it on a
-// cold-start cache miss. Add a sport here + a frontend tab to light it up.
+// cold-start cache miss. Add a sport here + a frontend tab to light it up. A
+// `version` makes the cache version-aware: a cached dataset whose version doesn't
+// match is treated as a miss and rebuilt, so a deploy self-heals on the next
+// request. MLB has no version (existence check only — preserves cron enrichment).
 const SPORTS = {
   mlb: { key: DATASET_KEY, build: () => buildDataset({ season: new Date().getFullYear() }) },
-  nba: { key: NBA_DATASET_KEY, build: () => buildNbaDataset() },
-  wnba: { key: WNBA_DATASET_KEY, build: () => buildWnbaDataset() },
-  nhl: { key: NHL_DATASET_KEY, build: () => buildNhlDataset() },
-  nfl: { key: NFL_DATASET_KEY, build: () => buildNflDataset() },
+  nba: { key: NBA_DATASET_KEY, build: () => buildNbaDataset(), version: DATASET_VERSION },
+  wnba: { key: WNBA_DATASET_KEY, build: () => buildWnbaDataset(), version: DATASET_VERSION },
+  nhl: { key: NHL_DATASET_KEY, build: () => buildNhlDataset(), version: DATASET_VERSION },
+  nfl: { key: NFL_DATASET_KEY, build: () => buildNflDataset(), version: DATASET_VERSION },
 };
 
 export default async function handler(req, res) {
@@ -32,9 +35,11 @@ export default async function handler(req, res) {
   try {
     let dataset = await redis.get(cfg.key);
 
-    if (!dataset || !dataset.players) {
-      // Cold start: build once and backfill the cache for the next request.
+    // Rebuild on a cold start (missing/evicted key) or a stale build version.
+    const stale = !dataset || !dataset.players || (cfg.version != null && dataset.version !== cfg.version);
+    if (stale) {
       dataset = await cfg.build();
+      if (cfg.version != null) dataset.version = cfg.version;
       await redis.set(cfg.key, dataset);
     }
 

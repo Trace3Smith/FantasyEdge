@@ -9,7 +9,7 @@ import { buildNbaDataset, buildWnbaDataset } from '../_lib/buildNbaDataset.js';
 import { buildNhlDataset } from '../_lib/buildNhlDataset.js';
 import { buildNflDataset } from '../_lib/buildNflDataset.js';
 import { enrichProspects } from '../_lib/enrichProspects.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY } from '../_lib/kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, DATASET_VERSION } from '../_lib/kv.js';
 
 // Secondary sports (ESPN-sourced, no prospects/enrichment). Each is built and
 // cached independently so one league's source failure can't drop another's
@@ -49,6 +49,7 @@ export default async function handler(req, res) {
     for (const s of SECONDARY) {
       try {
         const built = await s.build();
+        built.version = DATASET_VERSION; // keep cache in sync with the handler's check
         await redis.set(s.key, built);
         secondary[s.sport] = built.counts;
       } catch (err) {

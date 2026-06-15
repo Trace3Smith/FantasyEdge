@@ -9,6 +9,13 @@ export const NBA_DATASET_KEY = 'dataset:nba';
 export const WNBA_DATASET_KEY = 'dataset:wnba';
 export const NHL_DATASET_KEY = 'dataset:nhl';
 export const NFL_DATASET_KEY = 'dataset:nfl';
+// Build-schema version for the ESPN sports (nba/wnba/nhl/nfl). Bump this whenever
+// a builder's output changes shape or logic: the request handler treats a cached
+// dataset whose version doesn't match as a miss and rebuilds it on the next
+// request, so a deploy self-heals immediately instead of waiting for the cron.
+// MLB is intentionally exempt (its cold-start build skips prospect enrichment, so
+// we don't want a version bump to drop Phase 2 data between cron runs).
+export const DATASET_VERSION = 2;
 // Persistent Phase 2 state, survives the daily dataset rebuild:
 //   PROSPECT_STATE_KEY — per-player prospect record (milb lines, synopsis cache,
 //     event-detection snapshot) + the last good FanGraphs board for graceful degrade.
