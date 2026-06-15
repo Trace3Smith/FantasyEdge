@@ -6,7 +6,8 @@
 import { buildDataset } from './_lib/buildDataset.js';
 import { buildNbaDataset, buildWnbaDataset } from './_lib/buildNbaDataset.js';
 import { buildNhlDataset } from './_lib/buildNhlDataset.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY } from './_lib/kv.js';
+import { buildNflDataset } from './_lib/buildNflDataset.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY } from './_lib/kv.js';
 
 // Per-sport dataset wiring: which KV key holds it and how to (re)build it on a
 // cold-start cache miss. Add a sport here + a frontend tab to light it up.
@@ -15,6 +16,7 @@ const SPORTS = {
   nba: { key: NBA_DATASET_KEY, build: () => buildNbaDataset() },
   wnba: { key: WNBA_DATASET_KEY, build: () => buildWnbaDataset() },
   nhl: { key: NHL_DATASET_KEY, build: () => buildNhlDataset() },
+  nfl: { key: NFL_DATASET_KEY, build: () => buildNflDataset() },
 };
 
 export default async function handler(req, res) {
