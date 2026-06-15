@@ -70,10 +70,10 @@ function goalieCats(n) {
 function decorate(rec, i) {
   rec.rank = i + 1;
   rec.emoji = '🏒';
-  rec.trend = i < 10 ? 'up' : i > 35 ? 'down' : 'flat';
-  rec.trendVal = i < 10 ? '+' + (10 - i) : i > 35 ? '-' + (i - 35) : '0';
+  rec.trend = 'flat';   // real HOT/COLD form is applied later by enrichForm (cron)
+  rec.trendVal = '';
   rec.own = Math.max(10, 99 - i * 2);
-  rec.tag = i < 5 ? 'fire' : i < 15 ? 'trending' : i > 40 ? 'slump' : null;
+  rec.tag = null;       // no rank-based badges; HOT/COLD come from recent form
 }
 
 export async function buildNhlDataset() {
@@ -199,6 +199,7 @@ export async function buildNhlDataset() {
       subThreshold: subThreshold.length,
       skaterGate: skGate,
       goalieGate: gGate,
+      maxGames: Math.max(maxSk, maxG), // drives enrichForm's in-season check
       total: players.length,
     },
   };

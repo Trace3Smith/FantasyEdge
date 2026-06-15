@@ -351,9 +351,7 @@
     <div class="strip-divider"></div>
     <div class="strip-card"><div class="strip-icon">🔥</div><div><div class="strip-number" id="stripHot">—</div><div class="strip-label">Hot Right Now</div></div></div>
     <div class="strip-divider"></div>
-    <div class="strip-card"><div class="strip-icon">❄️</div><div><div class="strip-number" id="stripCold">—</div><div class="strip-label">In A Slump</div></div></div>
-    <div class="strip-divider"></div>
-    <div class="strip-card"><div class="strip-icon">⚡</div><div><div class="strip-number" id="stripRising">—</div><div class="strip-label">Rising</div></div></div>
+    <div class="strip-card"><div class="strip-icon">❄️</div><div><div class="strip-number" id="stripCold">—</div><div class="strip-label">Cold Right Now</div></div></div>
   </div>
 
   <div class="roto-bar">
@@ -447,15 +445,16 @@
     return `${lbl}<span class="td-stat">${v}</span>`;
   }
   function getTrendHTML(trend, val) {
+    // Trend mirrors the HOT/COLD form signal (recent vs season avg); flat = no data.
     if (trend === 'up') return `<span class="trend-up">▲ ${val||''}</span>`;
     if (trend === 'down') return `<span class="trend-down">▼ ${val||''}</span>`;
-    return `<span class="trend-flat">— ${val||'0'}</span>`;
+    return `<span class="trend-flat">—</span>`;
   }
+  // Only two badges now: HOT and COLD, driven by real recent form (enrichForm).
   function getTagHTML(tag) {
-    if (!tag) return '';
-    const cls = {fire:'tag-fire',trending:'tag-trending',slump:'tag-slump'}[tag] || 'tag-fire';
-    const lbl = {fire:'🔥 HOT',trending:'⚡ RISING',slump:'❄️ SLUMP'}[tag] || tag.toUpperCase();
-    return `<span class="tag-badge ${cls}">${lbl}</span>`;
+    if (tag === 'hot') return `<span class="tag-badge tag-fire">🔥 HOT</span>`;
+    if (tag === 'cold') return `<span class="tag-badge tag-slump">❄️ COLD</span>`;
+    return '';
   }
 
   const STAT_HEADERS = {
@@ -626,9 +625,8 @@
 
   function updateStrip(players) {
     document.getElementById('stripTotal').textContent = players.length;
-    document.getElementById('stripHot').textContent = players.filter(p=>p.tag==='fire').length;
-    document.getElementById('stripCold').textContent = players.filter(p=>p.tag==='slump').length;
-    document.getElementById('stripRising').textContent = players.filter(p=>p.tag==='trending').length;
+    document.getElementById('stripHot').textContent = players.filter(p=>p.tag==='hot').length;
+    document.getElementById('stripCold').textContent = players.filter(p=>p.tag==='cold').length;
   }
 
   async function loadAndRender(sport) {

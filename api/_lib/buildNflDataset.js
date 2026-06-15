@@ -94,10 +94,10 @@ function scaleKickers(skill, dsts) {
 function decorate(rec, i) {
   rec.rank = i + 1;
   rec.emoji = '🏈';
-  rec.trend = i < 10 ? 'up' : i > 35 ? 'down' : 'flat';
-  rec.trendVal = i < 10 ? '+' + (10 - i) : i > 35 ? '-' + (i - 35) : '0';
+  rec.trend = 'flat';   // real HOT/COLD form is applied later by enrichForm (cron)
+  rec.trendVal = '';
   rec.own = Math.max(10, 99 - i * 2);
-  rec.tag = i < 5 ? 'fire' : i < 15 ? 'trending' : i > 40 ? 'slump' : null;
+  rec.tag = null;       // no rank-based badges; HOT/COLD come from recent form
 }
 
 // Category-strength pills (drive the star count). The categories mirror the PPR
@@ -327,6 +327,7 @@ export async function buildNflDataset() {
     r.emoji = '🏈';
   }
 
+  const maxGames = skill.reduce((m, r) => Math.max(m, r._games || 0), 0); // for enrichForm
   const players = [...ranked, ...subThreshold];
   for (const r of players) delete r._games;
 
@@ -336,6 +337,7 @@ export async function buildNflDataset() {
     players,
     counts: {
       season,
+      maxGames,
       athletes: athletes.length,
       ranked: ranked.length,
       dsts: dsts.length,

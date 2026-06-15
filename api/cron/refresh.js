@@ -9,6 +9,7 @@ import { buildNbaDataset, buildWnbaDataset } from '../_lib/buildNbaDataset.js';
 import { buildNhlDataset } from '../_lib/buildNhlDataset.js';
 import { buildNflDataset } from '../_lib/buildNflDataset.js';
 import { enrichProspects } from '../_lib/enrichProspects.js';
+import { enrichForm } from '../_lib/enrichForm.js';
 import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, DATASET_VERSION } from '../_lib/kv.js';
 
 // Secondary sports (ESPN-sourced, no prospects/enrichment). Each is built and
@@ -43,12 +44,23 @@ export default async function handler(req, res) {
     } catch (err) {
       dataset.counts = { ...dataset.counts, prospectsError: err.message };
     }
+    // HOT/COLD recent-form badges (no-op out of season). Additive + failure-tolerant.
+    try {
+      await enrichForm(dataset, { sport: 'mlb', season });
+    } catch (err) {
+      dataset.counts = { ...dataset.counts, formError: err.message };
+    }
     await redis.set(DATASET_KEY, dataset);
 
     const secondary = {};
     for (const s of SECONDARY) {
       try {
         const built = await s.build();
+        try {
+          await enrichForm(built, { sport: s.sport, season });
+        } catch (err) {
+          built.counts = { ...built.counts, formError: err.message };
+        }
         built.version = DATASET_VERSION; // keep cache in sync with the handler's check
         await redis.set(s.key, built);
         secondary[s.sport] = built.counts;
