@@ -521,11 +521,15 @@
     // nflFp() picks the active per-player total for the FPTS column either way.
     let nflRank = null;
     const isNfl = currentSport === 'nfl';
+    // Display value (FPTS column) vs ranking value: kickers carry a separate
+    // rankStd so their realistic displayed points don't drag them up the Standard
+    // board (see scaleKickers in buildNflDataset.js).
     const nflFp = (p) => (currentScoring === 'STD' ? p.fpStd : p.fpPpr);
+    const nflRankFp = (p) => (currentScoring === 'STD' ? (p.rankStd ?? p.fpStd) : p.fpPpr);
     if (isNfl && currentScoring === 'STD') {
       nflRank = new Map();
       players.filter(p => !p.searchOnly && p.rank != null)
-        .sort((a, b) => (b.fpStd ?? 0) - (a.fpStd ?? 0))
+        .sort((a, b) => (nflRankFp(b) ?? 0) - (nflRankFp(a) ?? 0))
         .forEach((p, i) => nflRank.set(p.id, i + 1));
     }
     let filtered = currentPos === 'ALL' ? players : players.filter(p => (p.pos||'').toUpperCase().split('/').map(x => {
@@ -546,7 +550,7 @@
     }
     // NFL rows are ordered by the active scoring total (the array is server-sorted
     // by PPR, so this matters in Standard mode and keeps PPR order otherwise).
-    if (isNfl) filtered = filtered.slice().sort((a, b) => (nflFp(b) ?? 0) - (nflFp(a) ?? 0));
+    if (isNfl) filtered = filtered.slice().sort((a, b) => (nflRankFp(b) ?? 0) - (nflRankFp(a) ?? 0));
     if (!filtered.length) {
       tbody.innerHTML = '<tr class="loading-row"><td colspan="13"><div class="loading-title">No Players Found</div><div class="loading-sub">Try a different position filter</div></td></tr>';
       return;

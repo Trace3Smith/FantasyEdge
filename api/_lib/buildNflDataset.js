@@ -36,6 +36,11 @@ const FG_SHORT = 3, FG_40 = 4, FG_50 = 5, XP = 1;
 // DST scoring.
 const DST_SACK = 1, DST_INT = 2, DST_FR = 2, DST_TD = 6, DST_SAFETY = 2, DST_BLK = 2;
 
+// Overall-board slot the top kicker should land near (~12th round, 12-team). This
+// anchor also sets the top kicker's displayed point total to the board value there
+// (~115-140), which doubles as the fix for ESPN's inflated raw kicker counts.
+const KICKER_TARGET_RANK = 140;
+
 // Fantasy positions we keep; everything else (OL, DL, LB, DB, P, LS) is dropped.
 // ESPN labels kickers "PK" and has fullbacks "FB"; we fold those into K and RB.
 const POS_MAP = { QB: 'QB', RB: 'RB', FB: 'RB', WR: 'WR', TE: 'TE', PK: 'K' };
@@ -52,6 +57,38 @@ function paPoints(perGame) {
 }
 
 const r1 = (v) => Math.round(v * 10) / 10; // one-decimal round
+
+// Scale kickers so the top kicker lands ~KICKER_TARGET_RANK on the board. Mutates
+// kicker records in place. Two things are decoupled here, because a kicker's raw
+// points are inflated AND identical across formats while the players it competes
+// with are not:
+//   • DISPLAYED points (fpPpr/fpStd, shown in the FPTS column) — one PPR-anchored
+//     factor, so the top kicker reads a realistic ~115-140 in BOTH formats.
+//   • RANKING value (fp for the default/PPR board, rankStd for Standard) — anchored
+//     to each format's own distribution, so the kicker stays in the late rounds in
+//     both views even though Standard skill players score less.
+// Only ever scales kickers down (factors clamped to <= 1).
+function scaleKickers(skill, dsts) {
+  const kickers = skill.filter((r) => r.pos === 'K' && r.fp > 0);
+  if (!kickers.length) return;
+  const others = [...skill.filter((r) => r.pos !== 'K' && r.fp > 0 && r._games > 0), ...dsts];
+  if (!others.length) return;
+  const idx = Math.min(KICKER_TARGET_RANK - 1, others.length - 1);
+  const anchorPpr = others.map((r) => r.fpPpr).sort((a, b) => b - a)[idx];
+  const anchorStd = others.map((r) => r.fpStd).sort((a, b) => b - a)[idx];
+  const topK = Math.max(...kickers.map((k) => k.fpPpr));
+  const dispScale = Math.min(1, anchorPpr / topK); // display + PPR rank
+  const stdRankScale = Math.min(1, anchorStd / topK); // Standard rank only
+
+  for (const k of kickers) {
+    const raw = k.fpPpr;
+    k.fpPpr = r1(raw * dispScale); // displayed total (same in both formats)
+    k.fpStd = k.fpPpr;
+    k.fp = k.fpPpr; // default board ranks on PPR
+    k.rankStd = r1(raw * stdRankScale); // Standard-board ranking value (not displayed)
+    k.s6 = k.fpPpr.toFixed(1);
+  }
+}
 
 // Cosmetic trend/own/tag from rank — identical formula to the other sports.
 function decorate(rec, i) {
@@ -265,6 +302,17 @@ export async function buildNflDataset() {
   } catch {
     dsts = [];
   }
+
+  // Positional scaling for kickers. Raw kicker points are deceptively high (a top
+  // kicker out-scores most starters), but kickers carry almost no draft value —
+  // they go in the last 1-2 rounds because week-to-week output is near-random and
+  // replacement level is high. We scale every kicker's points so the BEST kicker
+  // lands at roughly the fantasy-point level of the player at KICKER_TARGET_RANK
+  // on the rest of the board (~12th-14th round in a 12-team league); the rest scale
+  // proportionally and fall in below it. Anchoring to the live board (rather than a
+  // hardcoded multiplier) keeps it correct as the point distribution shifts season
+  // to season. We only ever scale kickers DOWN (clamped at 1).
+  scaleKickers(skill, dsts);
 
   // One overall board: rank every contributor (skill + DST) by PPR total. Players
   // who never produced (0 games or non-positive points) drop to search-only.
