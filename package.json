@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@upstash/redis": "^1.38.0"
+    "@clerk/backend": "^1.21.0",
+    "@upstash/redis": "^1.38.0",
+    "stripe": "^17.5.0"
   }
 }
