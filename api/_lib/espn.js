@@ -74,6 +74,9 @@ export function makeReader(idx) {
     const i = idx[cat]?.get(name);
     if (i == null) return null;
     const v = c.totals?.[i];
-    return v == null || v === '' ? null : parseFloat(v);
+    // ESPN formats large counting stats with thousands separators ("3,668",
+    // "1,202"); parseFloat stops at the comma ("3,668" -> 3), so strip commas
+    // first. Matters for NFL season yardage (passing/rushing/receiving > 999).
+    return v == null || v === '' ? null : parseFloat(String(v).replace(/,/g, ''));
   };
 }
