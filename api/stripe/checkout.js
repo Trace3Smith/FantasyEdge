@@ -29,30 +29,18 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    // ⚠️⚠️ TEMPORARY AUTH BYPASS — FOR TESTING ONLY, REVERT BEFORE GO-LIVE ⚠️⚠️
-    // Purpose: isolate Stripe from Clerk. While bypassed, the endpoint creates a
-    // Checkout session WITHOUT requiring a valid Clerk token. If a valid token is
-    // present we still tag the customer/userId; if not, Stripe collects the email
-    // at checkout. NOTE: with no userId, the webhook can't map the subscription
-    // back to a Clerk user, so completing payment under bypass will NOT flip the
-    // plan to premium. To restore security, replace this block with:
-    //     const { userId } = await requireUser(req);
-    //     ... const customer = await getOrCreateCustomer(userId);
-    //     ... client_reference_id: userId, customer,
-    let userId = null;
-    try { ({ userId } = await requireUser(req)); } catch { /* bypassed for testing */ }
-    console.warn('[checkout] AUTH BYPASS ACTIVE — userId:', userId);
+    const { userId } = await requireUser(req);
 
     const interval = (req.body?.interval || 'month').toLowerCase();
     const price = PRICE_BY_INTERVAL[interval];
     if (!price) throw new HttpError(400, `Unknown billing interval: ${interval}`);
 
-    const customer = userId ? await getOrCreateCustomer(userId) : undefined;
+    const customer = await getOrCreateCustomer(userId);
 
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
-      ...(customer ? { customer } : {}),
-      ...(userId ? { client_reference_id: userId } : {}),
+      customer,
+      client_reference_id: userId,
       line_items: [{ price, quantity: 1 }],
       allow_promotion_codes: true,
       success_url: `${APP_URL}/fantasyedge-draft.html?upgraded=1`,
