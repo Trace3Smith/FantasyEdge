@@ -4,10 +4,13 @@
 import Stripe from 'stripe';
 import { createClerkClient } from '@clerk/backend';
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+// .trim() guards against trailing whitespace/newlines in pasted env values — a
+// trailing newline in an API key corrupts the Authorization header (Stripe surfaces
+// it as a StripeConnectionError; Clerk JWKS fetches fail as "invalid session").
+export const stripe = new Stripe((process.env.STRIPE_SECRET_KEY || '').trim());
 
 export const clerkClient = createClerkClient({
-  secretKey: process.env.CLERK_SECRET_KEY,
+  secretKey: (process.env.CLERK_SECRET_KEY || '').trim(),
 });
 
 // The two recurring prices created in the Stripe dashboard. The checkout endpoint

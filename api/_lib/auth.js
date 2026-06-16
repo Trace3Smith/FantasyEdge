@@ -41,8 +41,10 @@ export async function requireUser(req) {
 
   try {
     const claims = await verifyToken(token, {
-      jwtKey: process.env.CLERK_JWT_KEY,
-      secretKey: process.env.CLERK_SECRET_KEY,
+      // .trim() guards against trailing whitespace/newlines in pasted env values,
+      // which otherwise break JWKS resolution and reject every token.
+      jwtKey: process.env.CLERK_JWT_KEY?.trim() || undefined,
+      secretKey: (process.env.CLERK_SECRET_KEY || '').trim(),
       authorizedParties: authorizedParties(),
     });
     return { userId: claims.sub, claims };

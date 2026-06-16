@@ -6,6 +6,6 @@ export default function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'public, max-age=300');
   return res.json({
-    clerkPublishableKey: process.env.CLERK_PUBLISHABLE_KEY || '',
+    clerkPublishableKey: (process.env.CLERK_PUBLISHABLE_KEY || '').trim(),
   });
 }
