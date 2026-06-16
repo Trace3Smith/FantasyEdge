@@ -41,9 +41,11 @@ export async function requireUser(req) {
 
   try {
     const claims = await verifyToken(token, {
-      // .trim() guards against trailing whitespace/newlines in pasted env values,
-      // which otherwise break JWKS resolution and reject every token.
-      jwtKey: process.env.CLERK_JWT_KEY?.trim() || undefined,
+      // jwtKey (the PEM public key) makes verification networkless — no per-request
+      // JWKS fetch, which is what was intermittently failing (jwk-failed-to-resolve).
+      // Normalize both paste styles: trim surrounding whitespace AND convert literal
+      // "\n" escapes into real newlines, so a single-line or multi-line PEM both work.
+      jwtKey: (process.env.CLERK_JWT_KEY || '').trim().replace(/\\n/g, '\n') || undefined,
       secretKey: (process.env.CLERK_SECRET_KEY || '').trim(),
       authorizedParties: authorizedParties(),
     });
