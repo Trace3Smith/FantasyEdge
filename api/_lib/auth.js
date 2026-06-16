@@ -48,8 +48,17 @@ export async function requireUser(req) {
       authorizedParties: authorizedParties(),
     });
     return { userId: claims.sub, claims };
-  } catch {
-    throw new HttpError(401, 'Invalid or expired session');
+  } catch (err) {
+    // Surface the real Clerk failure reason instead of a blanket message. Clerk's
+    // TokenVerificationError carries a `.reason` (e.g. token-expired,
+    // token-invalid-signature, jwk-remote-failed-to-load) that distinguishes an
+    // expired token from a JWKS-fetch failure — critical for diagnosis.
+    const reason = err?.reason || err?.message || 'unknown';
+    console.error('[auth] verifyToken failed:', reason, err);
+    throw new HttpError(401, 'Invalid or expired session', {
+      error: 'auth_failed',
+      reason,
+    });
   }
 }
 
