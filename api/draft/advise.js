@@ -6,7 +6,7 @@ import { loadPlayers, recommend, DEFAULT_SETTINGS } from '../_lib/draft.js';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-4-6';
-const SYSTEM = `You are a sharp fantasy football draft assistant. Given the drafter's current roster, the round, and the top available players (with value-over-replacement and positional-need flags), recommend the single best pick and explain why in 2 concise sentences. Mention positional need or value, and any position run. No preamble, no lists — just the advice.`;
+const SYSTEM = `You are a sharp fantasy football draft assistant. You are given the drafter's current roster, the round, the top available players (with value-over-replacement and positional-need flags), and THE recommended pick — already selected by our model. In 2 concise sentences, explain why that recommended pick is the right selection, citing positional need, value/VORP, or a position run. Do NOT suggest or name a different player; justify the recommended pick. No preamble, no lists — just the advice.`;
 
 // Ask Claude for a one-line rationale on the recommendation. Returns null on any
 // failure (no key, API error) so the algorithmic candidates still ship.
@@ -14,11 +14,14 @@ async function rationaleFor({ round, roster, candidates, runs, scoring }) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key || !candidates.length) return null;
   const rosterStr = roster.length ? roster.map((r) => r.pos).join(', ') : '(empty)';
+  // The header shows candidates[0]; pin Claude's rationale to that exact player so the
+  // explanation can never argue for a different name than the one on screen.
+  const pick = candidates[0];
   const top = candidates
     .slice(0, 6)
     .map((c) => `${c.name} (${c.pos}, ${c.team}) value ${c.value}, VORP ${c.vorp}${c.need ? ', NEED' : ''}`)
     .join('\n');
-  const prompt = `Round ${round}, ${scoring.toUpperCase()} scoring.\nMy roster so far: ${rosterStr}.\n${runs.length ? `Recent run on: ${runs.join(', ')}.\n` : ''}Top available:\n${top}`;
+  const prompt = `Round ${round}, ${scoring.toUpperCase()} scoring.\nMy roster so far: ${rosterStr}.\n${runs.length ? `Recent run on: ${runs.join(', ')}.\n` : ''}Top available:\n${top}\n\nRecommended pick: ${pick.name} (${pick.pos}, ${pick.team}). Explain why this is the right pick.`;
   try {
     const r = await fetch(ANTHROPIC_URL, {
       method: 'POST',
