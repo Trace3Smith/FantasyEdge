@@ -27,7 +27,17 @@ export const DEFAULT_SETTINGS = {
 // Roughly how deep each position is drafted before quality falls to "replacement"
 // level in a ~10-team league. The Nth-best player at a position sets its baseline.
 const REPLACEMENT_DEPTH = { QB: 12, RB: 30, WR: 30, TE: 10, K: 10, DST: 10 };
-const FLEX_POS = new Set(['RB', 'WR', 'TE']);
+
+// The minimum balanced roster every team must end up with. The recommender fills
+// these starter requirements before chasing luxury depth, so a drafter can't end up
+// with five RBs and no QB/TE/K/DST. The FLEX slot is satisfied by one extra RB/WR/TE
+// drafted on top of these minimums (handled by the post-minimum "depth" tier below).
+const MIN_ROSTER = { QB: 1, RB: 2, WR: 2, TE: 1, K: 1, DST: 1 };
+
+// Roughly how many starters the league as a whole wants at each position. Used to
+// gauge scarcity: when the count of startable players left at a position drops toward
+// (teams × demand), the position is drying up and urgency to grab one should rise.
+const LEAGUE_DEMAND = { QB: 1, RB: 2.5, WR: 2.5, TE: 1, K: 1, DST: 1 };
 
 // Load a sport's player list from cache, rebuilding on a miss (mirrors api/sports.js).
 export async function loadPlayers(sport = 'nfl') {
@@ -70,20 +80,56 @@ function countByPos(roster) {
   return c;
 }
 
-// Need multiplier: boost positions whose starter slots aren't filled, soften ones
-// already stocked, and strongly defer K/DST until the draft is winding down.
-function needFactor(pos, counts, settings, round) {
-  if ((pos === 'K' || pos === 'DST') && round < settings.rounds - 2) return 0.15;
+// Draft-end pressure from how many spare picks remain beyond the mandatory starting
+// slots we still haven't filled. This is derived from roster state, not a fixed round:
+// urgency builds as the cushion shrinks, so a smart drafter reaches for must-haves as
+// the clock runs out rather than at some hardcoded round. (slack <= 0 is handled as a
+// hard "forced" tier in recommend; this is the smooth ramp leading up to it.)
+function deadlinePressure(slack) {
+  if (slack >= 5) return 1;       // plenty of picks left — no rush
+  if (slack <= 0) return 2.2;     // out of cushion — needs surge (forced tier also fires)
+  return 1 + (5 - slack) * 0.2;   // slack 4→1.2, 3→1.4, 2→1.6, 1→1.8
+}
 
-  const starters = settings.starters || {};
+// Need multiplier — how much to want this position right now, reading both our roster
+// and the live board. No fixed round logic: urgency emerges from (1) whether we still
+// owe a starting slot, (2) how fast startable players at the position are drying up,
+// (3) a live run on the position, and (4) how few picks remain to meet requirements.
+// The wide spread lets real need override the raw-VORP edge that made every pick an RB.
+function needFactor(pos, counts, board) {
   const have = counts[pos] || 0;
-  let target = starters[pos] || 0;
-  // FLEX-eligible positions get a little extra headroom for the flex slot.
-  if (FLEX_POS.has(pos)) target += starters.FLEX || 0;
+  const min = MIN_ROSTER[pos] || 0;
+  const gap = Math.max(0, min - have); // unfilled starting slots at this position
 
-  if (have < target) return 1.3; // still need a starter here
-  if (have < target + 1) return 1.0; // useful depth
-  return 0.8; // already deep
+  // (1) Desire from our own roster. Below the minimum we want it badly; once the slot
+  // is filled, appetite for more depends on the position — RB/WR reward bench depth and
+  // feed the FLEX, TE a little, while a backup QB/K/DST is almost worthless.
+  let desire;
+  if (gap > 0) {
+    desire = gap >= 2 ? 1.5 : 1.2;
+  } else {
+    const surplus = have - min;
+    if (pos === 'RB' || pos === 'WR') desire = surplus === 0 ? 0.9 : surplus === 1 ? 0.65 : surplus === 2 ? 0.45 : 0.3;
+    else if (pos === 'TE') desire = surplus === 0 ? 0.5 : 0.3;
+    else desire = 0.05; // extra QB / K / DST — essentially never
+  }
+
+  // (2) Scarcity from the board: startable (above-replacement) players left vs. how many
+  // the league still wants. As the pool thins toward demand, urgency climbs — but it's
+  // muted for slots we've already filled (a scarce position we're set at isn't our problem).
+  const demand = (board.teams || 10) * (LEAGUE_DEMAND[pos] || 1);
+  const left = board.startableLeft[pos] || 0;
+  const ratio = demand > 0 ? left / demand : 1;
+  let scarcity = 1 + Math.max(0, 1 - ratio);            // 1.0 (plenty) .. 2.0 (nearly gone)
+  if (gap === 0) scarcity = 1 + (scarcity - 1) * 0.25;  // dampened once the slot is filled
+
+  // (3) React to a live run on a position we still need — others are clearing the shelf.
+  const runBump = board.run && gap > 0 ? 1.2 : 1;
+
+  // (4) Draft-end pressure on slots we still owe.
+  const deadline = gap > 0 ? deadlinePressure(board.slack) : 1;
+
+  return desire * scarcity * runBump * deadline;
 }
 
 // Detect a recent run on a position (scarcity signal) from the last few picks.
@@ -110,25 +156,56 @@ export function recommend(players, drafted, roster = [], settings = DEFAULT_SETT
   const scoring = settings.scoring || 'ppr';
   const levels = replacementLevels(players, scoring);
   const counts = countByPos(roster);
+  const teams = settings.teams || 10;
+  const totalRounds = settings.rounds || 15;
 
-  const scored = players
-    .filter((p) => !taken.has(p.id))
+  const available = players.filter((p) => !taken.has(p.id));
+
+  // Board read: how many startable (above-replacement) players remain at each position.
+  // This is the live scarcity signal that drives reactive urgency in needFactor.
+  const startableLeft = {};
+  for (const p of available) {
+    if (valueOf(p, scoring) > (levels[p.pos] ?? 0)) startableLeft[p.pos] = (startableLeft[p.pos] || 0) + 1;
+  }
+
+  // Draft-end cushion: spare picks beyond the mandatory starting slots still unfilled.
+  // Derived from roster state, not the round number — when it hits zero, those unmet
+  // requirements become "forced" and sort ahead of pure value so we never end the draft
+  // missing a starter (e.g. no kicker), which raw VORP would otherwise never pick.
+  let mandatoryRemaining = 0;
+  for (const [pos, m] of Object.entries(MIN_ROSTER)) mandatoryRemaining += Math.max(0, m - (counts[pos] || 0));
+  const picksLeft = Math.max(0, totalRounds - roster.length);
+  const slack = picksLeft - mandatoryRemaining;
+
+  const runs = positionRuns(recentPicks);
+  const runSet = new Set(runs);
+
+  const scored = available
     .map((p) => {
-      const vorp = Math.max(0, valueOf(p, scoring) - (levels[p.pos] ?? 0));
-      const factor = needFactor(p.pos, counts, settings, round);
+      const v = valueOf(p, scoring);
+      const vorp = Math.max(0, v - (levels[p.pos] ?? 0));
+      const gap = Math.max(0, (MIN_ROSTER[p.pos] || 0) - (counts[p.pos] || 0));
+      const factor = needFactor(p.pos, counts, { startableLeft, teams, slack, run: runSet.has(p.pos) });
       return {
         id: p.id,
         name: p.name,
         team: p.team,
         pos: p.pos,
         rank: p.rank,
-        value: Math.round(valueOf(p, scoring) * 10) / 10,
+        value: Math.round(v * 10) / 10,
         vorp: Math.round(vorp * 10) / 10,
         score: Math.round(vorp * factor * 10) / 10,
-        need: factor >= 1.3,
+        need: gap > 0,                  // still owe a starting slot here
+        forced: gap > 0 && slack <= 0,  // out of spare picks — must take a need now
       };
     })
-    .sort((a, b) => b.score - a.score || (a.rank ?? 1e9) - (b.rank ?? 1e9));
+    // Forced needs first (so a mandatory slot is never skipped at the buzzer), then by
+    // the reactive score, then by raw board rank as a tiebreak.
+    .sort((a, b) =>
+      (b.forced ? 1 : 0) - (a.forced ? 1 : 0) ||
+      b.score - a.score ||
+      (a.rank ?? 1e9) - (b.rank ?? 1e9)
+    );
 
-  return { candidates: scored.slice(0, 8), runs: positionRuns(recentPicks) };
+  return { candidates: scored.slice(0, 8), runs };
 }
