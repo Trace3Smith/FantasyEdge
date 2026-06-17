@@ -82,6 +82,12 @@
   .search-input { width: 100%; background: var(--dark3); color: var(--white); border: 1px solid rgba(255,255,255,0.12);
     border-radius: 6px; padding: 9px 12px; font-family: inherit; margin-bottom: 10px; }
   .avail-list { max-height: 360px; overflow-y: auto; }
+
+  .mode-tabs { display: flex; gap: 8px; margin-bottom: 6px; }
+  .mode-tab { padding: 9px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);
+    background: var(--dark3); color: var(--gray-light); cursor: pointer; font-family: inherit; font-weight: 600; font-size: 14px; }
+  .mode-tab.active { border-color: var(--gold); color: var(--gold); background: rgba(212,160,23,0.1); }
+  .clock-you { color: var(--gold); font-weight: 700; }
 </style>
 </head>
 <body>
@@ -104,8 +110,8 @@
 
 <main class="main">
   <div class="top-header">
-    <div class="page-title">MOCK DRAFT</div>
-    <div class="page-subtitle">Practice your NFL draft with an AI draft assistant.</div>
+    <div class="page-title">DRAFT ASSISTANT</div>
+    <div class="page-subtitle">Run a mock draft or track your real league draft live with an AI assistant.</div>
   </div>
 
   <!-- Signed-out state -->
@@ -116,10 +122,24 @@
 
   <!-- Pre-draft setup -->
   <div class="panel hidden" id="setup">
+    <div class="mode-tabs">
+      <button class="mode-tab active" id="modeMock" type="button">Mock Draft</button>
+      <button class="mode-tab" id="modeOffline" type="button">Offline Draft</button>
+    </div>
+    <p class="muted" id="modeDesc" style="font-size:13px; margin: 10px 0 14px;"></p>
     <div class="start-row">
       <button class="btn btn-gold" id="startBtn">Start Mock Draft</button>
       <label class="muted" style="font-size:13px">League size
         <select id="teamsSel"><option>8</option><option selected>10</option><option>12</option><option>14</option></select>
+      </label>
+      <label class="muted offline-only hidden" style="font-size:13px">Your draft position
+        <select id="posSel"></select>
+      </label>
+      <label class="muted offline-only hidden" style="font-size:13px">Rounds
+        <select id="roundsSel"><option>12</option><option>13</option><option>14</option><option selected>15</option><option>16</option><option>17</option></select>
+      </label>
+      <label class="muted offline-only hidden" style="font-size:13px">Format
+        <select id="formatSel"><option value="snake">Snake</option><option value="linear">Linear</option></select>
       </label>
       <span class="premium-only">
         <label class="muted" style="font-size:13px">Scoring
@@ -134,6 +154,10 @@
   <div class="hidden" id="draftArea">
     <div class="free-banner hidden" id="freeBanner"></div>
     <div class="clock" id="clock"></div>
+    <div class="offline-only hidden" id="offlineBar" style="margin-bottom:14px">
+      <button class="btn btn-ghost" id="undoBtn" type="button" style="padding:6px 14px; font-size:13px">↶ Undo last pick</button>
+      <span class="muted" style="font-size:12px; margin-left:10px">As each team picks, click the player they took — in order. We track whose turn it is.</span>
+    </div>
     <div class="draft-grid">
       <div class="panel">
         <div class="reco" id="recoPanel">
@@ -215,10 +239,42 @@ function refreshAuthUI() {
   $('setup').classList.toggle('hidden', !signedIn);
 }
 
+// Mode selection ----------------------------------------------------------------
+let selectedMode = 'mock';
+let adviceReq = 0; // guards against out-of-order advice responses in offline mode
+const MODE_DESC = {
+  mock: 'Practice against AI opponents that draft by real ADP. Free: 1 per day, assistant advice for rounds 1–7.',
+  offline: 'Track your real league draft live (Zoom or in person). Premium — mark every pick as it happens; the assistant updates in real time and surfaces your targets as your pick nears.',
+};
+function setMode(m) {
+  selectedMode = m;
+  $('modeMock').classList.toggle('active', m === 'mock');
+  $('modeOffline').classList.toggle('active', m === 'offline');
+  $('modeDesc').textContent = MODE_DESC[m];
+  document.querySelectorAll('.offline-only').forEach((el) => el.classList.toggle('hidden', m !== 'offline'));
+  $('startBtn').textContent = m === 'offline' ? 'Start Offline Draft' : 'Start Mock Draft';
+  $('usageNote').textContent = '';
+  if (m === 'offline') syncPosOptions();
+}
+// Draft-position options track the chosen league size.
+function syncPosOptions() {
+  const teams = Number($('teamsSel').value);
+  const cur = Math.min(Number($('posSel').value) || 1, teams);
+  $('posSel').innerHTML = Array.from({ length: teams }, (_, i) =>
+    `<option value="${i + 1}"${i + 1 === cur ? ' selected' : ''}>${i + 1}</option>`).join('');
+}
+$('modeMock').addEventListener('click', () => setMode('mock'));
+$('modeOffline').addEventListener('click', () => setMode('offline'));
+$('teamsSel').addEventListener('change', () => { if (selectedMode === 'offline') syncPosOptions(); });
+
 // Start a draft -----------------------------------------------------------------
 $('startBtn').addEventListener('click', startDraft);
 
-async function startDraft() {
+function startDraft() {
+  return selectedMode === 'offline' ? startOffline() : startMock();
+}
+
+async function startMock() {
   $('startBtn').disabled = true;
   $('startBtn').textContent = 'Starting…';
   const settings = {};
@@ -243,7 +299,9 @@ async function startDraft() {
 
   await loadPool();
   state = {
+    mode: 'mock',
     settings: data.settings,
+    format: 'snake',
     userTeam: data.userSlot - 1,
     premium: data.premium,
     freeMaxRound: data.freeMaxRound,
@@ -256,6 +314,7 @@ async function startDraft() {
 
   $('setup').classList.add('hidden');
   $('draftArea').classList.remove('hidden');
+  $('offlineBar').classList.add('hidden');
   if (!data.premium) {
     $('freeBanner').classList.remove('hidden');
     $('freeBanner').textContent = `Free mock: assistant advice for rounds 1–${data.freeMaxRound}. Upgrade for the full draft & unlimited mocks.`;
@@ -265,8 +324,11 @@ async function startDraft() {
 
 // Draft flow --------------------------------------------------------------------
 const roundOf = (i, teams) => Math.floor(i / teams) + 1;
-function teamOnClock(i, teams) {
+// Which team slot (0-based) is on the clock at overall pick `i`. Linear keeps the same
+// order every round; snake reverses it on even rounds. Mock drafts are always snake.
+function teamOnClock(i, teams, format = 'snake') {
   const round = roundOf(i, teams), inRound = i % teams;
+  if (format === 'linear') return inRound;
   return round % 2 === 1 ? inRound : teams - 1 - inRound; // snake
 }
 
@@ -320,6 +382,28 @@ function userDraft(playerId) {
   advance();
 }
 
+// Clicking a player: in a mock it's your pick; in offline it logs whoever the team on
+// the clock just took (your roster if that's your slot).
+function draftPlayer(id) {
+  return state.mode === 'offline' ? offlineRecord(id) : userDraft(id);
+}
+
+// Shared candidate-card renderer (mock reco + offline targets).
+function renderCandidates(list) {
+  const candList = $('candList');
+  candList.innerHTML = '';
+  list.forEach((c) => {
+    const el = document.createElement('div');
+    el.className = 'cand';
+    el.innerHTML = `<div><span class="pos ${posClass(c.pos)}">${c.pos}</span><span class="nm">${c.name}</span>
+      <span class="meta"> · ${c.team} · #${c.rank ?? '—'}${c.adp != null ? ' · ADP ' + c.adp : ''}${c.need ? ' · <span class="need">NEED</span>' : ''}</span>
+      ${projLine(byId.get(c.id))}</div>
+      <div class="meta">${c.falling && c.picksPastAdp > 0 ? `<span class="value">+${c.picksPastAdp} past ADP</span>` : ''}</div>`;
+    el.addEventListener('click', () => draftPlayer(c.id));
+    candList.appendChild(el);
+  });
+}
+
 // User's turn: render roster/board, then fetch assistant advice -----------------
 function renderUserTurn() {
   const round = roundOf(state.pickIndex, state.settings.teams);
@@ -362,17 +446,7 @@ async function fetchAdvice(round) {
 
   if (data.runs?.length) { runs.classList.remove('hidden'); runs.textContent = `⚠ Run on ${data.runs.join(', ')} — these positions are going fast.`; }
 
-  candList.innerHTML = '';
-  data.candidates.forEach((c) => {
-    const el = document.createElement('div');
-    el.className = 'cand';
-    el.innerHTML = `<div><span class="pos ${posClass(c.pos)}">${c.pos}</span><span class="nm">${c.name}</span>
-      <span class="meta"> · ${c.team} · #${c.rank ?? '—'}${c.adp != null ? ' · ADP ' + c.adp : ''}${c.need ? ' · <span class="need">NEED</span>' : ''}</span>
-      ${projLine(byId.get(c.id))}</div>
-      <div class="meta">${c.falling && c.picksPastAdp > 0 ? `<span class="value">+${c.picksPastAdp} past ADP</span>` : ''}</div>`;
-    el.addEventListener('click', () => userDraft(c.id));
-    candList.appendChild(el);
-  });
+  renderCandidates(data.candidates);
 }
 
 // Renders ----------------------------------------------------------------------
@@ -383,9 +457,12 @@ function renderRoster() {
   }).join('') || '<li class="muted">No picks yet</li>';
 }
 function renderRecent() {
-  $('recentList').innerHTML = state.picks.slice(-12).reverse().map((p) =>
-    `<li><span class="muted">R${p.round}</span> <span class="pos ${posClass(p.pos)}">${p.pos}</span> ${p.name}${p.teamIndex === state.userTeam ? ' <span style="color:var(--gold)">(you)</span>' : ''}</li>`
-  ).join('') || '<li class="muted">—</li>';
+  $('recentList').innerHTML = state.picks.slice(-12).reverse().map((p) => {
+    const who = p.teamIndex === state.userTeam
+      ? ' <span style="color:var(--gold)">(you)</span>'
+      : (state.mode === 'offline' ? ` <span class="muted">Tm ${p.teamIndex + 1}</span>` : '');
+    return `<li><span class="muted">R${p.round}</span> <span class="pos ${posClass(p.pos)}">${p.pos}</span> ${p.name}${who}</li>`;
+  }).join('') || '<li class="muted">—</li>';
 }
 function renderAvailable(filter = '') {
   const f = filter.toLowerCase();
@@ -396,7 +473,7 @@ function renderAvailable(filter = '') {
     return `<div class="cand" data-id="${p.id}"><div><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>
       <span class="meta"> · ${p.team} · #${p.rank}${adp != null ? ' · ADP ' + adp : ''}</span>${projLine(p)}</div></div>`;
   }).join('');
-  $('availList').querySelectorAll('.cand').forEach((el) => el.addEventListener('click', () => userDraft(el.dataset.id)));
+  $('availList').querySelectorAll('.cand').forEach((el) => el.addEventListener('click', () => draftPlayer(el.dataset.id)));
 }
 $('availSearch').addEventListener('input', (e) => renderAvailable(e.target.value));
 
@@ -407,7 +484,153 @@ function finishDraft() {
   renderRoster();
 }
 
+// Offline draft (real-league tracker) ------------------------------------------
+async function startOffline() {
+  // Premium feature — free users get the upsell (server also enforces this).
+  if (!window.FE?.isPremium()) { window.FE?.openPricing(); return; }
+
+  const teams = Number($('teamsSel').value);
+  const position = Math.min(Math.max(1, Number($('posSel').value) || 1), teams);
+  const settings = {
+    teams,
+    rounds: Number($('roundsSel').value) || 15,
+    scoring: $('scoringSel') ? $('scoringSel').value : 'ppr',
+  };
+  const format = $('formatSel').value === 'linear' ? 'linear' : 'snake';
+
+  await loadPool();
+  state = {
+    mode: 'offline',
+    settings,
+    format,
+    userTeam: position - 1,
+    premium: true,
+    pickIndex: 0,
+    totalPicks: teams * settings.rounds,
+    drafted: new Set(),
+    picks: [],
+    roster: [],
+  };
+  $('setup').classList.add('hidden');
+  $('draftArea').classList.remove('hidden');
+  $('freeBanner').classList.add('hidden');
+  $('lockPanel').classList.add('hidden');
+  $('offlineBar').classList.remove('hidden');
+  offlineStep();
+}
+
+// How many picks until the user is on the clock again (0 = right now, -1 = none left).
+function picksUntilUserTurn() {
+  const { settings, format, userTeam, pickIndex, totalPicks } = state;
+  for (let k = 0; pickIndex + k < totalPicks; k++) {
+    if (teamOnClock(pickIndex + k, settings.teams, format) === userTeam) return k;
+  }
+  return -1;
+}
+
+// Record the player the team currently on the clock just took, then advance.
+function offlineRecord(id) {
+  const p = byId.get(id);
+  if (!p || state.drafted.has(id) || state.pickIndex >= state.totalPicks) return;
+  const teamIdx = teamOnClock(state.pickIndex, state.settings.teams, state.format);
+  const round = roundOf(state.pickIndex, state.settings.teams);
+  state.drafted.add(id);
+  state.picks.push({ id, name: p.name, pos: p.pos, team: p.team, teamIndex: teamIdx, round });
+  if (teamIdx === state.userTeam) state.roster.push({ id, pos: p.pos });
+  state.pickIndex++;
+  offlineStep();
+}
+
+// Undo the last recorded pick (real drafts have mistakes / corrections).
+function offlineUndo() {
+  const last = state.picks.pop();
+  if (!last) return;
+  state.drafted.delete(last.id);
+  if (last.teamIndex === state.userTeam) {
+    const i = state.roster.findIndex((r) => r.id === last.id);
+    if (i >= 0) state.roster.splice(i, 1);
+  }
+  state.pickIndex = Math.max(0, state.pickIndex - 1);
+  offlineStep();
+}
+
+// Re-render the board after any change and refresh advice for the current state.
+function offlineStep() {
+  if (state.pickIndex >= state.totalPicks) return offlineFinish();
+  const onClock = teamOnClock(state.pickIndex, state.settings.teams, state.format);
+  const until = picksUntilUserTurn();
+  const round = roundOf(state.pickIndex, state.settings.teams);
+  const who = onClock === state.userTeam ? '<span class="clock-you">YOU</span>' : `Team ${onClock + 1}`;
+  let head = `Round <b>${round}</b> · Pick <b>${state.pickIndex + 1}</b> · On the clock: <b>${who}</b>`;
+  if (until === 0) head += ' — <span class="clock-you">your pick!</span>';
+  else if (until > 0) head += ` · <span class="muted">your pick in ${until}</span>`;
+  $('clock').innerHTML = head;
+  renderRoster();
+  renderRecent();
+  renderAvailable($('availSearch').value || '');
+  updateOfflineAdvice(until);
+}
+
+// Pull fresh advice for the user's situation. Only spends a Claude rationale call when
+// the user is actually on the clock; otherwise it's the fast algorithmic top targets.
+async function updateOfflineAdvice(until) {
+  const onClock = until === 0;
+  const recoTop = $('recoTop'), runs = $('runs');
+  $('lockPanel').classList.add('hidden');
+  $('recoPanel').classList.remove('hidden');
+  if (until < 0) { recoTop.innerHTML = '<span class="muted">No more picks for you — draft complete soon.</span>'; $('candList').innerHTML = ''; runs.classList.add('hidden'); return; }
+
+  const reqId = ++adviceReq;
+  const body = {
+    sport: 'nfl', mode: 'offline',
+    round: state.roster.length + 1,
+    drafted: [...state.drafted],
+    roster: state.roster,
+    recentPicks: state.picks.slice(-6).map((p) => ({ pos: p.pos })),
+    settings: state.settings,
+    rationale: onClock,
+  };
+  if (onClock) recoTop.innerHTML = '<span class="muted">Analyzing your best pick…</span>';
+  const { ok, data } = await window.FE.apiPost('/api/draft/advise', body);
+  if (reqId !== adviceReq) return; // a newer pick superseded this response
+
+  if (!ok || !data.candidates?.length) {
+    recoTop.innerHTML = '<span class="muted">Advice unavailable — pick from the list.</span>';
+    $('candList').innerHTML = '';
+    return;
+  }
+
+  if (onClock) {
+    const top = data.candidates[0];
+    recoTop.innerHTML = `<div class="rl">Your pick — recommended</div>`
+      + `<div style="font-size:18px;font-weight:700;margin-top:4px">${top.name} <span class="muted" style="font-size:13px">${top.pos} · ${top.team}</span></div>`
+      + (data.rationale ? `<div class="reco-rationale">${escapeHtml(data.rationale)}</div>` : '');
+  } else if (until <= 3) {
+    recoTop.innerHTML = `<div class="rl">🎯 Your pick in ${until} — top targets</div>`;
+  } else {
+    recoTop.innerHTML = `<div class="rl muted">Your pick in ${until} · top available</div>`;
+  }
+
+  if (data.runs?.length) { runs.classList.remove('hidden'); runs.textContent = `⚠ Run on ${data.runs.join(', ')} — going fast.`; }
+  else runs.classList.add('hidden');
+
+  // Full board when you're picking; just the top 3 targets while you wait.
+  renderCandidates(onClock ? data.candidates : data.candidates.slice(0, 3));
+}
+
+function offlineFinish() {
+  $('clock').innerHTML = '✅ <b>Draft complete!</b> Your roster is set.';
+  $('recoPanel').classList.add('hidden');
+  $('offlineBar').classList.add('hidden');
+  renderRoster();
+  renderRecent();
+}
+
+$('undoBtn').addEventListener('click', offlineUndo);
+
 function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+setMode('mock'); // initialize the mode description + field visibility
 
 // If auth is already ready before this script runs.
 if (window.FE) refreshAuthUI();

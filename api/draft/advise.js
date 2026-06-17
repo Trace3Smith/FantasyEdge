@@ -56,9 +56,14 @@ export default async function handler(req, res) {
     const { premium } = await getEntitlement(req);
     const b = req.body || {};
     const round = Number(b.round) || 1;
+    const offline = b.mode === 'offline';
 
-    // Free-tier round gate — later rounds are premium-only.
-    if (!premium && round > FREE_MAX_ROUND) {
+    // Offline (real-league) draft tracking is a premium feature.
+    if (offline && !premium) {
+      throw new HttpError(403, 'Offline draft mode is Premium', { error: 'premium_required', upsell: true });
+    }
+    // Free-tier round gate (mock only) — later rounds are premium-only.
+    if (!offline && !premium && round > FREE_MAX_ROUND) {
       throw new HttpError(403, 'Upgrade for full-draft advice', {
         error: 'round_locked',
         upsell: true,
@@ -79,7 +84,11 @@ export default async function handler(req, res) {
     const roster = Array.isArray(b.roster) ? b.roster : [];
     const { candidates, runs } = recommend(players, b.drafted || [], roster, settings, round, b.recentPicks || []);
 
-    const rationale = await rationaleFor({ round, roster, candidates, runs, scoring: settings.scoring });
+    // The Claude rationale is the costly part; callers can skip it (e.g. offline mode's
+    // real-time refreshes while the user's pick is still a few spots away).
+    const rationale = b.rationale === false
+      ? null
+      : await rationaleFor({ round, roster, candidates, runs, scoring: settings.scoring });
 
     return res.json({ candidates, runs, rationale, round, premium });
   } catch (err) {
