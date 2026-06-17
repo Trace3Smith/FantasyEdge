@@ -10,6 +10,8 @@ import { buildNhlDataset } from '../_lib/buildNhlDataset.js';
 import { buildNflDataset } from '../_lib/buildNflDataset.js';
 import { enrichProspects } from '../_lib/enrichProspects.js';
 import { enrichForm } from '../_lib/enrichForm.js';
+import { enrichNflProjections } from '../_lib/fantasyProjections.js';
+import { enrichNflAdp } from '../_lib/fantasyAdp.js';
 import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, DATASET_VERSION } from '../_lib/kv.js';
 
 // Secondary sports (ESPN-sourced, no prospects/enrichment). Each is built and
@@ -60,6 +62,20 @@ export default async function handler(req, res) {
           await enrichForm(built, { sport: s.sport, season });
         } catch (err) {
           built.counts = { ...built.counts, formError: err.message };
+        }
+        // NFL: bolt on FantasyPros consensus projections for the draft cards.
+        // Additive + failure-tolerant — falls back to the last good scrape in KV.
+        if (s.sport === 'nfl') {
+          try {
+            await enrichNflProjections(built, redis);
+          } catch (err) {
+            built.counts = { ...built.counts, projError: err.message };
+          }
+          try {
+            await enrichNflAdp(built, redis);
+          } catch (err) {
+            built.counts = { ...built.counts, adpError: err.message };
+          }
         }
         built.version = DATASET_VERSION; // keep cache in sync with the handler's check
         await redis.set(s.key, built);

@@ -61,9 +61,11 @@
   .cand:hover { border-color: var(--gold); }
   .cand .nm { font-weight: 600; }
   .cand .meta { font-size: 12px; color: var(--gray); }
+  .cand .proj { font-size: 11px; color: var(--gold); opacity: 0.85; margin-top: 3px; }
   .cand .pos { display: inline-block; min-width: 34px; text-align: center; font-size: 11px; font-weight: 700;
     padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.08); margin-right: 8px; }
   .cand .need { color: var(--green); font-size: 11px; font-weight: 700; }
+  .cand .value { color: var(--gold); font-size: 11px; font-weight: 700; }
   .runs { font-size: 12px; color: var(--orange); margin-bottom: 10px; }
 
   .roster h3, .avail h3 { font-size: 13px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray); margin-bottom: 10px; }
@@ -116,12 +118,12 @@
   <div class="panel hidden" id="setup">
     <div class="start-row">
       <button class="btn btn-gold" id="startBtn">Start Mock Draft</button>
+      <label class="muted" style="font-size:13px">League size
+        <select id="teamsSel"><option>8</option><option selected>10</option><option>12</option><option>14</option></select>
+      </label>
       <span class="premium-only">
         <label class="muted" style="font-size:13px">Scoring
           <select id="scoringSel"><option value="ppr">PPR</option><option value="standard">Standard</option></select>
-        </label>
-        <label class="muted" style="font-size:13px">Teams
-          <select id="teamsSel"><option>8</option><option selected>10</option><option>12</option><option>14</option></select>
         </label>
       </span>
       <span class="muted" id="usageNote"></span>
@@ -178,6 +180,21 @@ let state = null;           // active draft state
 const $ = (id) => document.getElementById(id);
 const posClass = (p) => ({ QB:'pos-q', RB:'pos-r', WR:'pos-w', TE:'pos-t', K:'pos-k', DST:'pos-d' }[p] || '');
 
+// FantasyPros projection line for a player card. Yards/points-allowed read as whole
+// numbers; counting stats keep one decimal (consensus projections are fractional).
+function projNum(label, v) {
+  if (v == null) return '';
+  if (/Yd|PA/.test(label)) return String(Math.round(v));
+  const r = Math.round(v * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+function projLine(p) {
+  const pr = p && p.proj;
+  if (!pr) return '';
+  const stats = (pr.line || []).map((s) => `${s.label} ${projNum(s.label, s.val)}`).join(' · ');
+  return `<div class="proj">Proj ${pr.fpts} FPTS${stats ? ' · ' + stats : ''}</div>`;
+}
+
 async function loadPool() {
   if (players.length) return;
   const r = await fetch('/api/sports?sport=nfl');
@@ -205,9 +222,10 @@ async function startDraft() {
   $('startBtn').disabled = true;
   $('startBtn').textContent = 'Starting…';
   const settings = {};
+  // League size is a basic setting available to everyone; scoring is premium-only.
+  settings.teams = Number($('teamsSel').value);
   if (window.FE?.isPremium()) {
     settings.scoring = $('scoringSel').value;
-    settings.teams = Number($('teamsSel').value);
   }
   const { ok, status, data } = await window.FE.apiPost('/api/draft/mock-start', { settings });
   $('startBtn').disabled = false;
@@ -263,11 +281,20 @@ function advance() {
   finishDraft();
 }
 
+// AI opponents draft like real managers: by FantasyPros ADP for the league's scoring,
+// usually taking the best ADP left and occasionally reaching a few spots. Players with
+// no ADP (K/DST and undrafted depth) sink ~2 rounds below their board rank, so kickers
+// and defenses naturally go late without a special rule.
 function bestForAI(round) {
-  const lateK = round >= state.settings.rounds - 2;
-  const pool = players.filter((p) => !state.drafted.has(p.id) && (lateK || (p.pos !== 'K' && p.pos !== 'DST')));
-  const top = pool.slice(0, 4);
-  return top[Math.floor(Math.random() * Math.min(3, top.length))] || pool[0] || null;
+  const scoring = state.settings.scoring || 'ppr';
+  const adpOf = (p) =>
+    p.adp && p.adp[scoring] != null ? p.adp[scoring] : (p.rank != null ? p.rank + 24 : 999);
+  const avail = players.filter((p) => !state.drafted.has(p.id)).sort((a, b) => adpOf(a) - adpOf(b));
+  if (!avail.length) return null;
+  // Reach window widens slightly as the draft goes (later ADP is noisier). The
+  // exponent biases the pick toward the top of the window (best ADP available).
+  const window = Math.min(avail.length, 3 + Math.floor(round / 3));
+  return avail[Math.floor(Math.pow(Math.random(), 1.6) * window)];
 }
 
 function recordPick(player, teamIdx) {
@@ -316,7 +343,7 @@ async function fetchAdvice(round) {
     drafted: [...state.drafted],
     roster: state.roster,
     recentPicks: state.picks.slice(-6).map((p) => ({ pos: p.pos })),
-    settings: state.premium ? state.settings : undefined,
+    settings: state.settings, // league size applies to all tiers; advise sanitizes the rest
   };
   const { ok, status, data } = await window.FE.apiPost('/api/draft/advise', body);
 
@@ -340,7 +367,8 @@ async function fetchAdvice(round) {
     const el = document.createElement('div');
     el.className = 'cand';
     el.innerHTML = `<div><span class="pos ${posClass(c.pos)}">${c.pos}</span><span class="nm">${c.name}</span>
-      <span class="meta"> · ${c.team} · #${c.rank ?? '—'}${c.need ? ' · <span class="need">NEED</span>' : ''}</span></div>
+      <span class="meta"> · ${c.team} · #${c.rank ?? '—'}${c.adp != null ? ' · ADP ' + c.adp : ''}${c.need ? ' · <span class="need">NEED</span>' : ''}${c.falling ? ' · <span class="value">VALUE</span>' : ''}</span>
+      ${projLine(byId.get(c.id))}</div>
       <div class="meta">VORP ${c.vorp}</div>`;
     el.addEventListener('click', () => userDraft(c.id));
     candList.appendChild(el);
@@ -362,10 +390,12 @@ function renderRecent() {
 function renderAvailable(filter = '') {
   const f = filter.toLowerCase();
   const list = players.filter((p) => !state.drafted.has(p.id) && (!f || p.name.toLowerCase().includes(f) || p.pos.toLowerCase() === f)).slice(0, 60);
-  $('availList').innerHTML = list.map((p) =>
-    `<div class="cand" data-id="${p.id}"><div><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>
-      <span class="meta"> · ${p.team} · #${p.rank}</span></div></div>`
-  ).join('');
+  const scoring = state.settings.scoring || 'ppr';
+  $('availList').innerHTML = list.map((p) => {
+    const adp = p.adp && p.adp[scoring] != null ? p.adp[scoring] : null;
+    return `<div class="cand" data-id="${p.id}"><div><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>
+      <span class="meta"> · ${p.team} · #${p.rank}${adp != null ? ' · ADP ' + adp : ''}</span>${projLine(p)}</div></div>`;
+  }).join('');
   $('availList').querySelectorAll('.cand').forEach((el) => el.addEventListener('click', () => userDraft(el.dataset.id)));
 }
 $('availSearch').addEventListener('input', (e) => renderAvailable(e.target.value));

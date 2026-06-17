@@ -22,6 +22,14 @@ export const DATASET_VERSION = 5;
 //   XWALK_KEY — cached FanGraphs playerId -> MLBAM id crosswalk (Chadwick-derived).
 export const PROSPECT_STATE_KEY = 'prospects:mlb';
 export const XWALK_KEY = 'xwalk:fg_mlbam';
+// FantasyPros consensus NFL projections (raw scrape), refreshed by the daily cron and
+// merged onto the NFL dataset. Persisted separately so a failed scrape degrades to the
+// last good projections instead of dropping them.
+export const PROJECTIONS_KEY = 'projections:nfl';
+// FantasyPros consensus ADP (PPR + Standard), refreshed by the daily cron and merged
+// onto the NFL dataset. Drives realistic mock-draft opponents and the falling-value
+// boost in the recommendation engine. Persisted separately for graceful degrade.
+export const ADP_KEY = 'adp:nfl';
 
 export const redis = new Redis({
   url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL,

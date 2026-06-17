@@ -180,12 +180,24 @@ export function recommend(players, drafted, roster = [], settings = DEFAULT_SETT
   const runs = positionRuns(recentPicks);
   const runSet = new Set(runs);
 
+  // The overall pick currently on the clock (every drafted player is one prior pick),
+  // used to spot players who've slipped past their average draft position.
+  const currentPick = taken.size + 1;
+
   const scored = available
     .map((p) => {
       const v = valueOf(p, scoring);
       const vorp = Math.max(0, v - (levels[p.pos] ?? 0));
       const gap = Math.max(0, (MIN_ROSTER[p.pos] || 0) - (counts[p.pos] || 0));
       const factor = needFactor(p.pos, counts, { startableLeft, teams, slack, run: runSet.has(p.pos) });
+
+      // ADP value: a player still on the board well past his average draft position is
+      // a falling value. Bump priority by how far he's slipped, capped at ~two rounds
+      // past ADP (so a massive faller can't override genuine roster need entirely).
+      const adp = p.adp?.[scoring] ?? null;
+      const adpDelta = adp != null ? currentPick - adp : 0; // > 0 means falling past ADP
+      const adpBoost = adpDelta > 0 ? 1 + (Math.min(adpDelta, 2 * teams) / (2 * teams)) * 0.6 : 1;
+
       return {
         id: p.id,
         name: p.name,
@@ -194,9 +206,11 @@ export function recommend(players, drafted, roster = [], settings = DEFAULT_SETT
         rank: p.rank,
         value: Math.round(v * 10) / 10,
         vorp: Math.round(vorp * 10) / 10,
-        score: Math.round(vorp * factor * 10) / 10,
+        score: Math.round(vorp * factor * adpBoost * 10) / 10,
         need: gap > 0,                  // still owe a starting slot here
         forced: gap > 0 && slack <= 0,  // out of spare picks — must take a need now
+        adp: adp != null ? Math.round(adp * 10) / 10 : null,
+        falling: adpDelta >= teams,     // slipped a full round-plus past expected — a value
       };
     })
     // Forced needs first (so a mandatory slot is never skipped at the buzzer), then by

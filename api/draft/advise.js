@@ -58,7 +58,15 @@ export default async function handler(req, res) {
       });
     }
 
-    const settings = premium ? { ...DEFAULT_SETTINGS, ...(b.settings || {}) } : { ...DEFAULT_SETTINGS };
+    // League size is a basic setting honored for all tiers (it drives the draft
+    // mechanics + ADP scaling); scoring/rounds stay premium-only, matching mock-start.
+    const o = b.settings || {};
+    const settings = { ...DEFAULT_SETTINGS };
+    if ([8, 10, 12, 14].includes(Number(o.teams))) settings.teams = Number(o.teams);
+    if (premium) {
+      if (o.scoring === 'standard' || o.scoring === 'ppr') settings.scoring = o.scoring;
+      if (Number.isInteger(o.rounds) && o.rounds >= 10 && o.rounds <= 20) settings.rounds = o.rounds;
+    }
     const players = await loadPlayers(b.sport || 'nfl');
     const roster = Array.isArray(b.roster) ? b.roster : [];
     const { candidates, runs } = recommend(players, b.drafted || [], roster, settings, round, b.recentPicks || []);

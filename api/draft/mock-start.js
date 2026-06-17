@@ -11,14 +11,17 @@ export default async function handler(req, res) {
     const { userId, premium } = await getEntitlement(req);
 
     let settings = { ...DEFAULT_SETTINGS };
+    const o = req.body?.settings || {};
+
+    // League size is a basic setting everyone may pick (8/10/12/14-team).
+    if ([8, 10, 12, 14].includes(Number(o.teams))) settings.teams = Number(o.teams);
+
     if (premium) {
-      // Premium may override scoring/teams/rounds (Phase 2 will load saved settings).
-      const o = req.body?.settings || {};
+      // Premium may also override scoring/rounds (Phase 2 will load saved settings).
       if (o.scoring === 'standard' || o.scoring === 'ppr') settings.scoring = o.scoring;
-      if (Number.isInteger(o.teams) && o.teams >= 8 && o.teams <= 16) settings.teams = o.teams;
       if (Number.isInteger(o.rounds) && o.rounds >= 10 && o.rounds <= 20) settings.rounds = o.rounds;
     } else {
-      // Free tier: enforce the daily quota and lock to basic settings.
+      // Free tier: enforce the daily quota (settings otherwise stay basic).
       await consumeMockQuota(userId);
     }
 
