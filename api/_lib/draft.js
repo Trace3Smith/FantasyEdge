@@ -210,7 +210,9 @@ export function recommend(players, drafted, roster = [], settings = DEFAULT_SETT
         need: gap > 0,                  // still owe a starting slot here
         forced: gap > 0 && slack <= 0,  // out of spare picks — must take a need now
         adp: adp != null ? Math.round(adp * 10) / 10 : null,
+        picksPastAdp: adpDelta > 0 ? Math.round(adpDelta) : 0, // how far he's slipped past ADP
         falling: adpDelta >= teams,     // slipped a full round-plus past expected — a value
+        proj: p.proj?.fpts ?? null,     // FantasyPros projected fantasy points
       };
     })
     // Forced needs first (so a mandatory slot is never skipped at the buzzer), then by

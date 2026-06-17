@@ -6,7 +6,18 @@ import { loadPlayers, recommend, DEFAULT_SETTINGS } from '../_lib/draft.js';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-4-6';
-const SYSTEM = `You are a sharp fantasy football draft assistant. You are given the drafter's current roster, the round, the top available players (with value-over-replacement and positional-need flags), and THE recommended pick — already selected by our model. In 2 concise sentences, explain why that recommended pick is the right selection, citing positional need, value/VORP, or a position run. Do NOT suggest or name a different player; justify the recommended pick. No preamble, no lists — just the advice.`;
+const SYSTEM = `You are a knowledgeable fantasy football friend helping someone draft. You're given their current roster, the round, the top available players (each with projected fantasy points, average draft position (ADP), how many picks past his ADP he's still available, and whether the position fills a roster need), and THE recommended pick our model already chose. In 2 short, conversational sentences — like a friend giving advice — explain why that pick makes sense. Talk in terms of projected fantasy points, ADP value (a player still on the board past his ADP is a steal), and how he fits the roster's needs. NEVER mention internal metrics or jargon like "VORP", "value over replacement", or a "score". Don't suggest or name a different player; back the recommended pick. No preamble, no lists — just the friendly advice.`;
+
+// Describe one candidate for the prompt in plain terms (projected points, ADP value,
+// roster need) — never internal scoring metrics.
+function describe(c) {
+  const bits = [`${c.name} (${c.pos}, ${c.team})`];
+  if (c.proj != null) bits.push(`~${c.proj} projected pts`);
+  if (c.adp != null) bits.push(`ADP ${c.adp}`);
+  if (c.picksPastAdp > 0) bits.push(`still available ${c.picksPastAdp} picks past his ADP`);
+  if (c.need) bits.push('fills a roster need');
+  return bits.join(', ');
+}
 
 // Ask Claude for a one-line rationale on the recommendation. Returns null on any
 // failure (no key, API error) so the algorithmic candidates still ship.
@@ -17,11 +28,8 @@ async function rationaleFor({ round, roster, candidates, runs, scoring }) {
   // The header shows candidates[0]; pin Claude's rationale to that exact player so the
   // explanation can never argue for a different name than the one on screen.
   const pick = candidates[0];
-  const top = candidates
-    .slice(0, 6)
-    .map((c) => `${c.name} (${c.pos}, ${c.team}) value ${c.value}, VORP ${c.vorp}${c.need ? ', NEED' : ''}`)
-    .join('\n');
-  const prompt = `Round ${round}, ${scoring.toUpperCase()} scoring.\nMy roster so far: ${rosterStr}.\n${runs.length ? `Recent run on: ${runs.join(', ')}.\n` : ''}Top available:\n${top}\n\nRecommended pick: ${pick.name} (${pick.pos}, ${pick.team}). Explain why this is the right pick.`;
+  const top = candidates.slice(0, 6).map(describe).join('\n');
+  const prompt = `Round ${round}, ${scoring.toUpperCase()} scoring.\nMy roster so far: ${rosterStr}.\n${runs.length ? `Recent run on: ${runs.join(', ')}.\n` : ''}Top available:\n${top}\n\nRecommended pick: ${describe(pick)}. In a friendly, conversational tone, explain why this is a smart pick.`;
   try {
     const r = await fetch(ANTHROPIC_URL, {
       method: 'POST',

@@ -367,9 +367,9 @@ async function fetchAdvice(round) {
     const el = document.createElement('div');
     el.className = 'cand';
     el.innerHTML = `<div><span class="pos ${posClass(c.pos)}">${c.pos}</span><span class="nm">${c.name}</span>
-      <span class="meta"> · ${c.team} · #${c.rank ?? '—'}${c.adp != null ? ' · ADP ' + c.adp : ''}${c.need ? ' · <span class="need">NEED</span>' : ''}${c.falling ? ' · <span class="value">VALUE</span>' : ''}</span>
+      <span class="meta"> · ${c.team} · #${c.rank ?? '—'}${c.adp != null ? ' · ADP ' + c.adp : ''}${c.need ? ' · <span class="need">NEED</span>' : ''}</span>
       ${projLine(byId.get(c.id))}</div>
-      <div class="meta">VORP ${c.vorp}</div>`;
+      <div class="meta">${c.falling && c.picksPastAdp > 0 ? `<span class="value">+${c.picksPastAdp} past ADP</span>` : ''}</div>`;
     el.addEventListener('click', () => userDraft(c.id));
     candList.appendChild(el);
   });
