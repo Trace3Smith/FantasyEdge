@@ -178,18 +178,9 @@ function renderSidebar() {
     b.addEventListener('click', () => clerk.openSignIn());
     slot.appendChild(b);
   }
-
-  // Draft nav links (added once).
-  const nav = sidebar.querySelector('.sidebar-nav');
-  if (nav && !nav.querySelector('[data-fe-nav="draft"]')) {
-    const mock = document.createElement('li');
-    mock.innerHTML = `<a href="fantasyedge-draft.html" data-fe-nav="draft"><span class="icon">🎯</span> Mock Draft</a>`;
-    nav.appendChild(mock);
-    const real = document.createElement('li');
-    real.className = 'premium-only';
-    real.innerHTML = `<a href="fantasyedge-draft.html?mode=real" data-fe-nav="real"><span class="icon">📋</span> Real Draft</a>`;
-    nav.appendChild(real);
-  }
+  // Draft nav links are defined statically in each page's sidebar (Draft Assistant +
+  // Mock Draft), so we no longer inject them here — that caused a duplicate Mock Draft
+  // and a stale Real Draft (?mode=real) link.
 }
 
 // Update the existing "Get Pro" box to the real price + premium-aware action.
