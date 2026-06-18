@@ -83,10 +83,6 @@
     border-radius: 6px; padding: 9px 12px; font-family: inherit; margin-bottom: 10px; }
   .avail-list { max-height: 360px; overflow-y: auto; }
 
-  .mode-tabs { display: flex; gap: 8px; margin-bottom: 6px; }
-  .mode-tab { padding: 9px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);
-    background: var(--dark3); color: var(--gray-light); cursor: pointer; font-family: inherit; font-weight: 600; font-size: 14px; }
-  .mode-tab.active { border-color: var(--gold); color: var(--gold); background: rgba(212,160,23,0.1); }
   .clock-you { color: var(--gold); font-weight: 700; }
 </style>
 </head>
@@ -122,23 +118,20 @@
 
   <!-- Pre-draft setup -->
   <div class="panel hidden" id="setup">
-    <div class="mode-tabs">
-      <button class="mode-tab active" id="modeMock" type="button">Mock Draft</button>
-      <button class="mode-tab" id="modeOffline" type="button">Offline Draft</button>
-    </div>
-    <p class="muted" id="modeDesc" style="font-size:13px; margin: 10px 0 14px;"></p>
+    <div class="page-title" style="font-size:22px; margin-bottom:4px;">OFFLINE DRAFT</div>
+    <p class="muted" style="font-size:13px; margin: 0 0 16px;">Track your real league draft live (Zoom or in person). Set it up to match your league, then mark each pick as it happens — the assistant updates in real time and surfaces your targets as your pick nears.</p>
     <div class="start-row">
-      <button class="btn btn-gold" id="startBtn">Start Mock Draft</button>
+      <button class="btn btn-gold" id="startBtn">Start Offline Draft</button>
       <label class="muted" style="font-size:13px">League size
         <select id="teamsSel"><option>8</option><option selected>10</option><option>12</option><option>14</option></select>
       </label>
-      <label class="muted offline-only hidden" style="font-size:13px">Your draft position
+      <label class="muted" style="font-size:13px">Your draft position
         <select id="posSel"></select>
       </label>
-      <label class="muted offline-only hidden" style="font-size:13px">Rounds
+      <label class="muted" style="font-size:13px">Rounds
         <select id="roundsSel"><option>12</option><option>13</option><option>14</option><option selected>15</option><option>16</option><option>17</option></select>
       </label>
-      <label class="muted offline-only hidden" style="font-size:13px">Format
+      <label class="muted" style="font-size:13px">Format
         <select id="formatSel"><option value="snake">Snake</option><option value="linear">Linear</option></select>
       </label>
       <span class="premium-only">
@@ -154,7 +147,7 @@
   <div class="hidden" id="draftArea">
     <div class="free-banner hidden" id="freeBanner"></div>
     <div class="clock" id="clock"></div>
-    <div class="offline-only hidden" id="offlineBar" style="margin-bottom:14px">
+    <div class="hidden" id="offlineBar" style="margin-bottom:14px">
       <button class="btn btn-ghost" id="undoBtn" type="button" style="padding:6px 14px; font-size:13px">↶ Undo last pick</button>
       <span class="muted" style="font-size:12px; margin-left:10px">As each team picks, click the player they took — in order. We track whose turn it is.</span>
     </div>
@@ -233,29 +226,27 @@ document.addEventListener('fe-auth-ready', refreshAuthUI);
 $('signInBtn').addEventListener('click', () => window.FE?.openSignIn());
 $('lockUpgrade').addEventListener('click', () => window.FE?.openPricing());
 
+// Mock drafts launch straight from the nav (link to ?mode=mock); this page then
+// auto-starts the mock and skips the offline setup screen.
+const wantMock = new URLSearchParams(location.search).get('mode') === 'mock';
+let booted = false;
 function refreshAuthUI() {
   const signedIn = window.FE?.isSignedIn();
   $('signedOut').classList.toggle('hidden', !!signedIn);
+  if (signedIn && wantMock && !booted) {
+    booted = true;
+    $('setup').classList.add('hidden');
+    startMock();
+    return;
+  }
   $('setup').classList.toggle('hidden', !signedIn);
 }
 
-// Mode selection ----------------------------------------------------------------
-let selectedMode = 'mock';
+// Setup ------------------------------------------------------------------------
+// This screen sets up the Offline Draft only. Mock drafts launch straight from the
+// nav via ?mode=mock, which auto-starts (see refreshAuthUI) and skips this screen.
 let adviceReq = 0; // guards against out-of-order advice responses in offline mode
-const MODE_DESC = {
-  mock: 'Practice against AI opponents that draft by real ADP. Free: 1 per day, assistant advice for rounds 1–7.',
-  offline: 'Track your real league draft live (Zoom or in person). Premium — mark every pick as it happens; the assistant updates in real time and surfaces your targets as your pick nears.',
-};
-function setMode(m) {
-  selectedMode = m;
-  $('modeMock').classList.toggle('active', m === 'mock');
-  $('modeOffline').classList.toggle('active', m === 'offline');
-  $('modeDesc').textContent = MODE_DESC[m];
-  document.querySelectorAll('.offline-only').forEach((el) => el.classList.toggle('hidden', m !== 'offline'));
-  $('startBtn').textContent = m === 'offline' ? 'Start Offline Draft' : 'Start Mock Draft';
-  $('usageNote').textContent = '';
-  if (m === 'offline') syncPosOptions();
-}
+
 // Draft-position options track the chosen league size.
 function syncPosOptions() {
   const teams = Number($('teamsSel').value);
@@ -263,16 +254,11 @@ function syncPosOptions() {
   $('posSel').innerHTML = Array.from({ length: teams }, (_, i) =>
     `<option value="${i + 1}"${i + 1 === cur ? ' selected' : ''}>${i + 1}</option>`).join('');
 }
-$('modeMock').addEventListener('click', () => setMode('mock'));
-$('modeOffline').addEventListener('click', () => setMode('offline'));
-$('teamsSel').addEventListener('change', () => { if (selectedMode === 'offline') syncPosOptions(); });
+$('teamsSel').addEventListener('change', syncPosOptions);
+syncPosOptions();
 
-// Start a draft -----------------------------------------------------------------
-$('startBtn').addEventListener('click', startDraft);
-
-function startDraft() {
-  return selectedMode === 'offline' ? startOffline() : startMock();
-}
+// Start the offline draft from this screen.
+$('startBtn').addEventListener('click', startOffline);
 
 async function startMock() {
   $('startBtn').disabled = true;
@@ -285,9 +271,11 @@ async function startMock() {
   }
   const { ok, status, data } = await window.FE.apiPost('/api/draft/mock-start', { settings });
   $('startBtn').disabled = false;
-  $('startBtn').textContent = 'Start Mock Draft';
+  $('startBtn').textContent = 'Start Offline Draft';
 
   if (!ok) {
+    // Nav-launched mock hides this screen; reveal it so the message/upsell is visible.
+    $('setup').classList.remove('hidden');
     if (status === 403 && data?.error === 'mock_limit_reached') {
       $('usageNote').innerHTML = `You've used today's free mock draft. <a href="#" id="limitUp" style="color:var(--gold)">Go Premium</a> for unlimited.`;
       $('limitUp').onclick = (e) => { e.preventDefault(); window.FE.openPricing(); };
@@ -629,8 +617,6 @@ function offlineFinish() {
 $('undoBtn').addEventListener('click', offlineUndo);
 
 function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
-setMode('mock'); // initialize the mode description + field visibility
 
 // If auth is already ready before this script runs.
 if (window.FE) refreshAuthUI();
