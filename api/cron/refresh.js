@@ -8,11 +8,12 @@ import { buildDataset } from '../_lib/buildDataset.js';
 import { buildNbaDataset, buildWnbaDataset } from '../_lib/buildNbaDataset.js';
 import { buildNhlDataset } from '../_lib/buildNhlDataset.js';
 import { buildNflDataset } from '../_lib/buildNflDataset.js';
+import { buildPgaDataset } from '../_lib/buildPgaDataset.js';
 import { enrichProspects } from '../_lib/enrichProspects.js';
 import { enrichForm } from '../_lib/enrichForm.js';
 import { enrichNflProjections } from '../_lib/fantasyProjections.js';
 import { enrichNflAdp } from '../_lib/fantasyAdp.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, DATASET_VERSION } from '../_lib/kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, DATASET_VERSION } from '../_lib/kv.js';
 
 // Secondary sports (ESPN-sourced, no prospects/enrichment). Each is built and
 // cached independently so one league's source failure can't drop another's
@@ -22,6 +23,9 @@ const SECONDARY = [
   { sport: 'wnba', key: WNBA_DATASET_KEY, build: buildWnbaDataset },
   { sport: 'nhl', key: NHL_DATASET_KEY, build: buildNhlDataset },
   { sport: 'nfl', key: NFL_DATASET_KEY, build: buildNflDataset },
+  // PGA: OWGR + ESPN golf. enrichForm is a no-op (golf has no gamelog); HOT/COLD is
+  // computed inside the build from recent finishes.
+  { sport: 'pga', key: PGA_DATASET_KEY, build: buildPgaDataset },
 ];
 
 // Vercel Hobby caps a function at 60s (and defaults to 10s if unset), so we ask
