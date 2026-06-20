@@ -9,7 +9,7 @@
 // NOT go through enrichForm.js). Output shape matches the other sports so the same
 // frontend table renders it. See pga-rankings-build memory.
 
-import { fetchOwgr, fetchScoreboard, pickCurrentEvent, fieldFromEvent, buildRecentForm, normName } from './golf.js';
+import { fetchOwgr, fetchScoreboard, pickCurrentEvent, fieldFromEvent, buildRecentForm, tourMembers, KNOWN_LIV, normName } from './golf.js';
 import { courseFit, cutProbability } from './golfModel.js';
 
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
@@ -26,7 +26,17 @@ export async function buildPgaDataset({ owgrLimit = 250 } = {}) {
 
   const event = pickCurrentEvent(sb);
   const field = event ? fieldFromEvent(event) : new Map();
-  const form = await buildRecentForm(sb, 6);
+  const { form, members: pgaSet } = await buildRecentForm(sb, 6);
+
+  // Tour classification by where players actually compete (data-driven, no hardcoded
+  // rosters). LIV is checked first because LIV players are contractually exclusive
+  // but still appear in majors (which sit on the PGA feed); PGA before DP World since
+  // the top dual-members are primarily PGA Tour. Unknown -> '—'.
+  const [livFeed, eurSet] = await Promise.all([tourMembers('liv', 8), tourMembers('eur', 5)]);
+  const livSet = new Set(livFeed);
+  for (const n of KNOWN_LIV) livSet.add(normName(n)); // backfill names ESPN's LIV feed omits
+  const tourOf = (nm) =>
+    livSet.has(nm) ? 'LIV' : pgaSet.has(nm) ? 'PGA Tour' : eurSet.has(nm) ? 'DP World Tour' : '—';
 
   // Field strength: share of the OWGR top 50 teeing it up this week (a major pulls
   // nearly all of them -> ~1.0; an opposite-field event -> low). Feeds the model.
@@ -85,8 +95,8 @@ export async function buildPgaDataset({ owgrLimit = 250 } = {}) {
     return {
       id: 'owgr-' + p.rank + '-' + nm.replace(/\s+/g, '-'),
       name: p.name,
-      team: p.country || '—',
-      pos: p.country || '—',
+      team: tourOf(nm),       // which tour the player competes on (Team column)
+      pos: p.country || '—',  // country (shown under the 'Country' header)
       league: null,
       hasStats: true,
       searchOnly: false,
