@@ -57,6 +57,10 @@ async function loadDataset(sport) {
   return data;
 }
 
+// Phrasing that signals the user thinks they're proposing a trade.
+const TRADE_RE = /\b(trade|traded|trading|swap|swapping|deal|deals|dealing)\b/;
+const isTradeQuery = (text) => TRADE_RE.test(normalize(text));
+
 function detectSports(text) {
   const m = ' ' + normalize(text) + ' ';
   const out = [];
@@ -139,6 +143,12 @@ export function buildContextFromDatasets(text, datasets) {
   if (matched.length) {
     out.push('', 'Players the user is asking about (current data):');
     for (const { p, sport } of matched) out.push(playerLine(p, sport));
+  }
+
+  // Golf has no trades: if the user framed a golfer question as a trade, tell the
+  // coach to reframe it as a who-to-pick / more-value-this-week decision.
+  if (matched.some((m) => m.sport === 'pga') && isTradeQuery(text)) {
+    out.push('', 'REFRAME: This is phrased as a "trade", but the player(s) above are golfers and golf (PGA) has no trades. Answer it as a who-to-pick / who-has-more-value-this-week decision for the user\'s DFS lineup or golf pool — compare the golfers above and tell them who to roster this week, not how to weigh a roster trade.');
   }
 
   // For a clearly sport-scoped question, attach a current top-N so ranking/waiver
