@@ -659,7 +659,15 @@
     if (isLocked(sport)) { renderLocked(); return; }
     document.getElementById('tableBody').innerHTML = '<tr class="loading-row"><td colspan="13"><div class="loading-title">Loading Live Data...</div><div class="loading-sub">Fetching real stats...</div></td></tr>';
     try {
-      const res = await fetch(`/api/sports?sport=${sport}`);
+      // Premium sports are gated server-side, so attach the Clerk session token.
+      // (isLocked already short-circuits non-premium users before we get here.)
+      const headers = {};
+      if (PREMIUM_SPORTS.has(sport) && window.FE && window.FE.getToken) {
+        const token = await window.FE.getToken();
+        if (token) headers.Authorization = 'Bearer ' + token;
+      }
+      const res = await fetch(`/api/sports?sport=${sport}`, { headers });
+      if (res.status === 401 || res.status === 403) { renderLocked(); return; }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (!data.players || !data.players.length) throw new Error('No players returned');
