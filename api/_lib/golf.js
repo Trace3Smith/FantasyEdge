@@ -10,7 +10,10 @@
 import { getJson } from './espn.js';
 
 const OWGR_API = 'https://apiweb.owgr.com/api/owgr/rankings/getRankings';
-const ESPN_SB = 'https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard';
+// ESPN exposes a scoreboard per golf tour (pga = PGA Tour, eur = DP World Tour,
+// liv = LIV Golf), which we use both for the PGA board and to tell which tour a
+// player competes on (see tourMembers).
+const ESPN_SB = (league = 'pga') => `https://site.api.espn.com/apis/site/v2/sports/golf/${league}/scoreboard`;
 
 // Normalize a player name for cross-source matching: lowercase, strip accents,
 // drop punctuation and common suffixes, collapse whitespace.
@@ -18,11 +21,27 @@ export function normName(s) {
   return String(s || '')
     .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip accents
     .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')            // drop OWGR disambiguation suffixes, e.g. "Daniel Brown(Oct1994)"
     .replace(/\b(jr|sr|ii|iii|iv)\b/g, '')
     .replace(/[^a-z\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+// Curated fallback for LIV's CLOSED, contracted roster. ESPN's LIV feed has gaps
+// (e.g. it omits Brooks Koepka and Patrick Reed entirely), so the data-driven set
+// from recent events alone mislabels well-known LIV players as PGA Tour. LIV
+// membership is stable across a season, so a small core list — unioned with the
+// live feed, which still catches reserves/wildcards — keeps the marquee names right.
+// Update when LIV signs/drops a notable player.
+export const KNOWN_LIV = [
+  'Jon Rahm', 'Bryson DeChambeau', 'Tyrrell Hatton', 'Joaquin Niemann', 'Brooks Koepka',
+  'Patrick Reed', 'Sergio Garcia', 'Dustin Johnson', 'Cameron Smith', 'Phil Mickelson',
+  'Dean Burmester', 'Adrian Meronk', 'Louis Oosthuizen', 'Charl Schwartzel', 'Talor Gooch',
+  'Abraham Ancer', 'Carlos Ortiz', 'Sebastian Munoz', 'Tom McKibbin', 'Lucas Herbert',
+  'Marc Leishman', 'Anthony Kim', 'David Puig', 'Caleb Surratt', 'Peter Uihlein',
+  'Branden Grace', 'Mito Pereira', 'Harold Varner III', 'Cameron Tringale', 'Jinichiro Kozuma',
+];
 
 // OWGR top-N: [{ rank, name, country, pointsAvg }]. One page; pageSize covers it.
 export async function fetchOwgr(limit = 300) {
@@ -37,8 +56,9 @@ export async function fetchOwgr(limit = 300) {
   })).filter((p) => p.name);
 }
 
-export async function fetchScoreboard(dates) {
-  return getJson(dates ? `${ESPN_SB}?dates=${dates}` : ESPN_SB);
+export async function fetchScoreboard(dates, league = 'pga') {
+  const base = ESPN_SB(league);
+  return getJson(dates ? `${base}?dates=${dates}` : base);
 }
 
 // Pick this week's tournament: prefer an in-progress event, else the soonest
@@ -126,5 +146,30 @@ export async function buildRecentForm(sb, n = 6) {
     }
     form.set(nm, { finishes, avg, recent, prev, trend });
   }
-  return form;
+  // Every name seen across the recent PGA Tour events doubles as PGA Tour membership
+  // (the same fetches power tour classification — no extra calls).
+  return { form, members: new Set(byPlayer.keys()) };
+}
+
+// Set of normalized names who competed in a tour's recent COMPLETED events — used
+// to classify which tour each ranked player is on. Cheap (a few fetches per tour);
+// failure-tolerant so one tour's outage can't break the board.
+export async function tourMembers(league, n = 5) {
+  const set = new Set();
+  try {
+    const sb = await fetchScoreboard(null, league);
+    for (const e of recentCompletedEvents(sb, n)) {
+      try {
+        const board = await fetchScoreboard(e.dates, league);
+        const ev = (board.events || []).find((x) => x.id === e.id) || board.events?.[0];
+        if (!ev) continue;
+        for (const nm of fieldFromEvent(ev).keys()) set.add(nm);
+      } catch {
+        /* skip a missing event */
+      }
+    }
+  } catch {
+    /* whole tour unavailable -> empty set, players fall through to other tours */
+  }
+  return set;
 }
