@@ -7,7 +7,9 @@ import { buildDataset } from './_lib/buildDataset.js';
 import { buildNbaDataset, buildWnbaDataset } from './_lib/buildNbaDataset.js';
 import { buildNhlDataset } from './_lib/buildNhlDataset.js';
 import { buildNflDataset } from './_lib/buildNflDataset.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, DATASET_VERSION } from './_lib/kv.js';
+import { buildPgaDataset } from './_lib/buildPgaDataset.js';
+import { requirePremium, sendError } from './_lib/auth.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, DATASET_VERSION } from './_lib/kv.js';
 
 // Per-sport dataset wiring: which KV key holds it and how to (re)build it on a
 // cold-start cache miss. Add a sport here + a frontend tab to light it up. A
@@ -20,6 +22,7 @@ const SPORTS = {
   wnba: { key: WNBA_DATASET_KEY, build: () => buildWnbaDataset(), version: DATASET_VERSION },
   nhl: { key: NHL_DATASET_KEY, build: () => buildNhlDataset(), version: DATASET_VERSION },
   nfl: { key: NFL_DATASET_KEY, build: () => buildNflDataset(), version: DATASET_VERSION },
+  pga: { key: PGA_DATASET_KEY, build: () => buildPgaDataset(), version: DATASET_VERSION, premium: true },
 };
 
 export default async function handler(req, res) {
@@ -30,6 +33,17 @@ export default async function handler(req, res) {
   // Unknown sport (no dataset wired): return empty rather than erroring.
   if (!cfg) {
     return res.json({ players: [], sport });
+  }
+
+  // Premium-gated sports re-verify the Clerk session + plan server-side — the UI
+  // lock is cosmetic; this is the trust boundary. Anonymous/free requests get 401/403
+  // before any data is built or served.
+  if (cfg.premium) {
+    try {
+      await requirePremium(req);
+    } catch (err) {
+      return sendError(res, err);
+    }
   }
 
   try {

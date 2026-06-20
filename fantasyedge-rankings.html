@@ -473,6 +473,9 @@
     nfl_k:   ['FGM', 'FGA', 'FG%', 'XPM', 'LNG', 'FPTS'],
     nfl_dst: ['Sack', 'INT', 'FR', 'TD', 'PA', 'FPTS'],
     nfl_all: ['—', '—', '—', '—', '—', 'FPTS'],
+    // PGA: OWGR world rank, last-6 avg finish, course-fit score, cut probability,
+    // OWGR points avg, and this week's live position.
+    pga:     ['OWGR', 'L6', 'FIT', 'CUT%', 'PTS', 'WK'],
   };
   // NFL position filter -> header set (TE shares WR's columns).
   const NFL_HEADER_POS = { QB: 'nfl_qb', RB: 'nfl_rb', WR: 'nfl_wr', TE: 'nfl_wr', K: 'nfl_k', DST: 'nfl_dst' };
@@ -629,11 +632,42 @@
     document.getElementById('stripCold').textContent = players.filter(p=>p.tag==='cold').length;
   }
 
+  // Premium-only sports: the tab is visible to everyone (so it sells itself), but
+  // the board is gated behind an active subscription. Server data stays public to
+  // match the rest of the app; this is the product's monetization gate, like the
+  // mock-draft tiers. window.FE may not be ready yet on first paint — treat unknown
+  // as locked, and re-render once auth resolves (see the fe-auth-ready listener).
+  const PREMIUM_SPORTS = new Set(['pga']);
+  const isLocked = (sport) =>
+    PREMIUM_SPORTS.has(sport) && !(window.FE && window.FE.isPremium && window.FE.isPremium());
+
+  function renderLocked() {
+    document.getElementById('updateLabel').textContent = 'Premium feature';
+    ['stripTotal', 'stripHot', 'stripCold'].forEach(id => document.getElementById(id).textContent = '—');
+    document.getElementById('tableBody').innerHTML = `<tr><td colspan="13" style="padding:64px 24px;text-align:center">
+      <div style="font-size:40px;margin-bottom:10px">🔒</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:var(--gold);margin-bottom:8px">PGA Rankings is a Premium feature</div>
+      <div style="font-size:13px;color:var(--gray);max-width:440px;margin:0 auto 20px;line-height:1.6">World rankings, recent-form trends, course-fit scores, and cut probabilities for the current tournament — updated daily.</div>
+      <button id="pgaUpsell" style="background:var(--gold);color:#111;border:none;border-radius:8px;padding:11px 22px;font-family:inherit;font-weight:700;font-size:14px;cursor:pointer">Go Premium</button>
+    </td></tr>`;
+    document.getElementById('pgaUpsell').onclick = () =>
+      (window.FE && window.FE.openPricing) ? window.FE.openPricing() : (window.location.href = '/fantasyedge-draft.html');
+  }
+
   async function loadAndRender(sport) {
     currentSport = sport;
+    if (isLocked(sport)) { renderLocked(); return; }
     document.getElementById('tableBody').innerHTML = '<tr class="loading-row"><td colspan="13"><div class="loading-title">Loading Live Data...</div><div class="loading-sub">Fetching real stats...</div></td></tr>';
     try {
-      const res = await fetch(`/api/sports?sport=${sport}`);
+      // Premium sports are gated server-side, so attach the Clerk session token.
+      // (isLocked already short-circuits non-premium users before we get here.)
+      const headers = {};
+      if (PREMIUM_SPORTS.has(sport) && window.FE && window.FE.getToken) {
+        const token = await window.FE.getToken();
+        if (token) headers.Authorization = 'Bearer ' + token;
+      }
+      const res = await fetch(`/api/sports?sport=${sport}`, { headers });
+      if (res.status === 401 || res.status === 403) { renderLocked(); return; }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (!data.players || !data.players.length) throw new Error('No players returned');
@@ -679,6 +713,7 @@
     wnba: ['ALL', 'G', 'F', 'C'],
     nhl: ['ALL', 'F', 'D', 'G'],
     nfl: ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DST'],
+    pga: ['ALL'], // golfers have no position; the single ALL view is the board
   };
   // Roto categories the Stars rating reflects, per sport (drives the banner).
   const ROTO_CATS = {
@@ -687,6 +722,7 @@
     wnba: ['PTS', 'REB', 'AST', 'STL', 'BLK', 'TO', 'FG%', 'FT%', '3PM'],
     nhl: ['G', 'A', 'PTS', '+/-', 'PIM', 'PPP', 'SOG', 'FOW', 'GWG'],
     nfl: ['Pass Yd', 'Pass TD', 'Rush Yd', 'Rush TD', 'Rec', 'Rec Yd', 'Rec TD', 'FG', 'DST'],
+    pga: ['World Rank', 'Recent Form', 'Course Fit', 'Cut Prob', 'HOT/COLD'],
   };
   // Rebuild the position filters + roto-category banner for a sport and reset both
   // filters to their defaults; the AL/NL league toggle is MLB-only (hidden else).
@@ -752,6 +788,13 @@
     if (!detail || !detail.classList.contains('prospect-detail-row')) return;
     row.classList.toggle('open');
     detail.classList.toggle('open');
+  });
+
+  // Auth resolves after first paint. If the user is sitting on a premium sport when
+  // it does, re-evaluate the lock (premium users get the board; the listener also
+  // fires on sign-in/out and subscription changes via auth.js's applyState).
+  document.addEventListener('fe-auth-ready', () => {
+    if (PREMIUM_SPORTS.has(currentSport)) loadAndRender(currentSport);
   });
 
   applySport('mlb');

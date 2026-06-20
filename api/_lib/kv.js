@@ -9,6 +9,7 @@ export const NBA_DATASET_KEY = 'dataset:nba';
 export const WNBA_DATASET_KEY = 'dataset:wnba';
 export const NHL_DATASET_KEY = 'dataset:nhl';
 export const NFL_DATASET_KEY = 'dataset:nfl';
+export const PGA_DATASET_KEY = 'dataset:pga';
 // Build-schema version for the ESPN sports (nba/wnba/nhl/nfl). Bump this whenever
 // a builder's output changes shape or logic: the request handler treats a cached
 // dataset whose version doesn't match as a miss and rebuilds it on the next
