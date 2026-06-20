@@ -392,7 +392,7 @@
     <table id="rankingsTable">
       <thead>
         <tr>
-          <th>#</th><th>Player</th><th>Pos</th><th>Team</th>
+          <th>#</th><th>Player</th><th id="hPos">Pos</th><th>Team</th>
           <th id="h1">AVG</th><th id="h2">HR</th><th id="h3">RBI</th><th id="h4">SB</th>
           <th id="h5">ERA</th><th id="h6">WHIP</th><th>Stars</th><th>Trend</th><th>Own%</th>
         </tr>
@@ -730,6 +730,8 @@
     currentPos = 'ALL';
     currentLeague = 'ALL';
     currentScoring = 'PPR';
+    // The Pos column holds country for PGA (golfers have no position); 'Pos' elsewhere.
+    document.getElementById('hPos').textContent = sport === 'pga' ? 'Country' : 'Pos';
     const set = POS_SETS[sport] || POS_SETS.mlb;
     document.getElementById('posFilters').innerHTML =
       set.map(p => `<button class="pos-btn${p === 'ALL' ? ' active' : ''}" data-pos="${p}">${p}</button>`).join('');
