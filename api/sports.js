@@ -25,6 +25,18 @@ const SPORTS = {
   pga: { key: PGA_DATASET_KEY, build: () => buildPgaDataset(), version: DATASET_VERSION, premium: true },
 };
 
+// LIV Golf players clutter the weekly DFS board — they don't play PGA Tour events,
+// so they carry no strokes-gained data — EXCEPT during the four majors, where the
+// whole field tees it up. MAJOR_WEEK is a manual Vercel switch flipped ~4x/year:
+// only the exact string 'true' shows LIV; anything else (incl. unset) hides them.
+// Filtered at serve time, not in the build, so flipping the env var takes effect on
+// the next request with no rebuild. The kept players are renumbered 1..N so the
+// board shows no rank gaps where LIV names were removed.
+function filterPgaForMajorWeek(players) {
+  if (process.env.MAJOR_WEEK === 'true') return players;
+  return players.filter((p) => p.team !== 'LIV').map((p, i) => ({ ...p, rank: i + 1 }));
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   const sport = req.query.sport || 'mlb';
@@ -57,8 +69,10 @@ export default async function handler(req, res) {
       await redis.set(cfg.key, dataset);
     }
 
+    const players = sport === 'pga' ? filterPgaForMajorWeek(dataset.players) : dataset.players;
+
     return res.json({
-      players: dataset.players,
+      players,
       sport,
       builtAt: dataset.builtAt,
     });
