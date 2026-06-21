@@ -13,6 +13,7 @@ const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-opus-4-8';
 const MAX_TURNS = 20;      // forward at most the last ~10 exchanges
 const MAX_CHARS = 4000;    // clamp any single message so one paste can't blow the budget
+const MAX_CONTEXT = 4000;  // clamp the optional draft-state context the same way
 
 // An Opus reply at 1024 tokens can take ~10-20s; raise above the 10s Hobby default so
 // the response isn't cut off mid-stream. (Vercel Hobby caps at 60s.)
@@ -78,6 +79,15 @@ export default async function handler(req, res) {
       if (live) system += '\n\n' + live;
     } catch (err) {
       console.error('[coach] live context failed', err?.message);
+    }
+
+    // Optional live draft state, sent when the Coach is embedded in the draft room.
+    // Gives it the user's roster, recent picks, and top targets so its advice is
+    // grounded in the draft in progress. Absent on the standalone Coach page.
+    const draftContext = typeof req.body?.draftContext === 'string' ? req.body.draftContext.trim() : '';
+    if (draftContext) {
+      system += '\n\nLIVE DRAFT IN PROGRESS — the user is drafting right now. Use this to ground your advice; '
+        + 'favor it over training knowledge and don\'t recite it back verbatim:\n' + draftContext.slice(0, MAX_CONTEXT);
     }
 
     const r = await fetch(ANTHROPIC_URL, {

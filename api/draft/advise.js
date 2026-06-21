@@ -77,7 +77,7 @@ export default async function handler(req, res) {
     const settings = { ...DEFAULT_SETTINGS };
     if ([8, 10, 12, 14].includes(Number(o.teams))) settings.teams = Number(o.teams);
     if (premium) {
-      if (o.scoring === 'standard' || o.scoring === 'ppr') settings.scoring = o.scoring;
+      if (o.scoring === 'standard' || o.scoring === 'ppr' || o.scoring === 'half') settings.scoring = o.scoring;
       if (Number.isInteger(o.rounds) && o.rounds >= 10 && o.rounds <= 20) settings.rounds = o.rounds;
     }
     const players = await loadPlayers(b.sport || 'nfl');

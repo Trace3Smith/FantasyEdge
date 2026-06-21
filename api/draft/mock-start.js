@@ -18,7 +18,7 @@ export default async function handler(req, res) {
 
     if (premium) {
       // Premium may also override scoring/rounds (Phase 2 will load saved settings).
-      if (o.scoring === 'standard' || o.scoring === 'ppr') settings.scoring = o.scoring;
+      if (o.scoring === 'standard' || o.scoring === 'ppr' || o.scoring === 'half') settings.scoring = o.scoring;
       if (Number.isInteger(o.rounds) && o.rounds >= 10 && o.rounds <= 20) settings.rounds = o.rounds;
     } else {
       // Free tier: enforce the daily quota (settings otherwise stay basic).
@@ -26,7 +26,12 @@ export default async function handler(req, res) {
     }
 
     const usage = await getMockUsage(userId);
-    const userSlot = 1 + Math.floor(Math.random() * settings.teams); // user's snake position
+    // Honor a chosen draft position (any tier — it's pure draft mechanics); fall back
+    // to a random slot when none/invalid is sent.
+    const wanted = Number(req.body?.position);
+    const userSlot = Number.isInteger(wanted) && wanted >= 1 && wanted <= settings.teams
+      ? wanted
+      : 1 + Math.floor(Math.random() * settings.teams);
 
     return res.json({
       premium,
