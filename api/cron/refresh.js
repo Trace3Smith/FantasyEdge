@@ -75,6 +75,8 @@ export default async function handler(req, res) {
           } catch (err) {
             built.counts = { ...built.counts, projError: err.message };
           }
+          // ADP from the Fantasy Football Calculator free JSON API (PPR/Standard/Half).
+          // Additive + failure-tolerant — falls back to the last good pull in KV.
           try {
             await enrichNflAdp(built, redis);
           } catch (err) {

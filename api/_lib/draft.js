@@ -65,12 +65,14 @@ function valueOf(p, scoring) {
   return ppr;
 }
 
-// A player's ADP for the league's scoring. Half-PPR blends PPR and Standard ADP
-// (the midpoint), matching how valueOf treats Half-PPR. Returns null when absent.
+// A player's ADP for the league's scoring. Half-PPR uses FFC's native half-PPR ADP
+// when present, falling back to the PPR/Standard midpoint for any legacy cached dataset
+// that predates the native field. Returns null when absent.
 export function adpFor(p, scoring) {
   const a = p.adp;
   if (!a) return null;
   if (scoring === 'half') {
+    if (a.half != null) return a.half;
     if (a.ppr != null && a.standard != null) return (a.ppr + a.standard) / 2;
     return a.ppr ?? a.standard ?? null;
   }

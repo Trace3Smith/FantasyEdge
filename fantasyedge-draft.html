@@ -70,6 +70,8 @@
     background: rgba(255,152,0,0.1); border: 1px solid rgba(255,152,0,0.3); border-radius: 8px; }
 
   .roster h3, .avail h3 { font-size: 13px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray); margin-bottom: 10px; }
+  .adp-stamp { font-size: 11px; color: var(--gray); margin: -6px 0 10px; }
+  .adp-stamp:empty { display: none; }
   .roster-list, .pick-list { list-style: none; font-size: 13px; }
   .roster-list li, .pick-list li { padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; gap: 8px; }
   .pos-q{color:#e85d75}.pos-r{color:#4ec9b0}.pos-w{color:#7aa2f7}.pos-t{color:#e0af68}.pos-k{color:#bb9af7}.pos-d{color:#9ece6a}
@@ -203,6 +205,7 @@
       <div class="panel">
         <div class="avail">
           <h3>Available Players</h3>
+          <div class="adp-stamp" id="adpStamp"></div>
           <input class="search-input" id="availSearch" placeholder="Search to draft anyone…">
           <div class="avail-list" id="availList"></div>
         </div>
@@ -237,7 +240,8 @@ function adpFor(p, scoring) {
   const a = p && p.adp;
   if (!a) return null;
   if (scoring === 'half') {
-    if (a.ppr != null && a.standard != null) return (a.ppr + a.standard) / 2;
+    if (a.half != null) return a.half;            // native FFC half-PPR
+    if (a.ppr != null && a.standard != null) return (a.ppr + a.standard) / 2; // legacy blend fallback
     return a.ppr ?? a.standard ?? null;
   }
   return a[scoring] != null ? a[scoring] : null;
@@ -258,6 +262,8 @@ function projLine(p) {
   return `<div class="proj">Proj ${pr.fpts} FPTS${stats ? ' · ' + stats : ''}</div>`;
 }
 
+let adpBuiltAt = null; // when our ADP copy was last fetched (from the NFL dataset)
+
 async function loadPool() {
   if (players.length) return;
   const r = await fetch('/api/sports?sport=nfl');
@@ -265,6 +271,28 @@ async function loadPool() {
   players = (j.players || []).filter((p) => p.rank != null && !p.searchOnly)
     .sort((a, b) => a.rank - b.rank);
   byId = new Map(players.map((p) => [p.id, p]));
+  adpBuiltAt = j.adpBuiltAt || null;
+  renderAdpStamp();
+}
+
+// "ADP updated today at 6:02am" — local time, with today/yesterday/date for the day.
+// Returns '' when there's no timestamp so the stamp simply stays empty.
+function fmtAdpUpdated(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const now = new Date();
+  const yest = new Date(now); yest.setDate(now.getDate() - 1);
+  const day = d.toDateString() === now.toDateString() ? 'today'
+    : d.toDateString() === yest.toDateString() ? 'yesterday'
+    : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).toLowerCase().replace(/\s/g, '');
+  return `ADP updated ${day} at ${time}`;
+}
+
+function renderAdpStamp() {
+  const el = $('adpStamp');
+  if (el) el.textContent = fmtAdpUpdated(adpBuiltAt);
 }
 
 // Auth wiring -------------------------------------------------------------------

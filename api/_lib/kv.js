@@ -27,9 +27,10 @@ export const XWALK_KEY = 'xwalk:fg_mlbam';
 // merged onto the NFL dataset. Persisted separately so a failed scrape degrades to the
 // last good projections instead of dropping them.
 export const PROJECTIONS_KEY = 'projections:nfl';
-// FantasyPros consensus ADP (PPR + Standard), refreshed by the daily cron and merged
-// onto the NFL dataset. Drives realistic mock-draft opponents and the falling-value
-// boost in the recommendation engine. Persisted separately for graceful degrade.
+// NFL consensus ADP (PPR + Standard + native Half-PPR) from the Fantasy Football
+// Calculator free API, refreshed by the daily cron and merged onto the NFL dataset.
+// Drives realistic mock-draft opponents and the falling-value boost in the
+// recommendation engine. Persisted separately for graceful degrade.
 export const ADP_KEY = 'adp:nfl';
 
 export const redis = new Redis({
