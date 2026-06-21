@@ -1,49 +1,87 @@
-// Draft-pick advice: algorithmic best-available candidates (api/_lib/draft.js) plus
-// one short Claude rationale for the top pick. Free users get advice through round 7
-// (FREE_MAX_ROUND); later rounds return an upsell. Premium gets every round.
+// Draft-pick advice. Our model (api/_lib/draft.js) builds the shortlist of best
+// available candidates with their signals (value vs. replacement, ADP/falling value,
+// roster need, positional scarcity); a single Claude call then acts as the draft
+// analyst and makes THE final recommendation — weighing need, value, scarcity, and
+// flagging an elite player falling past his ADP as a reach. The algorithm informs
+// Claude's context; Claude decides. Falls back to the model's own top pick if the
+// Claude call is unavailable or returns anything unparseable, so advice always ships.
+// Free users get advice through round 7 (FREE_MAX_ROUND); later rounds return an upsell.
 import { getEntitlement, sendError, HttpError, FREE_MAX_ROUND } from '../_lib/auth.js';
 import { loadPlayers, recommend, DEFAULT_SETTINGS } from '../_lib/draft.js';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-4-6';
-const SYSTEM = `You are a knowledgeable fantasy football friend helping someone draft. You're given their current roster, the round, the top available players (each with projected fantasy points, average draft position (ADP), how many picks past his ADP he's still available, and whether the position fills a roster need), and THE recommended pick our model already chose. In 2 short, conversational sentences — like a friend giving advice — explain why that pick makes sense. Talk in terms of projected fantasy points, ADP value (a player still on the board past his ADP is a steal), and how he fits the roster's needs. NEVER mention internal metrics or jargon like "VORP", "value over replacement", or a "score". Don't suggest or name a different player; back the recommended pick. No preamble, no lists — just the friendly advice.`;
+const SYSTEM = `You are an elite fantasy football draft analyst. The user is on the clock and you make ONE decisive pick recommendation. Balance four things:
+1. Team needs — what the roster is missing (unfilled starting slots first, then useful depth and the FLEX).
+2. Best player available vs. ADP — a strong player still on the board well past his average draft position (ADP) is falling value worth pouncing on.
+3. Positional scarcity — as startable players at a position dry up while the draft progresses, urgency to secure one rises.
+4. Need vs. value balance — usually take the best value that also fits a need, but when an ELITE player is falling well past his ADP it can be worth reaching even if his position isn't a current need. When you recommend that, set reach=true.
+
+You are given the roster, round, scoring, recent positional runs, positional scarcity, and a numbered shortlist of the best available candidates (already filtered by our model) with each one's signals. Pick THE single best candidate from that shortlist. You may deviate from board order when need, scarcity, or falling value justifies it.
+
+Respond with ONLY a JSON object — no prose, no markdown fences:
+{"pick": <candidate number>, "rationale": "<2-3 conversational sentences like a sharp friend; speak in projected points, ADP value, roster fit and scarcity; NEVER mention internal jargon like VORP, value-over-replacement, or a 'score'>", "reach": <true only if you are recommending reaching for a falling elite player ahead of a positional need, else false>}`;
 
 // Describe one candidate for the prompt in plain terms (projected points, ADP value,
-// roster need) — never internal scoring metrics.
-function describe(c) {
-  const bits = [`${c.name} (${c.pos}, ${c.team})`];
+// roster need, scarcity-relevant flags) — never internal scoring metrics.
+function describe(c, n) {
+  const bits = [`[${n}] ${c.name} (${c.pos}, ${c.team})`, `board #${c.rank ?? '—'}`];
   if (c.proj != null) bits.push(`~${c.proj} projected pts`);
   if (c.adp != null) bits.push(`ADP ${c.adp}`);
-  if (c.picksPastAdp > 0) bits.push(`still available ${c.picksPastAdp} picks past his ADP`);
+  if (c.picksPastAdp > 0) bits.push(`still on the board ${c.picksPastAdp} picks past his ADP`);
   if (c.need) bits.push('fills a roster need');
+  if (c.forced) bits.push('mandatory starting slot still unfilled');
   return bits.join(', ');
 }
 
-// Ask Claude for a one-line rationale on the recommendation. Returns null on any
-// failure (no key, API error) so the algorithmic candidates still ship.
-async function rationaleFor({ round, roster, candidates, runs, scoring }) {
+// Pull the analyst's decision out of Claude's reply. Strict + defensive: any missing
+// key, out-of-range pick, or unparseable body returns null so the caller falls back to
+// the model's own top candidate. `n` is the candidate count (valid picks are 1..n).
+function parseAnalysis(text, n) {
+  if (!text) return null;
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  let obj;
+  try { obj = JSON.parse(m[0]); } catch { return null; }
+  const pick = Number(obj.pick);
+  if (!Number.isInteger(pick) || pick < 1 || pick > n) return null;
+  return {
+    pick,
+    rationale: typeof obj.rationale === 'string' ? obj.rationale.trim() : '',
+    reach: obj.reach === true,
+  };
+}
+
+// Ask Claude to make the call. Returns { pick, rationale, reach } (1-based pick index
+// into `candidates`) or null on any failure (no key, API error, bad JSON).
+async function analyzePick({ round, scoring, teams, roster, candidates, runs, board }) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key || !candidates.length) return null;
   const rosterStr = roster.length ? roster.map((r) => r.pos).join(', ') : '(empty)';
-  // The header shows candidates[0]; pin Claude's rationale to that exact player so the
-  // explanation can never argue for a different name than the one on screen.
-  const pick = candidates[0];
-  const top = candidates.slice(0, 6).map(describe).join('\n');
-  const prompt = `Round ${round}, ${scoring.toUpperCase()} scoring.\nMy roster so far: ${rosterStr}.\n${runs.length ? `Recent run on: ${runs.join(', ')}.\n` : ''}Top available:\n${top}\n\nRecommended pick: ${describe(pick)}. In a friendly, conversational tone, explain why this is a smart pick.`;
+  const scarcityStr = Object.entries(board?.startableLeft || {})
+    .sort((a, b) => a[1] - b[1])
+    .map(([pos, c]) => `${pos} ${c}`).join(', ') || 'n/a';
+  const listed = candidates.map((c, i) => describe(c, i + 1)).join('\n');
+  const prompt = `Round ${round}, ${scoring.toUpperCase()} scoring, ${teams}-team league.`
+    + `\nMy roster so far: ${rosterStr}.`
+    + `\n${runs.length ? `Recent run on: ${runs.join(', ')} (these positions are going fast).\n` : ''}`
+    + `Positional scarcity — startable players left by position (fewest first): ${scarcityStr}.`
+    + `\nPicks I have left: ${board?.picksLeft ?? '?'}.`
+    + `\n\nCandidates:\n${listed}\n\nPick the best one and respond with the JSON object only.`;
   try {
     const r = await fetch(ANTHROPIC_URL, {
       method: 'POST',
       headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 160,
+        max_tokens: 320,
         system: SYSTEM,
         messages: [{ role: 'user', content: prompt }],
       }),
     });
     if (!r.ok) return null;
     const j = await r.json();
-    return j?.content?.[0]?.text?.trim() || null;
+    return parseAnalysis(j?.content?.[0]?.text || '', candidates.length);
   } catch {
     return null;
   }
@@ -82,15 +120,29 @@ export default async function handler(req, res) {
     }
     const players = await loadPlayers(b.sport || 'nfl');
     const roster = Array.isArray(b.roster) ? b.roster : [];
-    const { candidates, runs } = recommend(players, b.drafted || [], roster, settings, round, b.recentPicks || []);
+    const { candidates, runs, board } = recommend(players, b.drafted || [], roster, settings, round, b.recentPicks || []);
 
-    // The Claude rationale is the costly part; callers can skip it (e.g. offline mode's
-    // real-time refreshes while the user's pick is still a few spots away).
-    const rationale = b.rationale === false
-      ? null
-      : await rationaleFor({ round, roster, candidates, runs, scoring: settings.scoring });
+    // The analyst (Claude) call is the costly part; callers can skip it (e.g. offline
+    // mode's real-time refreshes while the user's pick is still a few spots away), in
+    // which case we serve the model's own ranked candidates with no rationale.
+    let ordered = candidates;
+    let rationale = null;
+    let reach = false;
+    if (b.rationale !== false && candidates.length) {
+      const analysis = await analyzePick({
+        round, scoring: settings.scoring, teams: settings.teams, roster, candidates, runs, board,
+      });
+      if (analysis) {
+        // Promote Claude's pick to the front so the panel headline + board highlight
+        // (which read candidates[0]) reflect the analyst's call.
+        const chosen = candidates[analysis.pick - 1];
+        ordered = [chosen, ...candidates.filter((_, i) => i !== analysis.pick - 1)];
+        rationale = analysis.rationale || null;
+        reach = analysis.reach;
+      }
+    }
 
-    return res.json({ candidates, runs, rationale, round, premium });
+    return res.json({ candidates: ordered.slice(0, 8), runs, rationale, reach, round, premium });
   } catch (err) {
     return sendError(res, err);
   }
