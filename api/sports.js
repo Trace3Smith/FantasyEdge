@@ -77,6 +77,10 @@ export default async function handler(req, res) {
       players,
       sport,
       builtAt: dataset.builtAt,
+      // ADP-specific freshness (NFL only; null elsewhere). This is the scrape/fetch time,
+      // which can lag dataset.builtAt on a graceful-degrade day — so it's the honest
+      // "ADP last updated" signal for the draft board.
+      adpBuiltAt: dataset.counts?.adp?.builtAt ?? null,
     });
   } catch (err) {
     return res.status(500).json({ error: err.message, players: [] });
