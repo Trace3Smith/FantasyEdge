@@ -297,6 +297,17 @@
   .trend-up { color: var(--green); font-weight: 600; font-size: 12px; }
   .trend-down { color: var(--red); font-weight: 600; font-size: 12px; }
   .trend-flat { color: var(--gray); font-size: 12px; }
+  /* PGA DFS value tiers (replace the star rating on the golf board). */
+  .tier-cell { min-width: 110px; }
+  .tier-badge { display: inline-block; padding: 3px 9px; border-radius: 3px; font-size: 11px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; }
+  .tier-value { background: rgba(76,175,80,0.18); color: var(--green); border: 1px solid rgba(76,175,80,0.5); }
+  .tier-chalk { background: rgba(212,160,23,0.18); color: var(--gold-light); border: 1px solid rgba(212,160,23,0.5); }
+  .tier-solid { background: rgba(255,255,255,0.07); color: var(--gray-light); border: 1px solid rgba(255,255,255,0.18); }
+  .tier-punt  { background: rgba(244,67,54,0.12); color: var(--red); border: 1px solid rgba(244,67,54,0.35); }
+  .tier-note { display: block; font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--gray); margin-top: 4px; }
+  /* PGA-only extra stat columns (CUT% / FIT): hidden until the golf board is active. */
+  .pga-col { display: none; }
+  #rankingsTable.show-pga-cols .pga-col { display: table-cell; }
   .own-pct { color: var(--gray-light); font-size: 12px; }
   .loading-row td { text-align: center; padding: 60px 20px; color: var(--gray); }
   .loading-title { font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 2px; color: var(--gold); margin-bottom: 6px; }
@@ -395,11 +406,13 @@
         <tr>
           <th>#</th><th>Player</th><th id="hPos">Pos</th><th>Team</th>
           <th id="h1">AVG</th><th id="h2">HR</th><th id="h3">RBI</th><th id="h4">SB</th>
-          <th id="h5">ERA</th><th id="h6">WHIP</th><th>Stars</th><th>Trend</th><th>Own%</th>
+          <th id="h5">ERA</th><th id="h6">WHIP</th>
+          <th id="h7" class="pga-col">CUT%</th><th id="h8" class="pga-col">FIT</th>
+          <th id="hRate">Stars</th><th>Trend</th><th>Own%</th>
         </tr>
       </thead>
       <tbody id="tableBody">
-        <tr class="loading-row"><td colspan="13"><div class="loading-title">Loading Live Data...</div><div class="loading-sub">Fetching real stats from MLB Stats API</div></td></tr>
+        <tr class="loading-row"><td colspan="15"><div class="loading-title">Loading Live Data...</div><div class="loading-sub">Fetching real stats from MLB Stats API</div></td></tr>
       </tbody>
     </table>
   </div>
@@ -457,6 +470,15 @@
     if (tag === 'cold') return `<span class="tag-badge tag-slump">❄️ COLD</span>`;
     return '';
   }
+  // PGA DFS value tier (replaces the star rating on the golf board): VALUE (produces
+  // above his price), CHALK (obvious stud), SOLID (dependable), PUNT (salary saver).
+  // A small note flags golfers not in this week's field (their CUT%/FIT are blank).
+  function getTierHTML(tier, inField) {
+    const labels = { value: 'VALUE', chalk: 'CHALK', solid: 'SOLID', punt: 'PUNT' };
+    const key = labels[tier] ? tier : 'solid';
+    const note = inField === false ? '<span class="tier-note">not in field</span>' : '';
+    return `<span class="tier-badge tier-${key}">${labels[key]}</span>${note}`;
+  }
 
   const STAT_HEADERS = {
     pitcher: ['K', 'W', 'SV', 'HD', 'ERA', 'WHIP'],
@@ -474,9 +496,10 @@
     nfl_k:   ['FGM', 'FGA', 'FG%', 'XPM', 'LNG', 'FPTS'],
     nfl_dst: ['Sack', 'INT', 'FR', 'TD', 'PA', 'FPTS'],
     nfl_all: ['—', '—', '—', '—', '—', 'FPTS'],
-    // PGA: OWGR world rank, last-6 avg finish, course-fit score, cut probability,
-    // OWGR points avg, and this week's live position.
-    pga:     ['OWGR', 'L6', 'FIT', 'CUT%', 'PTS', 'WK'],
+    // PGA (DFS golf): season strokes gained (off-the-tee / approach / putting),
+    // scrambling / fairways / greens, then this week's cut probability + course fit.
+    // 8 columns — the last two (CUT% / FIT) render in the PGA-only s7/s8 cells.
+    pga:     ['SG:OTT', 'SG:APP', 'SG:PUTT', 'SCR', 'FIR', 'GIR', 'CUT%', 'FIT'],
   };
   // NFL position filter -> header set (TE shares WR's columns).
   const NFL_HEADER_POS = { QB: 'nfl_qb', RB: 'nfl_rb', WR: 'nfl_wr', TE: 'nfl_wr', K: 'nfl_k', DST: 'nfl_dst' };
@@ -555,13 +578,14 @@
     // by PPR, so this matters in Standard mode and keeps PPR order otherwise).
     if (isNfl) filtered = filtered.slice().sort((a, b) => (nflRankFp(b) ?? 0) - (nflRankFp(a) ?? 0));
     if (!filtered.length) {
-      tbody.innerHTML = '<tr class="loading-row"><td colspan="13"><div class="loading-title">No Players Found</div><div class="loading-sub">Try a different position filter</div></td></tr>';
+      tbody.innerHTML = '<tr class="loading-row"><td colspan="15"><div class="loading-title">No Players Found</div><div class="loading-sub">Try a different position filter</div></td></tr>';
       return;
     }
     tbody.innerHTML = filtered.map(p => {
       const cats = Array.isArray(p.cats) ? p.cats : [];
       const sc = getStarCount(cats);
       const so = !!p.searchOnly;
+      const isPga = currentSport === 'pga';
       // statless players carry no statLabels; sub-PA hitters do (real numbers).
       const soBadge = so
         ? `<span class="tag-badge tag-searchonly">${p.statLabels ? 'UNRANKED' : 'NO MLB STATS'}</span>`
@@ -588,7 +612,8 @@
         <td><span class="pos-badge">${p.pos||'—'}</span></td>
         <td style="color:var(--gray-light)">${p.team||'—'}</td>
         <td>${formatStat(p.s1, showInline ? p.statLabels?.[0] : null)}</td><td>${formatStat(p.s2, showInline ? p.statLabels?.[1] : null)}</td><td>${formatStat(p.s3, showInline ? p.statLabels?.[2] : null)}</td><td>${formatStat(p.s4, showInline ? p.statLabels?.[3] : null)}</td><td>${formatStat(p.s5, showInline ? p.statLabels?.[4] : null)}</td><td>${formatStat(s6disp, showInline ? p.statLabels?.[5] : null)}</td>
-        <td class="stars-cell">${so ? muted : `<div class="stars-row">${renderStars(sc)}</div><div class="stars-label">${getStarLabel(sc)}</div><div class="stars-cats">${cats.map(c=>`<span class="stars-cat-pill">${c}</span>`).join('')}</div>`}</td>
+        <td class="pga-col">${formatStat(p.s7, showInline ? p.statLabels?.[6] : null)}</td><td class="pga-col">${formatStat(p.s8, showInline ? p.statLabels?.[7] : null)}</td>
+        <td class="${isPga ? 'tier-cell' : 'stars-cell'}">${so ? muted : isPga ? getTierHTML(p.tier, p.inField) : `<div class="stars-row">${renderStars(sc)}</div><div class="stars-label">${getStarLabel(sc)}</div><div class="stars-cats">${cats.map(c=>`<span class="stars-cat-pill">${c}</span>`).join('')}</div>`}</td>
         <td>${so ? muted : getTrendHTML(p.trend, p.trendVal)}</td>
         <td class="own-pct">${so ? '—' : (p.own!=null?p.own+'%':'—')}</td>
       </tr>`;
@@ -645,7 +670,7 @@
   function renderLocked() {
     document.getElementById('updateLabel').textContent = 'Premium feature';
     ['stripTotal', 'stripHot', 'stripCold'].forEach(id => document.getElementById(id).textContent = '—');
-    document.getElementById('tableBody').innerHTML = `<tr><td colspan="13" style="padding:64px 24px;text-align:center">
+    document.getElementById('tableBody').innerHTML = `<tr><td colspan="15" style="padding:64px 24px;text-align:center">
       <div style="font-size:40px;margin-bottom:10px">🔒</div>
       <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:var(--gold);margin-bottom:8px">PGA Rankings is a Premium feature</div>
       <div style="font-size:13px;color:var(--gray);max-width:440px;margin:0 auto 20px;line-height:1.6">World rankings, recent-form trends, course-fit scores, and cut probabilities for the current tournament — updated daily.</div>
@@ -658,7 +683,7 @@
   async function loadAndRender(sport) {
     currentSport = sport;
     if (isLocked(sport)) { renderLocked(); return; }
-    document.getElementById('tableBody').innerHTML = '<tr class="loading-row"><td colspan="13"><div class="loading-title">Loading Live Data...</div><div class="loading-sub">Fetching real stats...</div></td></tr>';
+    document.getElementById('tableBody').innerHTML = '<tr class="loading-row"><td colspan="15"><div class="loading-title">Loading Live Data...</div><div class="loading-sub">Fetching real stats...</div></td></tr>';
     try {
       // Premium sports are gated server-side, so attach the Clerk session token.
       // (isLocked already short-circuits non-premium users before we get here.)
@@ -678,7 +703,7 @@
       updateStrip(allPlayers);
       renderTable(allPlayers);
     } catch(err) {
-      document.getElementById('tableBody').innerHTML = `<tr class="error-row"><td colspan="13"><div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;margin-bottom:6px">Failed to Load Data</div><div style="font-size:12px;color:var(--gray)">${err.message}</div></td></tr>`;
+      document.getElementById('tableBody').innerHTML = `<tr class="error-row"><td colspan="15"><div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;margin-bottom:6px">Failed to Load Data</div><div style="font-size:12px;color:var(--gray)">${err.message}</div></td></tr>`;
     }
   }
 
@@ -723,7 +748,7 @@
     wnba: ['PTS', 'REB', 'AST', 'STL', 'BLK', 'TO', 'FG%', 'FT%', '3PM'],
     nhl: ['G', 'A', 'PTS', '+/-', 'PIM', 'PPP', 'SOG', 'FOW', 'GWG'],
     nfl: ['Pass Yd', 'Pass TD', 'Rush Yd', 'Rush TD', 'Rec', 'Rec Yd', 'Rec TD', 'FG', 'DST'],
-    pga: ['World Rank', 'Recent Form', 'Course Fit', 'Cut Prob', 'HOT/COLD'],
+    pga: ['Strokes Gained', 'Scrambling', 'Fairways', 'Greens', 'Cut Prob', 'Course Fit', 'DFS Value'],
   };
   // Rebuild the position filters + roto-category banner for a sport and reset both
   // filters to their defaults; the AL/NL league toggle is MLB-only (hidden else).
@@ -732,7 +757,11 @@
     currentLeague = 'ALL';
     currentScoring = 'PPR';
     // The Pos column holds country for PGA (golfers have no position); 'Pos' elsewhere.
-    document.getElementById('hPos').textContent = sport === 'pga' ? 'Country' : 'Pos';
+    const isPga = sport === 'pga';
+    document.getElementById('hPos').textContent = isPga ? 'Country' : 'Pos';
+    // PGA shows two extra stat columns (CUT% / FIT) and a DFS value tier instead of stars.
+    document.getElementById('rankingsTable').classList.toggle('show-pga-cols', isPga);
+    document.getElementById('hRate').textContent = isPga ? 'Tier' : 'Stars';
     const set = POS_SETS[sport] || POS_SETS.mlb;
     document.getElementById('posFilters').innerHTML =
       set.map(p => `<button class="pos-btn${p === 'ALL' ? ' active' : ''}" data-pos="${p}">${p}</button>`).join('');
