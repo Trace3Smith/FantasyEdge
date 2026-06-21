@@ -6,6 +6,9 @@ import { buildNflDataset } from './buildNflDataset.js';
 import { buildNbaDataset, buildWnbaDataset } from './buildNbaDataset.js';
 import { buildNhlDataset } from './buildNhlDataset.js';
 import { redis, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, DATASET_VERSION } from './kv.js';
+// The board ranks by the same per-format value function the rankings tab and draft board
+// use — one shared definition (see /nflScoring.js), so the engine never drifts from the UI.
+import { nflRankValue as valueOf } from '../../nflScoring.js';
 
 // Same per-sport wiring as api/sports.js, so the draft reads the identical cached
 // dataset and self-heals on a cold-start miss. NFL is the headline draft sport.
@@ -51,18 +54,6 @@ export async function loadPlayers(sport = 'nfl') {
     await redis.set(cfg.key, dataset);
   }
   return (dataset.players || []).filter((p) => !p.searchOnly);
-}
-
-// The ranking value we draft on: PPR uses fp (PPR-anchored), Standard uses the
-// Standard ranking value when present. Half-PPR has no dedicated number in our data,
-// so it's the midpoint of PPR and Standard (a faithful ordering without a new source).
-// Falls back across fields for non-NFL sports.
-function valueOf(p, scoring) {
-  const ppr = p.fp ?? p.fpPpr ?? p.fpStd ?? 0;
-  const std = p.rankStd ?? p.fpStd ?? p.fp ?? p.fpPpr ?? 0;
-  if (scoring === 'standard') return std;
-  if (scoring === 'half') return (ppr + std) / 2;
-  return ppr;
 }
 
 // A player's ADP for the league's scoring. Half-PPR uses FFC's native half-PPR ADP

@@ -226,10 +226,15 @@
 
 <script type="module" src="/auth.js"></script>
 <script type="module">
+// Shared NFL scoring — the SAME functions the rankings tab uses, so the draft board
+// ranks players by FPTS in the chosen format identically (no separate ranking system).
+import { nflRankValue, nflFpts } from '/nflScoring.js';
+
 // --- Mock draft controller ----------------------------------------------------
-let players = [];           // full NFL pool (rank-sorted)
+let players = [];           // full NFL pool
 let byId = new Map();
 let state = null;           // active draft state
+let nflRankMap = new Map(); // id -> big-board rank for the draft's scoring format
 
 const $ = (id) => document.getElementById(id);
 const posClass = (p) => ({ QB:'pos-q', RB:'pos-r', WR:'pos-w', TE:'pos-t', K:'pos-k', DST:'pos-d' }[p] || '');
@@ -394,6 +399,7 @@ async function startMock() {
     $('freeBanner').classList.remove('hidden');
     $('freeBanner').textContent = `Free mock: assistant advice for rounds 1–${data.freeMaxRound}. Upgrade for the full draft & unlimited mocks.`;
   }
+  buildNflRankMap();
   applyCoachGate();
   advance();
 }
@@ -555,15 +561,31 @@ function renderRecent() {
     return `<li><span class="muted">R${p.round}</span> <span class="pos ${posClass(p.pos)}">${p.pos}</span> ${p.name}${who}</li>`;
   }).join('') || '<li class="muted">—</li>';
 }
+// Build the format-aware big board once per draft: every rankable player ordered by the
+// shared nflRankValue for the chosen scoring, giving each a 1..N rank (same logic as the
+// rankings tab). Fixed for the draft since scoring is chosen at setup.
+function buildNflRankMap() {
+  const scoring = state?.settings?.scoring || 'ppr';
+  const ranked = players.filter((p) => !p.searchOnly && p.rank != null)
+    .slice().sort((a, b) => nflRankValue(b, scoring) - nflRankValue(a, scoring));
+  nflRankMap = new Map(ranked.map((p, i) => [p.id, i + 1]));
+}
+
 function renderAvailable(filter = '') {
   const f = filter.toLowerCase();
-  const list = players.filter((p) => !state.drafted.has(p.id) && (!f || p.name.toLowerCase().includes(f) || p.pos.toLowerCase() === f)).slice(0, 60);
   const scoring = state.settings.scoring || 'ppr';
+  // Order the board by FPTS in the chosen format — identical to the rankings tab.
+  const list = players
+    .filter((p) => !state.drafted.has(p.id) && (!f || p.name.toLowerCase().includes(f) || p.pos.toLowerCase() === f))
+    .sort((a, b) => nflRankValue(b, scoring) - nflRankValue(a, scoring))
+    .slice(0, 60);
   $('availList').innerHTML = list.map((p) => {
     const adp = adpFor(p, scoring);
     const adpStr = adp != null ? Math.round(adp * 10) / 10 : null;
+    const rk = nflRankMap.get(p.id) ?? '—';
+    const fpts = p.fpPpr != null ? nflFpts(p, scoring).toFixed(1) : null;
     return `<div class="cand" data-id="${p.id}"><div><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>
-      <span class="meta"> · ${p.team} · #${p.rank}${adpStr != null ? ' · ADP ' + adpStr : ''}</span>${projLine(p)}</div></div>`;
+      <span class="meta"> · ${p.team} · #${rk}${fpts != null ? ' · ' + fpts + ' FPTS' : ''}${adpStr != null ? ' · ADP ' + adpStr : ''}</span>${projLine(p)}</div></div>`;
   }).join('');
   $('availList').querySelectorAll('.cand').forEach((el) => el.addEventListener('click', () => draftPlayer(el.dataset.id)));
 }
@@ -607,6 +629,7 @@ async function startOffline() {
   $('draftArea').classList.remove('hidden');
   $('freeBanner').classList.add('hidden');
   $('offlineBar').classList.remove('hidden');
+  buildNflRankMap();
   applyCoachGate();
   offlineStep();
 }
@@ -736,7 +759,9 @@ function buildDraftContext() {
   const rounds = s.settings.rounds || Math.round(s.totalPicks / s.settings.teams);
   const rosterStr = s.roster.map((r) => { const p = byId.get(r.id); return p ? `${p.pos} ${p.name}` : r.pos; }).join(', ') || '(empty)';
   const recent = s.picks.slice(-8).map((p) => `${p.pos} ${p.name}`).join(', ') || 'none yet';
-  const avail = players.filter((p) => !s.drafted.has(p.id)).slice(0, 12).map((p) => `${p.pos} ${p.name} (#${p.rank})`).join(', ');
+  const avail = players.filter((p) => !s.drafted.has(p.id))
+    .sort((a, b) => nflRankValue(b, s.settings.scoring) - nflRankValue(a, s.settings.scoring))
+    .slice(0, 12).map((p) => `${p.pos} ${p.name} (#${nflRankMap.get(p.id) ?? '—'})`).join(', ');
   // Fold in the pick you just recommended so follow-ups ("why not the WR?") stay coherent.
   const recoStr = lastReco
     ? ` Your current recommendation to the user this pick: ${lastReco.name} (${lastReco.pos}, ${lastReco.team})${lastReco.rationale ? ' — ' + lastReco.rationale : ''}.`

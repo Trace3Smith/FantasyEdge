@@ -418,7 +418,11 @@
   </div>
 </main>
 
-<script>
+<script type="module">
+  // Shared NFL scoring — the SAME functions the draft board uses, so rankings and the
+  // draft board order players by FPTS in a format identically (one ranking system).
+  import { nflRankValue, nflFpts } from '/nflScoring.js';
+
   let currentSport = 'mlb';
   let currentPos = 'ALL';
   let currentLeague = 'ALL';
@@ -547,11 +551,11 @@
     // nflFp() picks the active per-player total for the FPTS column either way.
     let nflRank = null;
     const isNfl = currentSport === 'nfl';
-    // Display value (FPTS column) vs ranking value: kickers carry a separate
-    // rankStd so their realistic displayed points don't drag them up the Standard
-    // board (see scaleKickers in buildNflDataset.js).
-    const nflFp = (p) => (currentScoring === 'STD' ? p.fpStd : p.fpPpr);
-    const nflRankFp = (p) => (currentScoring === 'STD' ? (p.rankStd ?? p.fpStd) : p.fpPpr);
+    // Display value (FPTS column) vs ranking value come from the shared /nflScoring.js —
+    // the exact functions the draft board uses (kickers carry a separate rankStd so their
+    // realistic displayed points don't drag them up the Standard board).
+    const nflFp = (p) => nflFpts(p, currentScoring);
+    const nflRankFp = (p) => nflRankValue(p, currentScoring);
     if (isNfl && currentScoring === 'STD') {
       nflRank = new Map();
       players.filter(p => !p.searchOnly && p.rank != null)
