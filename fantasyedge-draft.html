@@ -55,6 +55,8 @@
 
   .reco-top { background: rgba(212,160,23,0.08); border: 1px solid rgba(212,160,23,0.25); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
   .reco-top .rl { font-size: 11px; letter-spacing: 1px; color: var(--gold); text-transform: uppercase; }
+  .reach-badge { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+    color: #111; background: var(--gold-light); padding: 2px 7px; border-radius: 10px; vertical-align: middle; }
   .reco-rationale { color: var(--gray-light); font-size: 13px; margin-top: 6px; line-height: 1.5; }
   .cand { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 8px;
     background: var(--dark3); margin-bottom: 8px; cursor: pointer; border: 1px solid transparent; }
@@ -253,6 +255,9 @@ function adpFor(p, scoring) {
   }
   return a[scoring] != null ? a[scoring] : null;
 }
+
+// The analyst flags an elite player falling past his ADP as a reach worth making.
+const reachBadge = (reach) => (reach ? '<span class="reach-badge">📈 VALUE FALLING</span>' : '');
 
 // FantasyPros projection line for a player card. Yards/points-allowed read as whole
 // numbers; counting stats keep one decimal (consensus projections are fractional).
@@ -499,7 +504,7 @@ async function fetchAdvice(round) {
 
   const top = data.candidates[0];
   recoTop.innerHTML = top
-    ? `<div class="rl">Recommended Pick</div><div style="font-size:18px;font-weight:700;margin-top:4px">${top.name} <span class="muted" style="font-size:13px">${top.pos} · ${top.team}</span></div>`
+    ? `<div class="rl">Analyst Pick${reachBadge(data.reach)}</div><div style="font-size:18px;font-weight:700;margin-top:4px">${top.name} <span class="muted" style="font-size:13px">${top.pos} · ${top.team}</span></div>`
       + (data.rationale ? `<div class="reco-rationale">${escapeHtml(data.rationale)}</div>` : '')
     : '<span class="muted">No candidates.</span>';
 
@@ -663,7 +668,7 @@ async function updateOfflineAdvice(until) {
 
   if (onClock) {
     const top = data.candidates[0];
-    recoTop.innerHTML = `<div class="rl">Your pick — recommended</div>`
+    recoTop.innerHTML = `<div class="rl">Analyst Pick — your turn${reachBadge(data.reach)}</div>`
       + `<div style="font-size:18px;font-weight:700;margin-top:4px">${top.name} <span class="muted" style="font-size:13px">${top.pos} · ${top.team}</span></div>`
       + (data.rationale ? `<div class="reco-rationale">${escapeHtml(data.rationale)}</div>` : '');
   } else if (until <= 3) {

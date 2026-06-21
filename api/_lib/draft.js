@@ -240,5 +240,8 @@ export function recommend(players, drafted, roster = [], settings = DEFAULT_SETT
       (a.rank ?? 1e9) - (b.rank ?? 1e9)
     );
 
-  return { candidates: scored.slice(0, 8), runs };
+  // Board context for the analyst layer (advise.js): positional scarcity, draft-end
+  // cushion, and league size. Additive — existing consumers read candidates/runs only.
+  const board = { startableLeft, slack, teams, picksLeft, totalRounds };
+  return { candidates: scored.slice(0, 12), runs, board };
 }
