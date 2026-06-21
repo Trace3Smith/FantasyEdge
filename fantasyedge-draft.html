@@ -55,8 +55,6 @@
 
   .reco-top { background: rgba(212,160,23,0.08); border: 1px solid rgba(212,160,23,0.25); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
   .reco-top .rl { font-size: 11px; letter-spacing: 1px; color: var(--gold); text-transform: uppercase; }
-  .reach-badge { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
-    color: #111; background: var(--gold-light); padding: 2px 7px; border-radius: 10px; vertical-align: middle; }
   .reco-rationale { color: var(--gray-light); font-size: 13px; margin-top: 6px; line-height: 1.5; }
   .cand { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 8px;
     background: var(--dark3); margin-bottom: 8px; cursor: pointer; border: 1px solid transparent; }
@@ -68,7 +66,8 @@
     padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.08); margin-right: 8px; }
   .cand .need { color: var(--green); font-size: 11px; font-weight: 700; }
   .cand .value { color: var(--gold); font-size: 11px; font-weight: 700; }
-  .runs { font-size: 12px; color: var(--orange); margin-bottom: 10px; }
+  .runs { font-size: 13px; color: var(--orange); margin: 2px 0 16px; padding: 9px 14px;
+    background: rgba(255,152,0,0.1); border: 1px solid rgba(255,152,0,0.3); border-radius: 8px; }
 
   .roster h3, .avail h3 { font-size: 13px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray); margin-bottom: 10px; }
   .roster-list, .pick-list { list-style: none; font-size: 13px; }
@@ -88,9 +87,10 @@
   .clock-you { color: var(--gold); font-weight: 700; }
 
   /* ---- embedded AI Coach chat ---- */
-  .coach-panel { display: flex; flex-direction: column; min-height: 320px; max-height: 460px; }
-  .coach-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-  .coach-scroll { flex: 1; overflow-y: auto; padding: 4px 2px 8px; min-height: 120px; }
+  .coach-panel { display: flex; flex-direction: column; min-height: 300px; max-height: 440px; }
+  .coach-scroll { flex: 1; overflow-y: auto; padding: 4px 2px 10px; min-height: 140px; }
+  .coach-lock { display: flex; align-items: center; gap: 12px; margin-top: 8px; padding: 10px 12px;
+    background: rgba(212,160,23,0.08); border: 1px solid rgba(212,160,23,0.25); border-radius: 10px; }
   .cmsg { display: flex; gap: 8px; margin-bottom: 12px; }
   .cmsg .av { width: 26px; height: 26px; min-width: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; }
   .cmsg.coach .av { background: rgba(212,160,23,0.15); border: 1px solid rgba(212,160,23,0.4); }
@@ -181,43 +181,30 @@
       <button class="btn btn-ghost" id="undoBtn" type="button" style="padding:6px 14px; font-size:13px">↶ Undo last pick</button>
       <span class="muted" style="font-size:12px; margin-left:10px">As each team picks, click the player they took — in order. We track whose turn it is.</span>
     </div>
-    <div class="draft-grid">
-      <div class="panel">
-        <div class="reco" id="recoPanel">
-          <div class="runs hidden" id="runs"></div>
-          <div class="reco-top" id="recoTop"></div>
-          <div id="candList"></div>
-        </div>
-        <div class="lock-overlay hidden" id="lockPanel">
-          <div class="lock-inner">
-            <div class="lock-title">🔒 Rounds 8+ are Premium</div>
-            <p>Upgrade to get full-draft assistant advice, unlimited mocks, and real draft mode.</p>
-            <button class="btn btn-gold" id="lockUpgrade">Go Premium</button>
-          </div>
-        </div>
+    <!-- AI Coach at the top: leads with the analyst's pick each turn, then takes follow-ups -->
+    <div class="panel coach-panel">
+      <h3>🤖 Draft Coach</h3>
+      <div class="coach-scroll" id="coachScroll"></div>
+      <div class="coach-composer" id="coachComposer">
+        <textarea id="coachInput" rows="1" placeholder="Ask about your pick, a position run, anything…"></textarea>
+        <button id="coachSend" type="button" title="Send">➤</button>
       </div>
+      <div class="coach-lock hidden" id="coachLock">
+        <span class="muted" style="font-size:12.5px">🔒 Premium unlocks follow-up questions &amp; analyst picks every round.</span>
+        <button class="btn btn-gold" id="coachUpsell" type="button" style="padding:7px 14px; font-size:13px">Go Premium</button>
+      </div>
+    </div>
+
+    <!-- Scarcity alert, above the board -->
+    <div class="runs hidden" id="runs"></div>
+
+    <!-- Board / roster / recent at the bottom -->
+    <div class="draft-grid">
       <div class="panel">
         <div class="avail">
           <h3>Available Players</h3>
           <input class="search-input" id="availSearch" placeholder="Search to draft anyone…">
           <div class="avail-list" id="availList"></div>
-        </div>
-      </div>
-    </div>
-    <div class="draft-grid" style="margin-top:20px">
-      <div class="panel coach-panel">
-        <h3>🤖 Ask the Coach</h3>
-        <div class="coach-lock hidden" id="coachLock">
-          <span class="lock-title" style="font-size:14px">🔒 Premium</span>
-          <p class="muted" style="font-size:12px; margin:6px 0 10px">Chat with the AI Coach mid-draft — it knows your roster and who's left.</p>
-          <button class="btn btn-gold" id="coachUpsell" type="button" style="padding:7px 14px; font-size:13px">Go Premium</button>
-        </div>
-        <div class="coach-body" id="coachBody">
-          <div class="coach-scroll" id="coachScroll"></div>
-          <div class="coach-composer">
-            <textarea id="coachInput" rows="1" placeholder="Ask about your pick, a position run, anything…"></textarea>
-            <button id="coachSend" type="button" title="Send">➤</button>
-          </div>
         </div>
       </div>
       <div>
@@ -256,9 +243,6 @@ function adpFor(p, scoring) {
   return a[scoring] != null ? a[scoring] : null;
 }
 
-// The analyst flags an elite player falling past his ADP as a reach worth making.
-const reachBadge = (reach) => (reach ? '<span class="reach-badge">📈 VALUE FALLING</span>' : '');
-
 // FantasyPros projection line for a player card. Yards/points-allowed read as whole
 // numbers; counting stats keep one decimal (consensus projections are fractional).
 function projNum(label, v) {
@@ -286,7 +270,6 @@ async function loadPool() {
 // Auth wiring -------------------------------------------------------------------
 document.addEventListener('fe-auth-ready', refreshAuthUI);
 $('signInBtn').addEventListener('click', () => window.FE?.openSignIn());
-$('lockUpgrade').addEventListener('click', () => window.FE?.openPricing());
 
 // Both modes share this page and the same setup screen; ?mode=mock picks which one
 // we're setting up. (Offline = track a real league draft; Mock = draft vs AI.)
@@ -452,65 +435,81 @@ function draftPlayer(id) {
   return state.mode === 'offline' ? offlineRecord(id) : userDraft(id);
 }
 
-// Shared candidate-card renderer (mock reco + offline targets).
-function renderCandidates(list) {
-  const candList = $('candList');
-  candList.innerHTML = '';
-  list.forEach((c) => {
-    const el = document.createElement('div');
-    el.className = 'cand';
-    el.innerHTML = `<div><span class="pos ${posClass(c.pos)}">${c.pos}</span><span class="nm">${c.name}</span>
-      <span class="meta"> · ${c.team} · #${c.rank ?? '—'}${c.adp != null ? ' · ADP ' + c.adp : ''}${c.need ? ' · <span class="need">NEED</span>' : ''}</span>
-      ${projLine(byId.get(c.id))}</div>
-      <div class="meta">${c.falling && c.picksPastAdp > 0 ? `<span class="value">+${c.picksPastAdp} past ADP</span>` : ''}</div>`;
-    el.addEventListener('click', () => draftPlayer(c.id));
-    candList.appendChild(el);
-  });
+// Scarcity alert above the board. Hidden when there's no active run.
+function setRuns(runs) {
+  const el = $('runs');
+  if (runs && runs.length) {
+    el.classList.remove('hidden');
+    el.textContent = `⚠ Run on ${runs.join(', ')} — these positions are going fast.`;
+  } else {
+    el.classList.add('hidden');
+  }
 }
 
-// User's turn: render roster/board, then fetch assistant advice -----------------
+// Client-side run detection (same rule as the server: 3+ of a position in the last 6
+// picks) so the scarcity alert stays live while you're waiting — no server call needed.
+function clientRuns() {
+  const counts = {};
+  state.picks.slice(-6).forEach((p) => { counts[p.pos] = (counts[p.pos] || 0) + 1; });
+  return Object.entries(counts).filter(([, n]) => n >= 3).map(([pos]) => pos);
+}
+
+// The analyst's most recent recommendation, woven into the Coach's context so follow-ups
+// stay coherent ("why not the WR?"). Display-only — never pushed into coachHistory.
+let lastReco = null;
+
+// User's turn: render roster/board, then have the Coach open with the analyst's pick.
 function renderUserTurn() {
   const round = roundOf(state.pickIndex, state.settings.teams);
   $('clock').innerHTML = `Round <b>${round}</b> · Pick <b>${state.pickIndex + 1}</b> — <span class="on-clock-you">You're on the clock</span>`;
   renderRoster();
   renderRecent();
   renderAvailable();
-  fetchAdvice(round);
+  analystOpening();
 }
 
-async function fetchAdvice(round) {
-  const recoTop = $('recoTop'), candList = $('candList'), runs = $('runs');
-  $('lockPanel').classList.add('hidden');
-  $('recoPanel').classList.remove('hidden');
-  recoTop.innerHTML = '<span class="muted">Analyzing best picks…</span>';
-  candList.innerHTML = '';
-  runs.classList.add('hidden');
-
+// On the clock: ask the analyst for its pick and present it as the Coach's opening
+// message in the chat, then the user asks follow-ups in the same conversation. Refreshes
+// the scarcity alert from the same call. Guards against out-of-order responses (a newer
+// pick supersedes an in-flight one).
+async function analystOpening() {
+  const offline = state.mode === 'offline';
+  const round = offline ? state.roster.length + 1 : roundOf(state.pickIndex, state.settings.teams);
+  const reqId = ++adviceReq;
+  const typing = coachTyping();
   const body = {
     sport: 'nfl', round,
     drafted: [...state.drafted],
     roster: state.roster,
     recentPicks: state.picks.slice(-6).map((p) => ({ pos: p.pos })),
     settings: state.settings, // league size applies to all tiers; advise sanitizes the rest
+    ...(offline ? { mode: 'offline' } : {}),
   };
-  const { ok, status, data } = await window.FE.apiPost('/api/draft/advise', body);
+  let resp;
+  try { resp = await window.FE.apiPost('/api/draft/advise', body); }
+  catch { resp = { ok: false }; }
+  if (reqId !== adviceReq) { typing.remove(); return; } // superseded by a newer turn
+  typing.remove();
+  const { ok, status, data } = resp;
 
   if (!ok && status === 403 && data?.error === 'round_locked') {
-    $('recoPanel').classList.add('hidden');
-    $('lockPanel').classList.remove('hidden');
+    setRuns(null); lastReco = null;
+    addCoachMsg('coach', "We've hit the free limit (rounds 1–7). Upgrade to Premium for analyst picks every round and unlimited mocks — you can still draft anyone from the board below.");
     return;
   }
-  if (!ok) { recoTop.innerHTML = '<span class="muted">Advice unavailable — pick from the list.</span>'; return; }
+  if (!ok || !data?.candidates?.length) {
+    setRuns(data?.runs); lastReco = null;
+    addCoachMsg('coach', "I couldn't pull a recommendation just now — grab anyone from the board and I'll keep advising.", 'error');
+    return;
+  }
 
+  setRuns(data.runs);
   const top = data.candidates[0];
-  recoTop.innerHTML = top
-    ? `<div class="rl">Analyst Pick${reachBadge(data.reach)}</div><div style="font-size:18px;font-weight:700;margin-top:4px">${top.name} <span class="muted" style="font-size:13px">${top.pos} · ${top.team}</span></div>`
-      + (data.rationale ? `<div class="reco-rationale">${escapeHtml(data.rationale)}</div>` : '')
-    : '<span class="muted">No candidates.</span>';
-
-  if (data.runs?.length) { runs.classList.remove('hidden'); runs.textContent = `⚠ Run on ${data.runs.join(', ')} — these positions are going fast.`; }
-
-  renderCandidates(data.candidates);
+  lastReco = { name: top.name, pos: top.pos, team: top.team, rationale: data.rationale || '', reach: !!data.reach };
+  const reachLine = data.reach ? ' — an elite value falling past his ADP, worth the reach' : '';
+  const text = `My pick: ${top.name} (${top.pos}, ${top.team})${reachLine}.`
+    + (data.rationale ? `\n\n${data.rationale}` : '');
+  await coachTypeOut(addCoachMsg('coach', '').querySelector('.cb'), text);
 }
 
 // Renders ----------------------------------------------------------------------
@@ -544,9 +543,9 @@ $('availSearch').addEventListener('input', (e) => renderAvailable(e.target.value
 
 function finishDraft() {
   $('clock').innerHTML = '✅ <b>Draft complete!</b>';
-  $('recoPanel').classList.add('hidden');
-  $('lockPanel').classList.add('hidden');
+  setRuns(null);
   renderRoster();
+  if (window.FE?.isPremium()) addCoachMsg('coach', "That's a wrap! Your roster's set — ask me how it looks, or where you're strong and thin.");
 }
 
 // Offline draft (real-league tracker) ------------------------------------------
@@ -579,7 +578,6 @@ async function startOffline() {
   $('setup').classList.add('hidden');
   $('draftArea').classList.remove('hidden');
   $('freeBanner').classList.add('hidden');
-  $('lockPanel').classList.add('hidden');
   $('offlineBar').classList.remove('hidden');
   applyCoachGate();
   offlineStep();
@@ -620,7 +618,8 @@ function offlineUndo() {
   offlineStep();
 }
 
-// Re-render the board after any change and refresh advice for the current state.
+// Re-render the board after any change. Scarcity stays live (client-side runs) while
+// you wait; when you're on the clock, the Coach opens with the analyst's pick.
 function offlineStep() {
   if (state.pickIndex >= state.totalPicks) return offlineFinish();
   const onClock = teamOnClock(state.pickIndex, state.settings.teams, state.format);
@@ -634,62 +633,17 @@ function offlineStep() {
   renderRoster();
   renderRecent();
   renderAvailable($('availSearch').value || '');
-  updateOfflineAdvice(until);
-}
-
-// Pull fresh advice for the user's situation. Only spends a Claude rationale call when
-// the user is actually on the clock; otherwise it's the fast algorithmic top targets.
-async function updateOfflineAdvice(until) {
-  const onClock = until === 0;
-  const recoTop = $('recoTop'), runs = $('runs');
-  $('lockPanel').classList.add('hidden');
-  $('recoPanel').classList.remove('hidden');
-  if (until < 0) { recoTop.innerHTML = '<span class="muted">No more picks for you — draft complete soon.</span>'; $('candList').innerHTML = ''; runs.classList.add('hidden'); return; }
-
-  const reqId = ++adviceReq;
-  const body = {
-    sport: 'nfl', mode: 'offline',
-    round: state.roster.length + 1,
-    drafted: [...state.drafted],
-    roster: state.roster,
-    recentPicks: state.picks.slice(-6).map((p) => ({ pos: p.pos })),
-    settings: state.settings,
-    rationale: onClock,
-  };
-  if (onClock) recoTop.innerHTML = '<span class="muted">Analyzing your best pick…</span>';
-  const { ok, data } = await window.FE.apiPost('/api/draft/advise', body);
-  if (reqId !== adviceReq) return; // a newer pick superseded this response
-
-  if (!ok || !data.candidates?.length) {
-    recoTop.innerHTML = '<span class="muted">Advice unavailable — pick from the list.</span>';
-    $('candList').innerHTML = '';
-    return;
-  }
-
-  if (onClock) {
-    const top = data.candidates[0];
-    recoTop.innerHTML = `<div class="rl">Analyst Pick — your turn${reachBadge(data.reach)}</div>`
-      + `<div style="font-size:18px;font-weight:700;margin-top:4px">${top.name} <span class="muted" style="font-size:13px">${top.pos} · ${top.team}</span></div>`
-      + (data.rationale ? `<div class="reco-rationale">${escapeHtml(data.rationale)}</div>` : '');
-  } else if (until <= 3) {
-    recoTop.innerHTML = `<div class="rl">🎯 Your pick in ${until} — top targets</div>`;
-  } else {
-    recoTop.innerHTML = `<div class="rl muted">Your pick in ${until} · top available</div>`;
-  }
-
-  if (data.runs?.length) { runs.classList.remove('hidden'); runs.textContent = `⚠ Run on ${data.runs.join(', ')} — going fast.`; }
-  else runs.classList.add('hidden');
-
-  // Full board when you're picking; just the top 3 targets while you wait.
-  renderCandidates(onClock ? data.candidates : data.candidates.slice(0, 3));
+  setRuns(clientRuns());              // scarcity alert stays live while you wait — no server call
+  if (until === 0) analystOpening();  // the Coach leads with the pick on your turn
 }
 
 function offlineFinish() {
   $('clock').innerHTML = '✅ <b>Draft complete!</b> Your roster is set.';
-  $('recoPanel').classList.add('hidden');
+  setRuns(null);
   $('offlineBar').classList.add('hidden');
   renderRoster();
   renderRecent();
+  if (window.FE?.isPremium()) addCoachMsg('coach', "Draft's done — want me to break down your roster's strengths and gaps?");
 }
 
 $('undoBtn').addEventListener('click', offlineUndo);
@@ -704,13 +658,17 @@ const coachHistory = [];
 let coachBusy = false, coachGreeted = false;
 const cScroll = () => { $('coachScroll').scrollTop = $('coachScroll').scrollHeight; };
 
+// The analyst's pick bubbles show for everyone (free advice, rounds 1–7); the
+// interactive composer — follow-up questions — is the Premium hook.
 function applyCoachGate() {
   const premium = !!window.FE?.isPremium();
+  $('coachComposer').classList.toggle('hidden', !premium);
   $('coachLock').classList.toggle('hidden', premium);
-  $('coachBody').classList.toggle('hidden', !premium);
-  if (premium && !coachGreeted) {
+  if (!coachGreeted) {
     coachGreeted = true;
-    addCoachMsg('coach', "I'm watching your draft — ask me anything about your next pick, a position run, or who to target.");
+    addCoachMsg('coach', premium
+      ? "I'm your draft coach — when you're on the clock I'll lead with my pick and the reasoning, and you can ask me anything in between."
+      : "I'm your draft coach — I'll call out my pick and the reasoning each round. Upgrade to Premium to ask follow-up questions and unlock every round.");
   }
 }
 
@@ -751,10 +709,14 @@ function buildDraftContext() {
   const rosterStr = s.roster.map((r) => { const p = byId.get(r.id); return p ? `${p.pos} ${p.name}` : r.pos; }).join(', ') || '(empty)';
   const recent = s.picks.slice(-8).map((p) => `${p.pos} ${p.name}`).join(', ') || 'none yet';
   const avail = players.filter((p) => !s.drafted.has(p.id)).slice(0, 12).map((p) => `${p.pos} ${p.name} (#${p.rank})`).join(', ');
+  // Fold in the pick you just recommended so follow-ups ("why not the WR?") stay coherent.
+  const recoStr = lastReco
+    ? ` Your current recommendation to the user this pick: ${lastReco.name} (${lastReco.pos}, ${lastReco.team})${lastReco.rationale ? ' — ' + lastReco.rationale : ''}.`
+    : '';
   return `Mode: ${s.mode === 'mock' ? 'mock draft vs AI opponents' : 'tracking a real league draft'}. `
     + `League: ${s.settings.teams}-team ${scoring}, ${rounds} rounds, ${s.format}. `
     + `User's draft slot: ${s.userTeam + 1}. Now: round ${round}, overall pick ${s.pickIndex + 1}. `
-    + `User's roster: ${rosterStr}. Recent picks: ${recent}. Top available by rank: ${avail}.`;
+    + `User's roster: ${rosterStr}. Recent picks: ${recent}. Top available by rank: ${avail}.${recoStr}`;
 }
 
 async function coachSend(text) {
