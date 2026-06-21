@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FantasyEdge — Mock Draft</title>
+<title>FantasyEdge — Draft Room</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -84,6 +84,31 @@
   .avail-list { max-height: 360px; overflow-y: auto; }
 
   .clock-you { color: var(--gold); font-weight: 700; }
+
+  /* ---- embedded AI Coach chat ---- */
+  .coach-panel { display: flex; flex-direction: column; min-height: 320px; max-height: 460px; }
+  .coach-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .coach-scroll { flex: 1; overflow-y: auto; padding: 4px 2px 8px; min-height: 120px; }
+  .cmsg { display: flex; gap: 8px; margin-bottom: 12px; }
+  .cmsg .av { width: 26px; height: 26px; min-width: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+  .cmsg.coach .av { background: rgba(212,160,23,0.15); border: 1px solid rgba(212,160,23,0.4); }
+  .cmsg.user { flex-direction: row-reverse; }
+  .cmsg.user .av { background: var(--dark4); }
+  .cmsg .cb { padding: 9px 12px; border-radius: 11px; font-size: 13px; line-height: 1.55; max-width: 82%; white-space: pre-wrap; word-wrap: break-word; }
+  .cmsg.coach .cb { background: var(--dark3); border: 1px solid rgba(255,255,255,0.06); border-top-left-radius: 3px; }
+  .cmsg.user .cb { background: var(--gold); color: #111; font-weight: 500; border-top-right-radius: 3px; }
+  .cmsg.error .cb { background: rgba(244,67,54,0.12); border: 1px solid rgba(244,67,54,0.4); color: #ffb4ad; }
+  .cmsg.typing .cb { display: inline-flex; gap: 4px; align-items: center; }
+  .cmsg .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); opacity: 0.4; animation: cblink 1.2s infinite; }
+  .cmsg .dot:nth-child(2) { animation-delay: 0.2s; }
+  .cmsg .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes cblink { 0%, 60%, 100% { opacity: 0.25; } 30% { opacity: 1; } }
+  .coach-composer { display: flex; gap: 8px; align-items: flex-end; background: var(--dark3); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 6px 6px 6px 12px; }
+  .coach-composer:focus-within { border-color: rgba(212,160,23,0.5); }
+  #coachInput { flex: 1; background: transparent; border: none; outline: none; color: var(--white); font-family: inherit; font-size: 13px; line-height: 1.5; resize: none; max-height: 100px; padding: 5px 0; }
+  #coachInput::placeholder { color: var(--gray); }
+  #coachSend { background: var(--gold); color: #111; border: none; border-radius: 8px; width: 34px; height: 34px; min-width: 34px; font-size: 15px; cursor: pointer; }
+  #coachSend:disabled { opacity: 0.4; cursor: default; }
 </style>
 </head>
 <body>
@@ -95,8 +120,8 @@
     <li><a href="fantasyedge.html"><span class="icon">🏠</span> Home</a></li>
     <li><a href="fantasyedge-rankings.html"><span class="icon">📊</span> Rankings</a></li>
     <li><a href="fantasyedge-analyzer.html"><span class="icon">🔍</span> Roster Analyzer</a></li>
-    <li><a href="fantasyedge-draft.html" class="active"><span class="icon">📋</span> Draft Assistant</a></li>
-    <li><a href="fantasyedge-draft.html?mode=mock"><span class="icon">🎯</span> Mock Draft</a></li>
+    <li><a href="fantasyedge-draft.html" id="navOffline"><span class="icon">📋</span> Offline Draft</a></li>
+    <li><a href="fantasyedge-draft.html?mode=mock" id="navMock"><span class="icon">🎯</span> Mock Draft</a></li>
     <li><a href="fantasyedge-coach.html"><span class="icon">🤖</span> AI Coach</a></li>
     <li><a href="fantasyedge-trending.html"><span class="icon">🔥</span> Trending Players</a></li>
     <li><a href="fantasyedge-brackets.html"><span class="icon">🏆</span> Brackets &amp; Bowls</a></li>
@@ -109,8 +134,8 @@
 
 <main class="main">
   <div class="top-header">
-    <div class="page-title">DRAFT ASSISTANT</div>
-    <div class="page-subtitle">Run a mock draft or track your real league draft live with an AI assistant.</div>
+    <div class="page-title" id="pageTitle">DRAFT ROOM</div>
+    <div class="page-subtitle" id="pageSubtitle">Run a mock draft or track your real league draft live with an AI coach.</div>
   </div>
 
   <!-- Signed-out state -->
@@ -119,10 +144,10 @@
     <br><button class="btn btn-gold" id="signInBtn">Sign in</button>
   </div>
 
-  <!-- Pre-draft setup -->
+  <!-- Pre-draft setup (shared by both modes) -->
   <div class="panel hidden" id="setup">
-    <div class="page-title" style="font-size:22px; margin-bottom:4px;">OFFLINE DRAFT</div>
-    <p class="muted" style="font-size:13px; margin: 0 0 16px;">Track your real league draft live (Zoom or in person). Set it up to match your league, then mark each pick as it happens — the assistant updates in real time and surfaces your targets as your pick nears.</p>
+    <div class="page-title" id="setupTitle" style="font-size:22px; margin-bottom:4px;">OFFLINE DRAFT</div>
+    <p class="muted" id="setupCopy" style="font-size:13px; margin: 0 0 16px;">Track your real league draft live (Zoom or in person). Set it up to match your league, then mark each pick as it happens — the coach updates in real time and surfaces your targets as your pick nears.</p>
     <div class="start-row">
       <button class="btn btn-gold" id="startBtn">Start Offline Draft</button>
       <label class="muted" style="font-size:13px">League size
@@ -139,7 +164,7 @@
       </label>
       <span class="premium-only">
         <label class="muted" style="font-size:13px">Scoring
-          <select id="scoringSel"><option value="ppr">PPR</option><option value="standard">Standard</option></select>
+          <select id="scoringSel"><option value="ppr">PPR</option><option value="half">Half PPR</option><option value="standard">Standard</option></select>
         </label>
       </span>
       <span class="muted" id="usageNote"></span>
@@ -178,13 +203,30 @@
       </div>
     </div>
     <div class="draft-grid" style="margin-top:20px">
-      <div class="panel roster">
-        <h3>Your Roster</h3>
-        <ul class="roster-list" id="rosterList"></ul>
+      <div class="panel coach-panel">
+        <h3>🤖 Ask the Coach</h3>
+        <div class="coach-lock hidden" id="coachLock">
+          <span class="lock-title" style="font-size:14px">🔒 Premium</span>
+          <p class="muted" style="font-size:12px; margin:6px 0 10px">Chat with the AI Coach mid-draft — it knows your roster and who's left.</p>
+          <button class="btn btn-gold" id="coachUpsell" type="button" style="padding:7px 14px; font-size:13px">Go Premium</button>
+        </div>
+        <div class="coach-body" id="coachBody">
+          <div class="coach-scroll" id="coachScroll"></div>
+          <div class="coach-composer">
+            <textarea id="coachInput" rows="1" placeholder="Ask about your pick, a position run, anything…"></textarea>
+            <button id="coachSend" type="button" title="Send">➤</button>
+          </div>
+        </div>
       </div>
-      <div class="panel roster">
-        <h3>Recent Picks</h3>
-        <ul class="pick-list" id="recentList"></ul>
+      <div>
+        <div class="panel roster">
+          <h3>Your Roster</h3>
+          <ul class="roster-list" id="rosterList"></ul>
+        </div>
+        <div class="panel roster" style="margin-bottom:0">
+          <h3>Recent Picks</h3>
+          <ul class="pick-list" id="recentList"></ul>
+        </div>
       </div>
     </div>
   </div>
@@ -199,6 +241,18 @@ let state = null;           // active draft state
 
 const $ = (id) => document.getElementById(id);
 const posClass = (p) => ({ QB:'pos-q', RB:'pos-r', WR:'pos-w', TE:'pos-t', K:'pos-k', DST:'pos-d' }[p] || '');
+
+// ADP for the league's scoring; Half-PPR is the midpoint of PPR & Standard ADP,
+// mirroring the server (api/_lib/draft.js adpFor). Returns null when absent.
+function adpFor(p, scoring) {
+  const a = p && p.adp;
+  if (!a) return null;
+  if (scoring === 'half') {
+    if (a.ppr != null && a.standard != null) return (a.ppr + a.standard) / 2;
+    return a.ppr ?? a.standard ?? null;
+  }
+  return a[scoring] != null ? a[scoring] : null;
+}
 
 // FantasyPros projection line for a player card. Yards/points-allowed read as whole
 // numbers; counting stats keep one decimal (consensus projections are fractional).
@@ -229,25 +283,37 @@ document.addEventListener('fe-auth-ready', refreshAuthUI);
 $('signInBtn').addEventListener('click', () => window.FE?.openSignIn());
 $('lockUpgrade').addEventListener('click', () => window.FE?.openPricing());
 
-// Mock drafts launch straight from the nav (link to ?mode=mock); this page then
-// auto-starts the mock and skips the offline setup screen.
+// Both modes share this page and the same setup screen; ?mode=mock picks which one
+// we're setting up. (Offline = track a real league draft; Mock = draft vs AI.)
 const wantMock = new URLSearchParams(location.search).get('mode') === 'mock';
-let booted = false;
+const startLabel = () => (wantMock ? 'Start Mock Draft' : 'Start Offline Draft');
+
+// Tailor the page chrome (title, nav highlight, setup copy, button) to the mode.
+function applyMode() {
+  $('navOffline').classList.toggle('active', !wantMock);
+  $('navMock').classList.toggle('active', wantMock);
+  $('pageTitle').textContent = wantMock ? 'MOCK DRAFT' : 'OFFLINE DRAFT';
+  $('pageSubtitle').textContent = wantMock
+    ? 'Draft against AI opponents that pick at realistic ADP, with the AI Coach on every pick.'
+    : 'Track your real league draft live and get AI Coach advice on every pick.';
+  $('setupTitle').textContent = wantMock ? 'MOCK DRAFT' : 'OFFLINE DRAFT';
+  $('setupCopy').textContent = wantMock
+    ? 'Set it up to match your league, then draft against AI opponents that pick at realistic ADP. The AI Coach advises you on every pick.'
+    : 'Track your real league draft live (Zoom or in person). Set it up to match your league, then mark each pick as it happens — the coach updates in real time and surfaces your targets as your pick nears.';
+  $('startBtn').textContent = startLabel();
+  document.title = wantMock ? 'FantasyEdge — Mock Draft' : 'FantasyEdge — Offline Draft';
+}
+applyMode();
+
 function refreshAuthUI() {
   const signedIn = window.FE?.isSignedIn();
   $('signedOut').classList.toggle('hidden', !!signedIn);
-  if (signedIn && wantMock && !booted) {
-    booted = true;
-    $('setup').classList.add('hidden');
-    startMock();
-    return;
-  }
   $('setup').classList.toggle('hidden', !signedIn);
 }
 
 // Setup ------------------------------------------------------------------------
-// This screen sets up the Offline Draft only. Mock drafts launch straight from the
-// nav via ?mode=mock, which auto-starts (see refreshAuthUI) and skips this screen.
+// This screen sets up BOTH modes; the Start button launches startMock or startOffline
+// per ?mode (see the click handler above).
 let adviceReq = 0; // guards against out-of-order advice responses in offline mode
 
 // Draft-position options track the chosen league size.
@@ -260,21 +326,23 @@ function syncPosOptions() {
 $('teamsSel').addEventListener('change', syncPosOptions);
 syncPosOptions();
 
-// Start the offline draft from this screen.
-$('startBtn').addEventListener('click', startOffline);
+// One Start button drives both modes off the shared settings screen.
+$('startBtn').addEventListener('click', () => (wantMock ? startMock() : startOffline()));
 
 async function startMock() {
   $('startBtn').disabled = true;
   $('startBtn').textContent = 'Starting…';
-  const settings = {};
-  // League size is a basic setting available to everyone; scoring is premium-only.
-  settings.teams = Number($('teamsSel').value);
+  const teams = Number($('teamsSel').value);
+  const position = Math.min(Math.max(1, Number($('posSel').value) || 1), teams);
+  // League size + draft position are basic settings for everyone; scoring/rounds are premium.
+  const settings = { teams };
   if (window.FE?.isPremium()) {
     settings.scoring = $('scoringSel').value;
+    settings.rounds = Number($('roundsSel').value) || 15;
   }
-  const { ok, status, data } = await window.FE.apiPost('/api/draft/mock-start', { settings });
+  const { ok, status, data } = await window.FE.apiPost('/api/draft/mock-start', { settings, position });
   $('startBtn').disabled = false;
-  $('startBtn').textContent = 'Start Offline Draft';
+  $('startBtn').textContent = startLabel();
 
   if (!ok) {
     // Nav-launched mock hides this screen; reveal it so the message/upsell is visible.
@@ -310,6 +378,7 @@ async function startMock() {
     $('freeBanner').classList.remove('hidden');
     $('freeBanner').textContent = `Free mock: assistant advice for rounds 1–${data.freeMaxRound}. Upgrade for the full draft & unlimited mocks.`;
   }
+  applyCoachGate();
   advance();
 }
 
@@ -340,9 +409,8 @@ function advance() {
 // and defenses naturally go late without a special rule.
 function bestForAI(round) {
   const scoring = state.settings.scoring || 'ppr';
-  const adpOf = (p) =>
-    p.adp && p.adp[scoring] != null ? p.adp[scoring] : (p.rank != null ? p.rank + 24 : 999);
-  const avail = players.filter((p) => !state.drafted.has(p.id)).sort((a, b) => adpOf(a) - adpOf(b));
+  const adpVal = (p) => { const a = adpFor(p, scoring); return a != null ? a : (p.rank != null ? p.rank + 24 : 999); };
+  const avail = players.filter((p) => !state.drafted.has(p.id)).sort((a, b) => adpVal(a) - adpVal(b));
   if (!avail.length) return null;
   // Reach window widens slightly as the draft goes (later ADP is noisier). The
   // exponent biases the pick toward the top of the window (best ADP available).
@@ -460,9 +528,10 @@ function renderAvailable(filter = '') {
   const list = players.filter((p) => !state.drafted.has(p.id) && (!f || p.name.toLowerCase().includes(f) || p.pos.toLowerCase() === f)).slice(0, 60);
   const scoring = state.settings.scoring || 'ppr';
   $('availList').innerHTML = list.map((p) => {
-    const adp = p.adp && p.adp[scoring] != null ? p.adp[scoring] : null;
+    const adp = adpFor(p, scoring);
+    const adpStr = adp != null ? Math.round(adp * 10) / 10 : null;
     return `<div class="cand" data-id="${p.id}"><div><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>
-      <span class="meta"> · ${p.team} · #${p.rank}${adp != null ? ' · ADP ' + adp : ''}</span>${projLine(p)}</div></div>`;
+      <span class="meta"> · ${p.team} · #${p.rank}${adpStr != null ? ' · ADP ' + adpStr : ''}</span>${projLine(p)}</div></div>`;
   }).join('');
   $('availList').querySelectorAll('.cand').forEach((el) => el.addEventListener('click', () => draftPlayer(el.dataset.id)));
 }
@@ -507,6 +576,7 @@ async function startOffline() {
   $('freeBanner').classList.add('hidden');
   $('lockPanel').classList.add('hidden');
   $('offlineBar').classList.remove('hidden');
+  applyCoachGate();
   offlineStep();
 }
 
@@ -620,6 +690,97 @@ function offlineFinish() {
 $('undoBtn').addEventListener('click', offlineUndo);
 
 function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// --- Embedded AI Coach chat ---------------------------------------------------
+// The same Claude coach as the standalone page, in the draft room. Each turn we send
+// a compact snapshot of the live draft (buildDraftContext) so its advice is grounded
+// in your roster and the board. Premium-only (server enforces; we gate the UI too).
+const coachHistory = [];
+let coachBusy = false, coachGreeted = false;
+const cScroll = () => { $('coachScroll').scrollTop = $('coachScroll').scrollHeight; };
+
+function applyCoachGate() {
+  const premium = !!window.FE?.isPremium();
+  $('coachLock').classList.toggle('hidden', premium);
+  $('coachBody').classList.toggle('hidden', !premium);
+  if (premium && !coachGreeted) {
+    coachGreeted = true;
+    addCoachMsg('coach', "I'm watching your draft — ask me anything about your next pick, a position run, or who to target.");
+  }
+}
+
+function addCoachMsg(role, text, cls) {
+  const wrap = document.createElement('div');
+  wrap.className = 'cmsg ' + (cls || (role === 'user' ? 'user' : 'coach'));
+  const av = role === 'user' ? '🧑' : (cls === 'error' ? '⚠️' : '🤖');
+  wrap.innerHTML = `<div class="av">${av}</div><div class="cb"></div>`;
+  wrap.querySelector('.cb').textContent = text;
+  $('coachScroll').appendChild(wrap);
+  cScroll();
+  return wrap;
+}
+function coachTyping() {
+  const wrap = document.createElement('div');
+  wrap.className = 'cmsg coach typing';
+  wrap.innerHTML = `<div class="av">🤖</div><div class="cb"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`;
+  $('coachScroll').appendChild(wrap);
+  cScroll();
+  return wrap;
+}
+function coachTypeOut(bubble, text) {
+  return new Promise((resolve) => {
+    let i = 0; const step = Math.max(1, Math.round(text.length / 200));
+    const tick = () => { i = Math.min(text.length, i + step); bubble.textContent = text.slice(0, i); cScroll();
+      if (i < text.length) setTimeout(tick, 12); else resolve(); };
+    tick();
+  });
+}
+
+// Compact snapshot of the live draft for the Coach's system context.
+function buildDraftContext() {
+  if (!state) return '';
+  const s = state;
+  const scoring = (s.settings.scoring || 'ppr').toUpperCase();
+  const round = roundOf(s.pickIndex, s.settings.teams);
+  const rounds = s.settings.rounds || Math.round(s.totalPicks / s.settings.teams);
+  const rosterStr = s.roster.map((r) => { const p = byId.get(r.id); return p ? `${p.pos} ${p.name}` : r.pos; }).join(', ') || '(empty)';
+  const recent = s.picks.slice(-8).map((p) => `${p.pos} ${p.name}`).join(', ') || 'none yet';
+  const avail = players.filter((p) => !s.drafted.has(p.id)).slice(0, 12).map((p) => `${p.pos} ${p.name} (#${p.rank})`).join(', ');
+  return `Mode: ${s.mode === 'mock' ? 'mock draft vs AI opponents' : 'tracking a real league draft'}. `
+    + `League: ${s.settings.teams}-team ${scoring}, ${rounds} rounds, ${s.format}. `
+    + `User's draft slot: ${s.userTeam + 1}. Now: round ${round}, overall pick ${s.pickIndex + 1}. `
+    + `User's roster: ${rosterStr}. Recent picks: ${recent}. Top available by rank: ${avail}.`;
+}
+
+async function coachSend(text) {
+  if (coachBusy || !window.FE?.isPremium()) return;
+  text = (text || '').trim();
+  if (!text) return;
+  coachBusy = true; $('coachSend').disabled = true;
+  addCoachMsg('user', text);
+  coachHistory.push({ role: 'user', content: text });
+  $('coachInput').value = ''; coachGrow();
+  const typing = coachTyping();
+  try {
+    const { ok, data } = await window.FE.apiPost('/api/coach/chat', { messages: coachHistory, draftContext: buildDraftContext() });
+    typing.remove();
+    if (!ok) { addCoachMsg('coach', data?.error || 'The Coach had trouble — try again in a sec.', 'error'); coachHistory.pop(); return; }
+    const reply = data.reply || '';
+    coachHistory.push({ role: 'assistant', content: reply });
+    await coachTypeOut(addCoachMsg('coach', '').querySelector('.cb'), reply);
+  } catch {
+    typing.remove();
+    addCoachMsg('coach', 'Network hiccup — try again.', 'error');
+    coachHistory.pop();
+  } finally {
+    coachBusy = false; $('coachSend').disabled = false; $('coachInput').focus();
+  }
+}
+function coachGrow() { const el = $('coachInput'); el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 100) + 'px'; }
+$('coachInput').addEventListener('input', coachGrow);
+$('coachInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); coachSend($('coachInput').value); } });
+$('coachSend').addEventListener('click', () => coachSend($('coachInput').value));
+$('coachUpsell').addEventListener('click', () => window.FE?.openPricing());
 
 // If auth is already ready before this script runs.
 if (window.FE) refreshAuthUI();

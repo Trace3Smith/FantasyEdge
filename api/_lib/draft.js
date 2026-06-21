@@ -54,10 +54,27 @@ export async function loadPlayers(sport = 'nfl') {
 }
 
 // The ranking value we draft on: PPR uses fp (PPR-anchored), Standard uses the
-// Standard ranking value when present. Falls back across fields for non-NFL sports.
+// Standard ranking value when present. Half-PPR has no dedicated number in our data,
+// so it's the midpoint of PPR and Standard (a faithful ordering without a new source).
+// Falls back across fields for non-NFL sports.
 function valueOf(p, scoring) {
-  if (scoring === 'standard') return p.rankStd ?? p.fpStd ?? p.fp ?? p.fpPpr ?? 0;
-  return p.fp ?? p.fpPpr ?? p.fpStd ?? 0;
+  const ppr = p.fp ?? p.fpPpr ?? p.fpStd ?? 0;
+  const std = p.rankStd ?? p.fpStd ?? p.fp ?? p.fpPpr ?? 0;
+  if (scoring === 'standard') return std;
+  if (scoring === 'half') return (ppr + std) / 2;
+  return ppr;
+}
+
+// A player's ADP for the league's scoring. Half-PPR blends PPR and Standard ADP
+// (the midpoint), matching how valueOf treats Half-PPR. Returns null when absent.
+export function adpFor(p, scoring) {
+  const a = p.adp;
+  if (!a) return null;
+  if (scoring === 'half') {
+    if (a.ppr != null && a.standard != null) return (a.ppr + a.standard) / 2;
+    return a.ppr ?? a.standard ?? null;
+  }
+  return a[scoring] ?? null;
 }
 
 // Replacement-level value per position: the value of the player at REPLACEMENT_DEPTH.
@@ -194,7 +211,7 @@ export function recommend(players, drafted, roster = [], settings = DEFAULT_SETT
       // ADP value: a player still on the board well past his average draft position is
       // a falling value. Bump priority by how far he's slipped, capped at ~two rounds
       // past ADP (so a massive faller can't override genuine roster need entirely).
-      const adp = p.adp?.[scoring] ?? null;
+      const adp = adpFor(p, scoring);
       const adpDelta = adp != null ? currentPick - adp : 0; // > 0 means falling past ADP
       const adpBoost = adpDelta > 0 ? 1 + (Math.min(adpDelta, 2 * teams) / (2 * teams)) * 0.6 : 1;
 
