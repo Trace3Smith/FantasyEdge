@@ -25,16 +25,18 @@ const SPORTS = {
   pga: { key: PGA_DATASET_KEY, build: () => buildPgaDataset(), version: DATASET_VERSION, premium: true },
 };
 
-// LIV Golf players clutter the weekly DFS board — they don't play PGA Tour events,
-// so they carry no strokes-gained data — EXCEPT during the four majors, where the
-// whole field tees it up. MAJOR_WEEK is a manual Vercel switch flipped ~4x/year:
-// only the exact string 'true' shows LIV; anything else (incl. unset) hides them.
-// Filtered at serve time, not in the build, so flipping the env var takes effect on
-// the next request with no rebuild. The kept players are renumbered 1..N so the
-// board shows no rank gaps where LIV names were removed.
-function filterPgaForMajorWeek(players) {
-  if (process.env.MAJOR_WEEK === 'true') return players;
-  return players.filter((p) => p.team !== 'LIV').map((p, i) => ({ ...p, rank: i + 1 }));
+// LIV Golf players don't play PGA Tour events, so they carry no strokes-gained data
+// and clutter the weekly DFS board — but at the majors they're in the field with
+// everyone else. Instead of a manual switch, let the live ESPN tournament field
+// decide: a LIV player shows only when they actually appear in the current event's
+// field (p.inField, set in buildPgaDataset from the ESPN scoreboard). Non-LIV players
+// are never filtered. Serve-time off the cached dataset; the field refreshes with the
+// daily rebuild. Kept players are renumbered 1..N so there are no rank gaps where
+// filtered LIV names were.
+function filterLivByField(players) {
+  return players
+    .filter((p) => p.team !== 'LIV' || p.inField)
+    .map((p, i) => ({ ...p, rank: i + 1 }));
 }
 
 export default async function handler(req, res) {
@@ -69,7 +71,7 @@ export default async function handler(req, res) {
       await redis.set(cfg.key, dataset);
     }
 
-    const players = sport === 'pga' ? filterPgaForMajorWeek(dataset.players) : dataset.players;
+    const players = sport === 'pga' ? filterLivByField(dataset.players) : dataset.players;
 
     return res.json({
       players,
