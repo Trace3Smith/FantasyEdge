@@ -584,8 +584,8 @@
     // NFL board is ranked by VALUE OVER REPLACEMENT (VORP) for the user's league setup
     // (team count + starting lineup + scoring) — the same metric the draft board uses, so
     // elite RB/WR rise and QBs slide to the middle rounds instead of raw points putting
-    // QBs on top. K/DST sink below the startable skill pool (nflBoardCmp). nflFp() still
-    // drives the FPTS column with real format points.
+    // QBs on top. K/DST are buried at the bottom, below bench skill (nflBoardCmp). nflFp()
+    // still drives the FPTS column with real format points.
     let nflRank = null;
     const isNfl = currentSport === 'nfl';
     const nflFp = (p) => nflFpts(p, currentScoring);
