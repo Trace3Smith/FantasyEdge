@@ -17,6 +17,8 @@ const SYSTEM = `You are an elite fantasy football draft analyst. The user is on 
 3. Positional scarcity — as startable players at a position dry up while the draft progresses, urgency to secure one rises.
 4. Need vs. value balance — usually take the best value that also fits a need, but when an ELITE player is falling well past his ADP it can be worth reaching even if his position isn't a current need. When you recommend that, set reach=true.
 
+ROSTER NECESSITY OVERRIDE: if the prompt includes a ROSTER NECESSITY note, it overrides everything above — you MUST use this pick to fill one of the named mandatory slots (typically K or DST in the final rounds). An incomplete, illegal lineup is worse than any value you could gain, so take the mandatory slot now rather than a falling-value reach, and set reach=false.
+
 You are given the roster, round, scoring, recent positional runs, positional scarcity, and a numbered shortlist of the best available candidates (already filtered by our model) with each one's signals. Pick THE single best candidate from that shortlist. You may deviate from board order when need, scarcity, or falling value justifies it.
 
 Respond with ONLY a JSON object — no prose, no markdown fences:
@@ -62,11 +64,23 @@ async function analyzePick({ round, scoring, teams, roster, candidates, runs, bo
     .sort((a, b) => a[1] - b[1])
     .map(([pos, c]) => `${pos} ${c}`).join(', ') || 'n/a';
   const listed = candidates.map((c, i) => describe(c, i + 1)).join('\n');
+  // Roster necessity (late draft): name the mandatory slots still open so the analyst
+  // fills them instead of chasing value when there's no cushion left to wait.
+  const needPos = (board?.needs || []).map((n) => n.pos);
+  let necessity = '';
+  if (board?.mustFillNow && needPos.length) {
+    necessity = `\n\nROSTER NECESSITY: only ${board.picksLeft} pick(s) left and you still MUST fill these mandatory starting slots: ${needPos.join(', ')}. `
+      + `You cannot field a legal lineup without them — take a candidate that fills one of these slots now, over luxury depth or a falling-value reach.`;
+  } else if (board?.fillSoon && needPos.length) {
+    necessity = `\n\nROSTER HEADS-UP: only ${board.picksLeft} picks left with mandatory slots still open (${needPos.join(', ')}). `
+      + `Room for one more value pick, but plan to lock in ${needPos.join('/')} within your next pick or two so you don't get squeezed.`;
+  }
   const prompt = `Round ${round}, ${scoring.toUpperCase()} scoring, ${teams}-team league.`
     + `\nMy roster so far: ${rosterStr}.`
     + `\n${runs.length ? `Recent run on: ${runs.join(', ')} (these positions are going fast).\n` : ''}`
     + `Positional scarcity — startable players left by position (fewest first): ${scarcityStr}.`
     + `\nPicks I have left: ${board?.picksLeft ?? '?'}.`
+    + necessity
     + `\n\nCandidates:\n${listed}\n\nPick the best one and respond with the JSON object only.`;
   try {
     const r = await fetch(ANTHROPIC_URL, {
@@ -142,7 +156,11 @@ export default async function handler(req, res) {
       }
     }
 
-    return res.json({ candidates: ordered.slice(0, 8), runs, rationale, reach, round, premium });
+    // Slim board summary so the embedded Coach can flag the same roster necessity in chat.
+    const boardOut = {
+      needs: board.needs, mustFillNow: board.mustFillNow, fillSoon: board.fillSoon, picksLeft: board.picksLeft,
+    };
+    return res.json({ candidates: ordered.slice(0, 8), runs, rationale, reach, round, premium, board: boardOut });
   } catch (err) {
     return sendError(res, err);
   }

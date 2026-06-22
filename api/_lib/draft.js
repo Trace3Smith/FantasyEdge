@@ -238,8 +238,23 @@ export function recommend(players, drafted, roster = [], settings = DEFAULT_SETT
       (a.rank ?? 1e9) - (b.rank ?? 1e9)
     );
 
+  // Unfilled mandatory starting slots, for the AI surfaces to flag roster necessity late
+  // in the draft (when the only spots left are essentially K/DST). `mustFillNow` fires when
+  // there's no cushion left — those needs are also `forced` above; `fillSoon` is the
+  // one-pick-early heads-up so the user isn't squeezed into back-to-back forced picks.
+  const needs = [];
+  for (const [pos, m] of Object.entries(MIN_ROSTER)) {
+    const gap = Math.max(0, m - (counts[pos] || 0));
+    if (gap > 0) needs.push({ pos, gap });
+  }
+
   // Board context for the analyst layer (advise.js): positional scarcity, draft-end
-  // cushion, and league size. Additive — existing consumers read candidates/runs only.
-  const board = { startableLeft, slack, teams, picksLeft, totalRounds };
+  // cushion, league size, and roster needs. Additive — existing consumers read
+  // candidates/runs only.
+  const board = {
+    startableLeft, slack, teams, picksLeft, totalRounds, needs,
+    mustFillNow: slack <= 0 && needs.length > 0,
+    fillSoon: slack === 1 && needs.length > 0,
+  };
   return { candidates: scored.slice(0, 12), runs, board };
 }

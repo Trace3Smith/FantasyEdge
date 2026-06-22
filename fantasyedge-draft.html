@@ -492,6 +492,9 @@ function clientRuns() {
 // The analyst's most recent recommendation, woven into the Coach's context so follow-ups
 // stay coherent ("why not the WR?"). Display-only — never pushed into coachHistory.
 let lastReco = null;
+// Roster-need snapshot from the same advise call, so the Coach chat can flag the late-draft
+// necessity of filling K/DST (and other mandatory slots) just like the analyst pick does.
+let lastBoard = null;
 
 // User's turn: render roster/board, then have the Coach open with the analyst's pick.
 function renderUserTurn() {
@@ -528,17 +531,18 @@ async function analystOpening() {
   const { ok, status, data } = resp;
 
   if (!ok && status === 403 && data?.error === 'round_locked') {
-    setRuns(null); lastReco = null;
+    setRuns(null); lastReco = null; lastBoard = null;
     addCoachMsg('coach', "We've hit the free limit (rounds 1–7). Upgrade to Premium for analyst picks every round and unlimited mocks — you can still draft anyone from the board below.");
     return;
   }
   if (!ok || !data?.candidates?.length) {
-    setRuns(data?.runs); lastReco = null;
+    setRuns(data?.runs); lastReco = null; lastBoard = null;
     addCoachMsg('coach', "I couldn't pull a recommendation just now — grab anyone from the board and I'll keep advising.", 'error');
     return;
   }
 
   setRuns(data.runs);
+  lastBoard = data.board || null;
   const top = data.candidates[0];
   lastReco = { name: top.name, pos: top.pos, team: top.team, rationale: data.rationale || '', reach: !!data.reach };
   const reachLine = data.reach ? ' — an elite value falling past his ADP, worth the reach' : '';
@@ -768,10 +772,19 @@ function buildDraftContext() {
   const recoStr = lastReco
     ? ` Your current recommendation to the user this pick: ${lastReco.name} (${lastReco.pos}, ${lastReco.team})${lastReco.rationale ? ' — ' + lastReco.rationale : ''}.`
     : '';
+  // Late-draft roster necessity: nudge the Coach to recommend filling mandatory K/DST (or
+  // any open required slot) once the user is out of (or nearly out of) spare picks.
+  let needStr = '';
+  const needPos = (lastBoard?.needs || []).map((n) => n.pos);
+  if (lastBoard?.mustFillNow && needPos.length) {
+    needStr = ` ROSTER NECESSITY: the user still must fill ${needPos.join(' and ')} and has only ${lastBoard.picksLeft} pick(s) left — they can't field a legal lineup without them, so recommend drafting ${needPos.join('/')} now even though the value is low.`;
+  } else if (lastBoard?.fillSoon && needPos.length) {
+    needStr = ` Roster heads-up: mandatory ${needPos.join('/')} still open with only ${lastBoard.picksLeft} picks left — one more value pick is fine, but plan to grab ${needPos.join('/')} within the next pick or two.`;
+  }
   return `Mode: ${s.mode === 'mock' ? 'mock draft vs AI opponents' : 'tracking a real league draft'}. `
     + `League: ${s.settings.teams}-team ${scoring}, ${rounds} rounds, ${s.format}. `
     + `User's draft slot: ${s.userTeam + 1}. Now: round ${round}, overall pick ${s.pickIndex + 1}. `
-    + `User's roster: ${rosterStr}. Recent picks: ${recent}. Top available by rank: ${avail}.${recoStr}`;
+    + `User's roster: ${rosterStr}. Recent picks: ${recent}. Top available by rank: ${avail}.${recoStr}${needStr}`;
 }
 
 async function coachSend(text) {
