@@ -228,13 +228,14 @@
 <script type="module">
 // Shared NFL scoring — the SAME functions the rankings tab uses, so the draft board
 // ranks players by FPTS in the chosen format identically (no separate ranking system).
-import { nflRankValue, nflFpts } from '/nflScoring.js';
+import { nflRankValue, nflFpts, nflReplacementLevels, nflVorp } from '/nflScoring.js';
 
 // --- Mock draft controller ----------------------------------------------------
 let players = [];           // full NFL pool
 let byId = new Map();
 let state = null;           // active draft state
-let nflRankMap = new Map(); // id -> big-board rank for the draft's scoring format
+let nflRankMap = new Map(); // id -> VORP big-board rank for the draft's scoring format
+let nflLevels = {};         // per-position replacement levels for the draft's league
 
 const $ = (id) => document.getElementById(id);
 const posClass = (p) => ({ QB:'pos-q', RB:'pos-r', WR:'pos-w', TE:'pos-t', K:'pos-k', DST:'pos-d' }[p] || '');
@@ -561,23 +562,28 @@ function renderRecent() {
     return `<li><span class="muted">R${p.round}</span> <span class="pos ${posClass(p.pos)}">${p.pos}</span> ${p.name}${who}</li>`;
   }).join('') || '<li class="muted">—</li>';
 }
-// Build the format-aware big board once per draft: every rankable player ordered by the
-// shared nflRankValue for the chosen scoring, giving each a 1..N rank (same logic as the
-// rankings tab). Fixed for the draft since scoring is chosen at setup.
+// Build the format-aware big board once per draft: every rankable player ordered by VORP
+// (value over replacement) for the chosen scoring + league size, giving each a 1..N rank
+// (same metric as the rankings tab). Fixed for the draft since the league is set at setup.
 function buildNflRankMap() {
   const scoring = state?.settings?.scoring || 'ppr';
+  nflLevels = nflReplacementLevels(players, scoring, { teams: state?.settings?.teams });
   const ranked = players.filter((p) => !p.searchOnly && p.rank != null)
-    .slice().sort((a, b) => nflRankValue(b, scoring) - nflRankValue(a, scoring));
+    .slice().sort((a, b) =>
+      nflVorp(b, scoring, nflLevels) - nflVorp(a, scoring, nflLevels) ||
+      nflRankValue(b, scoring) - nflRankValue(a, scoring));
   nflRankMap = new Map(ranked.map((p, i) => [p.id, i + 1]));
 }
 
 function renderAvailable(filter = '') {
   const f = filter.toLowerCase();
   const scoring = state.settings.scoring || 'ppr';
-  // Order the board by FPTS in the chosen format — identical to the rankings tab.
+  // Order the board by VORP in the chosen format — identical to the rankings tab.
   const list = players
     .filter((p) => !state.drafted.has(p.id) && (!f || p.name.toLowerCase().includes(f) || p.pos.toLowerCase() === f))
-    .sort((a, b) => nflRankValue(b, scoring) - nflRankValue(a, scoring))
+    .sort((a, b) =>
+      nflVorp(b, scoring, nflLevels) - nflVorp(a, scoring, nflLevels) ||
+      nflRankValue(b, scoring) - nflRankValue(a, scoring))
     .slice(0, 60);
   $('availList').innerHTML = list.map((p) => {
     const adp = adpFor(p, scoring);
@@ -760,7 +766,9 @@ function buildDraftContext() {
   const rosterStr = s.roster.map((r) => { const p = byId.get(r.id); return p ? `${p.pos} ${p.name}` : r.pos; }).join(', ') || '(empty)';
   const recent = s.picks.slice(-8).map((p) => `${p.pos} ${p.name}`).join(', ') || 'none yet';
   const avail = players.filter((p) => !s.drafted.has(p.id))
-    .sort((a, b) => nflRankValue(b, s.settings.scoring) - nflRankValue(a, s.settings.scoring))
+    .sort((a, b) =>
+      nflVorp(b, s.settings.scoring, nflLevels) - nflVorp(a, s.settings.scoring, nflLevels) ||
+      nflRankValue(b, s.settings.scoring) - nflRankValue(a, s.settings.scoring))
     .slice(0, 12).map((p) => `${p.pos} ${p.name} (#${nflRankMap.get(p.id) ?? '—'})`).join(', ');
   // Fold in the pick you just recommended so follow-ups ("why not the WR?") stay coherent.
   const recoStr = lastReco
