@@ -197,7 +197,12 @@ export function recommend(players, drafted, roster = [], settings = DEFAULT_SETT
   const scored = available
     .map((p) => {
       const v = valueOf(p, scoring);
-      const vorp = Math.max(0, v - (levels[p.pos] ?? 0));
+      // K/DST sink below the startable skill pool: pure VORP floats elite ones into the
+      // early rounds, but they belong in the last couple rounds (near-random week to week).
+      // Zeroing their VORP keeps them out of proactive picks; the forced tier below still
+      // guarantees a kicker/defense gets drafted once the roster cushion runs out.
+      const isKD = p.pos === 'K' || p.pos === 'DST';
+      const vorp = isKD ? 0 : Math.max(0, v - (levels[p.pos] ?? 0));
       const gap = Math.max(0, (MIN_ROSTER[p.pos] || 0) - (counts[p.pos] || 0));
       const factor = needFactor(p.pos, counts, { startableLeft, teams, slack, run: runSet.has(p.pos) });
 
