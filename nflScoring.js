@@ -110,17 +110,16 @@ export function nflVorp(p, scoring, levels) {
 
 // K and DST are a special case for a draft board: pure VORP floats elite ones into the
 // early rounds (a top defense outscores a replacement defense by a lot), but real drafts
-// take K/DST in the last couple rounds because week-to-week output is near-random and
-// preseason projections barely predict it. So we SINK them below the startable skill pool
-// — they're ordered by their own value among themselves, but never above a startable
-// (above-replacement) skill player. Three ordering tiers, high to low:
+// take K/DST dead last — even after deep bench skill players — because week-to-week output
+// is near-random and preseason projections barely predict it. So we bury them at the
+// bottom of the board, ordered by their own value among themselves. Three tiers, high to low:
 //   2 = startable skill (VORP > 0), by VORP desc
-//   1 = K / DST, by raw value desc  (below all startable skill, above bench skill)
-//   0 = below-replacement bench skill (VORP <= 0), by VORP desc
+//   1 = below-replacement bench skill (VORP <= 0), by VORP desc
+//   0 = K / DST, by raw value desc  (the actual last rounds, below everything else)
 function boardTier(p, scoring, levels) {
-  if (p.pos === 'K' || p.pos === 'DST') return { tier: 1, val: nflRankValue(p, scoring) };
+  if (p.pos === 'K' || p.pos === 'DST') return { tier: 0, val: nflRankValue(p, scoring) };
   const v = nflVorp(p, scoring, levels);
-  return v > 0 ? { tier: 2, val: v } : { tier: 0, val: v };
+  return v > 0 ? { tier: 2, val: v } : { tier: 1, val: v };
 }
 
 // Board comparator (descending). Pass precomputed levels for the whole pool. Used by the
