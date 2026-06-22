@@ -108,13 +108,36 @@ export function nflVorp(p, scoring, levels) {
   return nflRankValue(p, scoring) - ((levels && levels[p.pos]) ?? 0);
 }
 
-// id -> 1..N VORP board rank for a player pool. Ordered by VORP desc, tie-broken by raw
-// format value desc so players below replacement (deep bench, kickers) still order sanely.
+// K and DST are a special case for a draft board: pure VORP floats elite ones into the
+// early rounds (a top defense outscores a replacement defense by a lot), but real drafts
+// take K/DST in the last couple rounds because week-to-week output is near-random and
+// preseason projections barely predict it. So we SINK them below the startable skill pool
+// — they're ordered by their own value among themselves, but never above a startable
+// (above-replacement) skill player. Three ordering tiers, high to low:
+//   2 = startable skill (VORP > 0), by VORP desc
+//   1 = K / DST, by raw value desc  (below all startable skill, above bench skill)
+//   0 = below-replacement bench skill (VORP <= 0), by VORP desc
+function boardTier(p, scoring, levels) {
+  if (p.pos === 'K' || p.pos === 'DST') return { tier: 1, val: nflRankValue(p, scoring) };
+  const v = nflVorp(p, scoring, levels);
+  return v > 0 ? { tier: 2, val: v } : { tier: 0, val: v };
+}
+
+// Board comparator (descending). Pass precomputed levels for the whole pool. Used by the
+// draft board, the rankings tab, and the VORP rank map so every surface orders identically.
+export function nflBoardCmp(a, b, scoring, levels) {
+  const ka = boardTier(a, scoring, levels), kb = boardTier(b, scoring, levels);
+  return kb.tier - ka.tier || kb.val - ka.val ||
+    nflRankValue(b, scoring) - nflRankValue(a, scoring);
+}
+
+// id -> 1..N board rank for a player pool, using the tiered order above (startable skill,
+// then K/DST by value, then bench skill).
 export function nflVorpRankMap(players, scoring, settings) {
   const levels = nflReplacementLevels(players, scoring, settings);
   const ranked = players
     .filter((p) => p && !p.searchOnly && p.rank != null)
-    .map((p) => ({ id: p.id, v: nflVorp(p, scoring, levels), raw: nflRankValue(p, scoring) }))
-    .sort((a, b) => b.v - a.v || b.raw - a.raw);
-  return new Map(ranked.map((x, i) => [x.id, i + 1]));
+    .slice()
+    .sort((a, b) => nflBoardCmp(a, b, scoring, levels));
+  return new Map(ranked.map((p, i) => [p.id, i + 1]));
 }

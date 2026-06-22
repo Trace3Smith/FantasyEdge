@@ -453,7 +453,7 @@
 <script type="module">
   // Shared NFL scoring — the SAME functions the draft board uses, so rankings and the
   // draft board order players by FPTS in a format identically (one ranking system).
-  import { nflRankValue, nflFpts, nflReplacementLevels, nflVorp } from '/nflScoring.js';
+  import { nflFpts, nflReplacementLevels, nflBoardCmp } from '/nflScoring.js';
 
   let currentSport = 'mlb';
   let currentPos = 'ALL';
@@ -584,18 +584,18 @@
     // NFL board is ranked by VALUE OVER REPLACEMENT (VORP) for the user's league setup
     // (team count + starting lineup + scoring) — the same metric the draft board uses, so
     // elite RB/WR rise and QBs slide to the middle rounds instead of raw points putting
-    // QBs on top. nflFp() still drives the FPTS column with real format points.
+    // QBs on top. K/DST sink below the startable skill pool (nflBoardCmp). nflFp() still
+    // drives the FPTS column with real format points.
     let nflRank = null;
     const isNfl = currentSport === 'nfl';
     const nflFp = (p) => nflFpts(p, currentScoring);
     let nflLevels = {};
-    const nflVal = (p) => nflVorp(p, currentScoring, nflLevels);
     if (isNfl) {
       nflLevels = nflReplacementLevels(players, currentScoring, nflLeague);
       nflRank = new Map();
       players.filter(p => !p.searchOnly && p.rank != null)
         .slice()
-        .sort((a, b) => nflVal(b) - nflVal(a) || nflRankValue(b, currentScoring) - nflRankValue(a, currentScoring))
+        .sort((a, b) => nflBoardCmp(a, b, currentScoring, nflLevels))
         .forEach((p, i) => nflRank.set(p.id, i + 1));
     }
     let filtered = currentPos === 'ALL' ? players : players.filter(p => (p.pos||'').toUpperCase().split('/').map(x => {
@@ -615,7 +615,7 @@
       filtered = filtered.filter(p => !p.searchOnly);
     }
     // NFL rows are ordered by VORP for the league setup (same as the rank map above).
-    if (isNfl) filtered = filtered.slice().sort((a, b) => nflVal(b) - nflVal(a) || nflRankValue(b, currentScoring) - nflRankValue(a, currentScoring));
+    if (isNfl) filtered = filtered.slice().sort((a, b) => nflBoardCmp(a, b, currentScoring, nflLevels));
     if (!filtered.length) {
       tbody.innerHTML = '<tr class="loading-row"><td colspan="15"><div class="loading-title">No Players Found</div><div class="loading-sub">Try a different position filter</div></td></tr>';
       return;
