@@ -37,7 +37,7 @@ export function nflFpts(p, scoring) {
 // Ranking value used to order the big board. Mirrors nflFpts except kickers use their
 // separate rankStd in non-PPR formats. For non-NFL players (no fpStd/rankStd) this
 // gracefully collapses to p.fp in every format, so it doubles as the draft engine's
-// universal value function.
+// universal value function. This is the RAW value that VORP is measured against.
 export function nflRankValue(p, scoring) {
   const ppr = p.fpPpr ?? p.fp ?? 0;
   const std = p.rankStd ?? p.fpStd ?? ppr;
@@ -46,4 +46,75 @@ export function nflRankValue(p, scoring) {
     case 'half': return (ppr + std) / 2;
     default: return ppr;
   }
+}
+
+// ---- Value Over Replacement (VORP) ----------------------------------------------
+// Ranking players by raw fantasy points puts QBs on top (they score the most), which is
+// wrong for a draft board: a replacement-level QB is still excellent, so an elite QB's
+// edge over the next-best is small, while an elite RB towers over a waiver-wire RB. VORP
+// ranks by how far a player outscores the replacement-level player AT HIS OWN POSITION,
+// which is what makes elite RB/WR go early and QBs slide to the middle rounds.
+
+// Default league shape for VORP when a surface has no explicit settings (the rankings
+// tab's initial view): a standard 12-team lineup.
+export const DEFAULT_LEAGUE = {
+  teams: 12,
+  starters: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 },
+};
+
+// How many players at each position are drafted as startable before quality drops to
+// "replacement" level, derived from league size + the starting lineup. The FLEX slot
+// (RB/WR/TE) is split mostly toward RB/WR (where flex is actually spent) with a sliver
+// to TE; deepening RB/WR replacement is what pushes elite RB/WR up a VORP board.
+export function nflReplacementDepths({ teams = 12, starters } = {}) {
+  const s = { ...DEFAULT_LEAGUE.starters, ...(starters || {}) };
+  const flex = teams * (s.FLEX || 0);
+  return {
+    QB:  teams * (s.QB  || 0),
+    RB:  teams * (s.RB  || 0) + flex * 0.5,
+    WR:  teams * (s.WR  || 0) + flex * 0.4,
+    TE:  teams * (s.TE  || 0) + flex * 0.1,
+    K:   teams * (s.K   || 0),
+    DST: teams * (s.DST || 0),
+  };
+}
+
+// Replacement-level VALUE per position: the ranking value of the player sitting at the
+// replacement depth, in the chosen format. Uses nflRankValue so kickers' rankStd is
+// respected. Positions not in the depth table (other sports) fall back to the pool's
+// median, so this stays safe if reused beyond NFL. Depth beyond the pool clamps to last.
+export function nflReplacementLevels(players, scoring, settings) {
+  const depths = nflReplacementDepths(settings || {});
+  const byPos = {};
+  for (const p of players) {
+    if (!p || p.searchOnly || p.rank == null) continue;
+    (byPos[p.pos] ||= []).push(nflRankValue(p, scoring));
+  }
+  const levels = {};
+  for (const [pos, vals] of Object.entries(byPos)) {
+    vals.sort((a, b) => b - a);
+    const depth = Math.round(depths[pos] ?? Math.ceil(vals.length / 2));
+    // depth is a 1-based count of startable players; the next one sets replacement.
+    const i = Math.min(Math.max(depth - 1, 0), vals.length - 1);
+    levels[pos] = vals[i] ?? 0;
+  }
+  return levels;
+}
+
+// Value Over Replacement: how far this player's format value sits above the replacement
+// player at his own position. The draft-board ordering metric — can be negative, which
+// simply sorts a player below replacement. Pass precomputed levels for the whole pool.
+export function nflVorp(p, scoring, levels) {
+  return nflRankValue(p, scoring) - ((levels && levels[p.pos]) ?? 0);
+}
+
+// id -> 1..N VORP board rank for a player pool. Ordered by VORP desc, tie-broken by raw
+// format value desc so players below replacement (deep bench, kickers) still order sanely.
+export function nflVorpRankMap(players, scoring, settings) {
+  const levels = nflReplacementLevels(players, scoring, settings);
+  const ranked = players
+    .filter((p) => p && !p.searchOnly && p.rank != null)
+    .map((p) => ({ id: p.id, v: nflVorp(p, scoring, levels), raw: nflRankValue(p, scoring) }))
+    .sort((a, b) => b.v - a.v || b.raw - a.raw);
+  return new Map(ranked.map((x, i) => [x.id, i + 1]));
 }

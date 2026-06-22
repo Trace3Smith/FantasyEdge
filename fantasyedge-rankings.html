@@ -221,6 +221,21 @@
   }
   .pos-btn:hover { border-color: var(--gold); color: var(--gold); }
   .pos-btn.active { background: var(--gold); border-color: var(--gold); color: var(--black); }
+  .nfl-settings { flex-wrap: wrap; gap: 8px; }
+  .nfl-sel {
+    padding: 6px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1);
+    background: var(--black); color: var(--gray-light); font-size: 12px; font-weight: 600;
+    font-family: 'Barlow', sans-serif; cursor: pointer;
+  }
+  .nfl-set {
+    display: inline-flex; align-items: center; gap: 4px; font-size: 10px; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--gray); font-family: 'Barlow', sans-serif;
+  }
+  .nfl-set input {
+    width: 42px; padding: 5px 6px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1);
+    background: var(--black); color: var(--white); font-size: 12px; font-weight: 600;
+    font-family: 'Barlow', sans-serif; text-align: center;
+  }
   .search-row { padding: 0 28px 14px; }
   .search-box { position: relative; display: inline-flex; align-items: center; width: 100%; max-width: 320px; }
   .search-box .search-icon { position: absolute; left: 12px; color: var(--gray); font-size: 13px; pointer-events: none; }
@@ -386,7 +401,24 @@
   <div class="pos-filters league-filters" id="scoringFilters" style="display:none">
     <span class="filter-group-label">Scoring</span>
     <button class="pos-btn active" data-scoring="PPR">PPR</button>
+    <button class="pos-btn" data-scoring="HALF">Half-PPR</button>
     <button class="pos-btn" data-scoring="STD">Standard</button>
+  </div>
+  <div class="pos-filters league-filters nfl-settings" id="nflLeagueSettings" style="display:none">
+    <span class="filter-group-label">Teams</span>
+    <select id="nflTeamsSel" class="nfl-sel">
+      <option value="8">8</option><option value="10">10</option>
+      <option value="12" selected>12</option><option value="14">14</option>
+      <option value="16">16</option>
+    </select>
+    <span class="filter-group-label">Starting roster</span>
+    <label class="nfl-set">QB<input type="number" id="rsQB" min="0" max="3" step="1" value="1"></label>
+    <label class="nfl-set">RB<input type="number" id="rsRB" min="0" max="5" step="1" value="2"></label>
+    <label class="nfl-set">WR<input type="number" id="rsWR" min="0" max="5" step="1" value="2"></label>
+    <label class="nfl-set">TE<input type="number" id="rsTE" min="0" max="3" step="1" value="1"></label>
+    <label class="nfl-set">FLEX<input type="number" id="rsFLEX" min="0" max="4" step="1" value="1"></label>
+    <label class="nfl-set">K<input type="number" id="rsK" min="0" max="2" step="1" value="1"></label>
+    <label class="nfl-set">DST<input type="number" id="rsDST" min="0" max="2" step="1" value="1"></label>
   </div>
   <div class="pos-filters" id="posFilters">
     <button class="pos-btn active" data-pos="ALL">ALL</button>
@@ -421,12 +453,15 @@
 <script type="module">
   // Shared NFL scoring — the SAME functions the draft board uses, so rankings and the
   // draft board order players by FPTS in a format identically (one ranking system).
-  import { nflRankValue, nflFpts } from '/nflScoring.js';
+  import { nflRankValue, nflFpts, nflReplacementLevels, nflVorp } from '/nflScoring.js';
 
   let currentSport = 'mlb';
   let currentPos = 'ALL';
   let currentLeague = 'ALL';
-  let currentScoring = 'PPR'; // NFL only: PPR | STD (Standard)
+  let currentScoring = 'PPR'; // NFL only: PPR | HALF | STD
+  // NFL VORP league setup — drives replacement depth so the board reflects the user's
+  // own league (size + starting lineup), the same inputs the draft board uses.
+  let nflLeague = { teams: 12, starters: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 } };
   let searchTerm = '';
   let allPlayers = [];
 
@@ -546,20 +581,21 @@
           .forEach((p, i) => leagueRank.set(p.id, i + 1));
       }
     }
-    // NFL Standard-vs-PPR toggle: re-rank the whole board by the active scoring
-    // total. Default PPR already matches the server rank, so only STD re-ranks.
-    // nflFp() picks the active per-player total for the FPTS column either way.
+    // NFL board is ranked by VALUE OVER REPLACEMENT (VORP) for the user's league setup
+    // (team count + starting lineup + scoring) — the same metric the draft board uses, so
+    // elite RB/WR rise and QBs slide to the middle rounds instead of raw points putting
+    // QBs on top. nflFp() still drives the FPTS column with real format points.
     let nflRank = null;
     const isNfl = currentSport === 'nfl';
-    // Display value (FPTS column) vs ranking value come from the shared /nflScoring.js —
-    // the exact functions the draft board uses (kickers carry a separate rankStd so their
-    // realistic displayed points don't drag them up the Standard board).
     const nflFp = (p) => nflFpts(p, currentScoring);
-    const nflRankFp = (p) => nflRankValue(p, currentScoring);
-    if (isNfl && currentScoring === 'STD') {
+    let nflLevels = {};
+    const nflVal = (p) => nflVorp(p, currentScoring, nflLevels);
+    if (isNfl) {
+      nflLevels = nflReplacementLevels(players, currentScoring, nflLeague);
       nflRank = new Map();
       players.filter(p => !p.searchOnly && p.rank != null)
-        .sort((a, b) => (nflRankFp(b) ?? 0) - (nflRankFp(a) ?? 0))
+        .slice()
+        .sort((a, b) => nflVal(b) - nflVal(a) || nflRankValue(b, currentScoring) - nflRankValue(a, currentScoring))
         .forEach((p, i) => nflRank.set(p.id, i + 1));
     }
     let filtered = currentPos === 'ALL' ? players : players.filter(p => (p.pos||'').toUpperCase().split('/').map(x => {
@@ -578,9 +614,8 @@
     } else {
       filtered = filtered.filter(p => !p.searchOnly);
     }
-    // NFL rows are ordered by the active scoring total (the array is server-sorted
-    // by PPR, so this matters in Standard mode and keeps PPR order otherwise).
-    if (isNfl) filtered = filtered.slice().sort((a, b) => (nflRankFp(b) ?? 0) - (nflRankFp(a) ?? 0));
+    // NFL rows are ordered by VORP for the league setup (same as the rank map above).
+    if (isNfl) filtered = filtered.slice().sort((a, b) => nflVal(b) - nflVal(a) || nflRankValue(b, currentScoring) - nflRankValue(a, currentScoring));
     if (!filtered.length) {
       tbody.innerHTML = '<tr class="loading-row"><td colspan="15"><div class="loading-title">No Players Found</div><div class="loading-sub">Try a different position filter</div></td></tr>';
       return;
@@ -775,10 +810,24 @@
     const lf = document.getElementById('leagueFilters');
     lf.style.display = sport === 'mlb' ? '' : 'none';
     lf.querySelectorAll('.pos-btn').forEach(b => b.classList.toggle('active', b.dataset.league === 'ALL'));
-    // Standard-vs-PPR scoring toggle is NFL-only; reset it to PPR on every switch.
+    // Scoring toggle + VORP league settings are NFL-only; reset to defaults on switch.
     const sf = document.getElementById('scoringFilters');
     sf.style.display = sport === 'nfl' ? '' : 'none';
     sf.querySelectorAll('.pos-btn').forEach(b => b.classList.toggle('active', b.dataset.scoring === 'PPR'));
+    const ns = document.getElementById('nflLeagueSettings');
+    ns.style.display = sport === 'nfl' ? '' : 'none';
+    if (sport === 'nfl') {
+      nflLeague = { teams: 12, starters: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 } };
+      document.getElementById('nflTeamsSel').value = '12';
+      const d = nflLeague.starters;
+      for (const pos of Object.keys(d)) document.getElementById('rs' + pos).value = d[pos];
+    }
+  }
+
+  // Read the starting-roster steppers back into nflLeague (VORP replacement depth).
+  function readRosterInputs() {
+    const g = (id) => Math.max(0, Number(document.getElementById(id).value) || 0);
+    nflLeague.starters = { QB: g('rsQB'), RB: g('rsRB'), WR: g('rsWR'), TE: g('rsTE'), FLEX: g('rsFLEX'), K: g('rsK'), DST: g('rsDST') };
   }
 
   document.getElementById('posFilters').addEventListener('click', e => {
@@ -796,6 +845,17 @@
     document.querySelectorAll('#scoringFilters .pos-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentScoring = btn.dataset.scoring;
+    renderTable(allPlayers);
+  });
+
+  document.getElementById('nflTeamsSel').addEventListener('change', e => {
+    nflLeague.teams = Number(e.target.value) || 12;
+    renderTable(allPlayers);
+  });
+
+  document.getElementById('nflLeagueSettings').addEventListener('input', e => {
+    if (!e.target.matches('input[type="number"]')) return;
+    readRosterInputs();
     renderTable(allPlayers);
   });
 

@@ -8,7 +8,7 @@ import { buildNhlDataset } from './buildNhlDataset.js';
 import { redis, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, DATASET_VERSION } from './kv.js';
 // The board ranks by the same per-format value function the rankings tab and draft board
 // use — one shared definition (see /nflScoring.js), so the engine never drifts from the UI.
-import { nflRankValue as valueOf } from '../../nflScoring.js';
+import { nflRankValue as valueOf, nflReplacementDepths } from '../../nflScoring.js';
 
 // Same per-sport wiring as api/sports.js, so the draft reads the identical cached
 // dataset and self-heals on a cold-start miss. NFL is the headline draft sport.
@@ -26,10 +26,6 @@ export const DEFAULT_SETTINGS = {
   scoring: 'ppr', // 'ppr' | 'standard'
   starters: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 }, // FLEX = RB/WR/TE
 };
-
-// Roughly how deep each position is drafted before quality falls to "replacement"
-// level in a ~10-team league. The Nth-best player at a position sets its baseline.
-const REPLACEMENT_DEPTH = { QB: 12, RB: 30, WR: 30, TE: 10, K: 10, DST: 10 };
 
 // The minimum balanced roster every team must end up with. The recommender fills
 // these starter requirements before chasing luxury depth, so a drafter can't end up
@@ -70,15 +66,19 @@ export function adpFor(p, scoring) {
   return a[scoring] ?? null;
 }
 
-// Replacement-level value per position: the value of the player at REPLACEMENT_DEPTH.
-function replacementLevels(players, scoring) {
+// Replacement-level value per position: the value of the player at the league-size-aware
+// replacement depth (shared with the board/rankings tab via nflReplacementDepths, so the
+// engine never drifts from the UI). NFL positions get depths from the league's size +
+// starting lineup; any other sport's positions fall back to the pool's median depth.
+function replacementLevels(players, scoring, settings) {
+  const depths = nflReplacementDepths(settings || {});
   const byPos = {};
   for (const p of players) (byPos[p.pos] ||= []).push(valueOf(p, scoring));
   const levels = {};
   for (const [pos, vals] of Object.entries(byPos)) {
     vals.sort((a, b) => b - a);
-    const depth = REPLACEMENT_DEPTH[pos] ?? Math.ceil(vals.length / 2);
-    levels[pos] = vals[Math.min(depth, vals.length - 1)] ?? 0;
+    const depth = Math.round(depths[pos] ?? Math.ceil(vals.length / 2));
+    levels[pos] = vals[Math.min(Math.max(depth - 1, 0), vals.length - 1)] ?? 0;
   }
   return levels;
 }
@@ -164,7 +164,7 @@ function positionRuns(recentPicks) {
 export function recommend(players, drafted, roster = [], settings = DEFAULT_SETTINGS, round = 1, recentPicks = []) {
   const taken = drafted instanceof Set ? drafted : new Set(drafted);
   const scoring = settings.scoring || 'ppr';
-  const levels = replacementLevels(players, scoring);
+  const levels = replacementLevels(players, scoring, settings);
   const counts = countByPos(roster);
   const teams = settings.teams || 10;
   const totalRounds = settings.rounds || 15;
