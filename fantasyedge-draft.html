@@ -126,6 +126,7 @@
     <li><a href="fantasyedge-analyzer.html"><span class="icon">🔍</span> Roster Analyzer</a></li>
     <li><a href="fantasyedge-draft.html" id="navOffline"><span class="icon">📋</span> Offline Draft</a></li>
     <li><a href="fantasyedge-draft.html?mode=mock" id="navMock"><span class="icon">🎯</span> Mock Draft</a></li>
+    <li><a href="fantasyedge-draft.html?mode=mock&sport=nba" id="navMockNba"><span class="icon">🏀</span> NBA Mock Draft</a></li>
     <li><a href="fantasyedge-coach.html"><span class="icon">🤖</span> AI Coach</a></li>
     <li><a href="fantasyedge-trending.html"><span class="icon">🔥</span> Trending Players</a></li>
     <li><a href="fantasyedge-brackets.html"><span class="icon">🏆</span> Brackets &amp; Bowls</a></li>
@@ -337,7 +338,8 @@ const startLabel = () => (wantMock ? 'Start Mock Draft' : 'Start Offline Draft')
 function applyMode() {
   const valuePhrase = isNba() ? 'realistic category value' : 'realistic ADP';
   $('navOffline').classList.toggle('active', !wantMock);
-  $('navMock').classList.toggle('active', wantMock);
+  $('navMock').classList.toggle('active', wantMock && !isNba());
+  $('navMockNba').classList.toggle('active', wantMock && isNba());
   $('pageTitle').textContent = wantMock ? 'MOCK DRAFT' : 'OFFLINE DRAFT';
   $('pageSubtitle').textContent = wantMock
     ? `Draft against AI opponents that pick at ${valuePhrase}, with the AI Coach on every pick.`
