@@ -46,6 +46,11 @@ const pct = (v) => (v == null ? '—' : '.' + Math.round(v * 1000)); // 0.465 ->
 // low-volume percentage merchants (and which is itself sample-aware via attempts).
 const COUNTING_CATS = ['pts', 'reb', 'ast', 'stl', 'blk', 'tpm', 'to'];
 
+// Internal scoring key -> exposed per-category z key. The two rate cats are scored as
+// volume-weighted marginal impacts (impFG/impFT) but surface under their category names
+// so the draft engine and UI can read a clean { ...counting, fgPct, ftPct } z block.
+const Z_KEY = { impFG: 'fgPct', impFT: 'ftPct' };
+
 // Shrinkage prior, in games of league-average play. A player's per-game rate is
 // regressed toward the league mean as if he'd also played GAMES_PRIOR league-
 // average games, so an outlier early-season rate (e.g. 3.0 STL over 15 games)
@@ -88,7 +93,14 @@ function scoreNba(pool) {
     norm[k] = { m, sd };
   }
   for (const p of pool) {
-    p.score = keys.reduce((a, [k, sign]) => a + (sign * (valOf(p._n, k) - norm[k].m)) / norm[k].sd, 0);
+    // Per-category z (sign already folded in, so turnovers contribute negatively). Stored
+    // under category names via Z_KEY; the sum is the 9-cat ranking value (zTotal).
+    const z = {};
+    for (const [k, sign] of keys) {
+      z[Z_KEY[k] || k] = (sign * (valOf(p._n, k) - norm[k].m)) / norm[k].sd;
+    }
+    p._z = z;
+    p.score = Object.values(z).reduce((a, b) => a + b, 0);
   }
 }
 
@@ -164,10 +176,26 @@ async function buildBasketballDataset(sport) {
     r.emoji = '🏀';
   }
 
+  // Expose the per-game stat object and (for ranked players) the per-category z block +
+  // 9-cat total, so the category draft engine and UI can read real value without
+  // recomputing. Additive — the rankings tab ignores these. Sub-threshold (search-only)
+  // players were never scored, so they carry stats but no z. Rounded to keep the payload small.
+  const r3 = (v) => Math.round(v * 1000) / 1000;
   const players = [...ranked, ...subThreshold];
   for (const r of players) {
+    r.n = r._n; // per-game category stats { pts, reb, ast, stl, blk, tpm, to, fgPct, ftPct, ... }
+    if (r._z) {
+      const z = {};
+      for (const k in r._z) z[k] = r3(r._z[k]);
+      r.z = z;
+      r.zTotal = r3(r.score);
+    } else {
+      r.z = null;
+      r.zTotal = null;
+    }
     delete r.score;
     delete r._n;
+    delete r._z;
   }
 
   return {
