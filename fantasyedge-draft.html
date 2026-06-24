@@ -437,7 +437,23 @@ syncPosOptions();
 // One Start button drives both modes off the shared settings screen.
 $('startBtn').addEventListener('click', () => (wantMock ? startMock() : startOffline()));
 
+// Surface a re-auth prompt in the setup panel. isSignedIn() (cached Clerk user) can stay
+// true after the session token has lapsed, so a "signed-in" user can still hit a 401 on
+// the mock-start POST. Rather than fail opaquely, reveal the setup screen and ask them to
+// sign in again. Used both pre-flight (no token to send) and on a 401 response.
+function promptReauth() {
+  $('setup').classList.remove('hidden');
+  $('usageNote').innerHTML = `Your session expired. <a href="#" id="reauth" style="color:var(--gold)">Sign in again</a> to start your draft.`;
+  $('reauth').onclick = (e) => { e.preventDefault(); window.FE?.openSignIn(); };
+}
+
 async function startMock() {
+  // Guard: if the Clerk session has lapsed there's no token to attach, and the server
+  // would reject the POST as 401. Catch it here and prompt a re-auth instead.
+  let token = null;
+  try { token = await window.FE?.getToken(); } catch {}
+  if (!token) { promptReauth(); return; }
+
   $('startBtn').disabled = true;
   $('startBtn').textContent = 'Starting…';
   const teams = Number($('teamsSel').value);
@@ -455,7 +471,10 @@ async function startMock() {
   if (!ok) {
     // Nav-launched mock hides this screen; reveal it so the message/upsell is visible.
     $('setup').classList.remove('hidden');
-    if (status === 403 && data?.error === 'mock_limit_reached') {
+    if (status === 401) {
+      // Token was attached but rejected (expired/invalid session) — prompt a re-auth.
+      promptReauth();
+    } else if (status === 403 && data?.error === 'mock_limit_reached') {
       $('usageNote').innerHTML = `You've used today's free mock draft. <a href="#" id="limitUp" style="color:var(--gold)">Go Premium</a> for unlimited.`;
       $('limitUp').onclick = (e) => { e.preventDefault(); window.FE.openPricing(); };
     } else {
