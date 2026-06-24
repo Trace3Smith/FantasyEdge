@@ -168,9 +168,9 @@
     <div class="league-grid">
       <div class="league-tile" data-sport="nfl"><span class="lt-icon">🏈</span><span class="lt-name">NFL</span></div>
       <div class="league-tile" data-sport="nba"><span class="lt-icon">🏀</span><span class="lt-name">NBA</span></div>
+      <div class="league-tile" data-sport="wnba"><span class="lt-icon">🏀</span><span class="lt-name">WNBA</span></div>
       <div class="league-tile disabled"><span class="lt-icon">⚾</span><span class="lt-name">MLB</span><span class="coming-soon">Coming soon</span></div>
       <div class="league-tile disabled"><span class="lt-icon">🏒</span><span class="lt-name">NHL</span><span class="coming-soon">Coming soon</span></div>
-      <div class="league-tile disabled"><span class="lt-icon">🏀</span><span class="lt-name">WNBA</span><span class="coming-soon">Coming soon</span></div>
     </div>
   </div>
 
@@ -181,7 +181,7 @@
     <div class="start-row">
       <button class="btn btn-gold" id="startBtn">Start Offline Draft</button>
       <label class="muted" style="font-size:13px">Sport
-        <select id="sportSel"><option value="nfl">NFL</option><option value="nba">NBA</option></select>
+        <select id="sportSel"><option value="nfl">NFL</option><option value="nba">NBA</option><option value="wnba">WNBA</option></select>
       </label>
       <label class="muted" style="font-size:13px">League size
         <select id="teamsSel"><option>8</option><option selected>10</option><option>12</option><option>14</option></select>
@@ -385,9 +385,11 @@ function syncSportUI() {
   $('roundsSel').value = isNba() ? '13' : '15';
   applyMode();
 }
-$('sportSel').value = isNba() ? 'nba' : 'nfl';
+// Normalize any sport string to one we support (nfl/nba/wnba), defaulting to NFL.
+const normSport = (s) => (['nfl', 'nba', 'wnba'].includes(s) ? s : 'nfl');
+$('sportSel').value = sport;
 $('sportSel').addEventListener('change', () => {
-  sport = $('sportSel').value === 'nba' ? 'nba' : 'nfl';
+  sport = normSport($('sportSel').value);
   players = []; byId = new Map(); // drop the other sport's cached pool
   syncSportUI();
 });
@@ -408,7 +410,7 @@ function refreshAuthUI() {
 // League tiles advance to the shared setup screen with the chosen sport selected.
 document.querySelectorAll('#leagueChooser .league-tile[data-sport]').forEach((tile) => {
   tile.addEventListener('click', () => {
-    sport = tile.dataset.sport === 'nba' ? 'nba' : 'nfl';
+    sport = normSport(tile.dataset.sport);
     players = []; byId = new Map(); // drop any cached pool for the other sport
     $('sportSel').value = sport;
     syncSportUI();
