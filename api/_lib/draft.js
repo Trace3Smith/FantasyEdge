@@ -9,6 +9,12 @@ import { redis, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_
 // The board ranks by the same per-format value function the rankings tab and draft board
 // use — one shared definition (see /nflScoring.js), so the engine never drifts from the UI.
 import { nflRankValue as valueOf, nflReplacementDepths } from '../../nflScoring.js';
+// NBA is a category (roto) game, not points — its value/need logic lives in its own shared
+// module (the roto analog of nflScoring.js), used identically by the rankings board and UI.
+import {
+  nbaPlayerValue, nbaAdjustedValue, nbaCategoryNeed, nbaReplacementLevel,
+  bestOpenSlot, specificOpenSlots, NBA_CATS, CAT_KEYS,
+} from '../../nbaScoring.js';
 
 // Same per-sport wiring as api/sports.js, so the draft reads the identical cached
 // dataset and self-heals on a cold-start miss. NFL is the headline draft sport.
@@ -162,6 +168,88 @@ function positionRuns(recentPicks) {
  * @returns { candidates, runs } — candidates sorted best-first
  */
 export function recommend(players, drafted, roster = [], settings = DEFAULT_SETTINGS, round = 1, recentPicks = []) {
+  const sport = settings.sport || 'nfl';
+  if (sport === 'nba' || sport === 'wnba') return recommendNba(players, drafted, roster, settings, round, recentPicks);
+  return recommendNfl(players, drafted, roster, settings, round, recentPicks);
+}
+
+// --- NBA (category / roto) recommender -------------------------------------------------------
+// Same contract as recommendNfl ({ candidates, runs, board }) so advise.js and the UI are
+// structurally unchanged, but value is category-based: a player's worth is his total 9-cat z,
+// reweighted toward the roster's WEAK categories (nbaCategoryNeed) so the engine balances cats
+// rather than always grabbing the highest raw z. Positional need comes from open starting slots
+// (UTIL/G/F flex aware); a late-draft forced tier guarantees a legal lineup. No ADP/projections
+// in v1, so those candidate fields are null and mock opponents pick by category value.
+const NBA_CAT_LABEL = Object.fromEntries(NBA_CATS.map((c) => [c.key, c.label]));
+
+function recommendNba(players, drafted, roster = [], settings = {}, round = 1, recentPicks = []) {
+  const taken = drafted instanceof Set ? drafted : new Set(drafted);
+  const teams = settings.teams || 12;
+  const totalRounds = settings.rounds || 13;
+  const available = players.filter((p) => !taken.has(p.id) && typeof p.zTotal === 'number');
+
+  const replacement = nbaReplacementLevel(players, settings);
+  const weight = nbaCategoryNeed(roster);   // up-weights the roster's lagging categories
+  // Open starting slots (flex-aware). UTIL takes anyone, so only the SPECIFIC slots (PG/SG/SF/
+  // PF/C/G/F) can truly go unfilled — those drive need, the forced tier, and the analyst note.
+  const open = specificOpenSlots(roster, settings);
+  const openCount = Object.values(open).reduce((a, b) => a + b, 0);
+  const picksLeft = Math.max(0, totalRounds - roster.length);
+  const slack = picksLeft - openCount;      // spare picks beyond unfilled specific starting slots
+
+  // Above-replacement players left by base position — the scarcity signal for the analyst.
+  const startableLeft = {};
+  for (const p of available) {
+    if (nbaPlayerValue(p) > replacement) startableLeft[p.pos] = (startableLeft[p.pos] || 0) + 1;
+  }
+
+  const runs = positionRuns(recentPicks);
+  const runSet = new Set(runs);
+
+  const scored = available
+    .map((p) => {
+      const v = nbaPlayerValue(p);
+      const adj = nbaAdjustedValue(p, weight); // category-balanced value
+      const slot = bestOpenSlot(p.pos, open);  // tightest specific open slot he fills (or null)
+      const fills = slot != null;              // addresses a real positional gap (not just UTIL)
+      // Slot urgency: a nudge for filling an open specific slot, surging as the cushion runs out
+      // so we lock a legal lineup before chasing luxury depth (roto analog of the NFL forced tier).
+      const slotBoost = fills ? (slack <= 0 ? 1.6 : slack <= 2 ? 1.2 : 1.05) : 1;
+      const runBump = fills && runSet.has(p.pos) ? 1.08 : 1;
+      return {
+        id: p.id, name: p.name, team: p.team, pos: p.pos, rank: p.rank,
+        value: Math.round(v * 100) / 100,
+        vorp: Math.round((v - replacement) * 100) / 100,
+        score: Math.round(adj * slotBoost * runBump * 100) / 100,
+        need: fills,                       // fills an open specific starting slot
+        forced: fills && slack <= 0,       // out of spare picks — must lock a starter now
+        adp: null, picksPastAdp: 0, falling: false, proj: null, // no NBA ADP/projections in v1
+        z: p.z, n: p.n, cats: p.cats,      // category detail for the analyst layer
+      };
+    })
+    .sort((a, b) =>
+      (b.forced ? 1 : 0) - (a.forced ? 1 : 0) ||
+      b.score - a.score ||
+      (a.rank ?? 1e9) - (b.rank ?? 1e9)
+    );
+
+  // Open specific slots double as roster "needs"; weakest categories guide the analyst's read.
+  const needs = Object.entries(open).map(([pos, gap]) => ({ pos, gap }));
+  const weakCats = CAT_KEYS.slice()
+    .sort((a, b) => weight[b] - weight[a])
+    .filter((k) => weight[k] > 1.05)
+    .slice(0, 3)
+    .map((k) => NBA_CAT_LABEL[k]);
+
+  const board = {
+    startableLeft, slack, teams, picksLeft, totalRounds, needs, weakCats,
+    mustFillNow: slack <= 0 && needs.length > 0,
+    fillSoon: slack === 1 && needs.length > 0,
+  };
+  return { candidates: scored.slice(0, 12), runs, board };
+}
+
+function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS, round = 1, recentPicks = []) {
   const taken = drafted instanceof Set ? drafted : new Set(drafted);
   const scoring = settings.scoring || 'ppr';
   const levels = replacementLevels(players, scoring, settings);
