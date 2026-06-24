@@ -37,6 +37,18 @@
 
   .panel { background: var(--dark2); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
   .start-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  /* League chooser (mock mode, no sport in URL) */
+  .league-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-top: 8px; }
+  @media (max-width: 760px) { .league-grid { grid-template-columns: repeat(2, 1fr); } }
+  .league-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    padding: 26px 12px; background: var(--dark3); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
+    cursor: pointer; transition: border-color .15s, transform .15s; text-align: center; }
+  .league-tile:hover { border-color: var(--gold); transform: translateY(-2px); }
+  .league-tile .lt-icon { font-size: 34px; line-height: 1; }
+  .league-tile .lt-name { font-weight: 700; font-size: 15px; letter-spacing: .5px; }
+  .league-tile.disabled { cursor: default; opacity: .4; }
+  .league-tile.disabled:hover { border-color: rgba(255,255,255,0.08); transform: none; }
+  .league-tile .coming-soon { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray); }
   .btn { padding: 11px 20px; border-radius: 8px; border: none; cursor: pointer; font-family: inherit; font-weight: 700; font-size: 14px; }
   .btn-gold { background: var(--gold); color: #111; }
   .btn-ghost { background: transparent; border: 1px solid var(--gold); color: var(--gold); }
@@ -126,7 +138,6 @@
     <li><a href="fantasyedge-analyzer.html"><span class="icon">🔍</span> Roster Analyzer</a></li>
     <li><a href="fantasyedge-draft.html" id="navOffline"><span class="icon">📋</span> Offline Draft</a></li>
     <li><a href="fantasyedge-draft.html?mode=mock" id="navMock"><span class="icon">🎯</span> Mock Draft</a></li>
-    <li><a href="fantasyedge-draft.html?mode=mock&sport=nba" id="navMockNba"><span class="icon">🏀</span> NBA Mock Draft</a></li>
     <li><a href="fantasyedge-coach.html"><span class="icon">🤖</span> AI Coach</a></li>
     <li><a href="fantasyedge-trending.html"><span class="icon">🔥</span> Trending Players</a></li>
     <li><a href="fantasyedge-brackets.html"><span class="icon">🏆</span> Brackets &amp; Bowls</a></li>
@@ -147,6 +158,20 @@
   <div class="panel" id="signedOut">
     <p class="muted">Sign in to run a mock draft. Free users get <b>1 mock draft per day</b> with assistant suggestions for rounds 1–7.</p>
     <br><button class="btn btn-gold" id="signInBtn">Sign in</button>
+  </div>
+
+  <!-- League chooser: mock mode only, shown when no ?sport= is in the URL.
+       Picking an active league advances to the shared setup screen below. -->
+  <div class="panel hidden" id="leagueChooser">
+    <div class="page-title" style="font-size:22px; margin-bottom:4px;">CHOOSE A LEAGUE</div>
+    <p class="muted" style="font-size:13px; margin: 0 0 16px;">Pick the sport you want to mock draft. More leagues are on the way.</p>
+    <div class="league-grid">
+      <div class="league-tile" data-sport="nfl"><span class="lt-icon">🏈</span><span class="lt-name">NFL</span></div>
+      <div class="league-tile" data-sport="nba"><span class="lt-icon">🏀</span><span class="lt-name">NBA</span></div>
+      <div class="league-tile disabled"><span class="lt-icon">⚾</span><span class="lt-name">MLB</span><span class="coming-soon">Coming soon</span></div>
+      <div class="league-tile disabled"><span class="lt-icon">🏒</span><span class="lt-name">NHL</span><span class="coming-soon">Coming soon</span></div>
+      <div class="league-tile disabled"><span class="lt-icon">🏀</span><span class="lt-name">WNBA</span><span class="coming-soon">Coming soon</span></div>
+    </div>
   </div>
 
   <!-- Pre-draft setup (shared by both modes) -->
@@ -245,8 +270,9 @@ let levels = {};            // NFL: per-position replacement levels (unused for 
 
 // Active sport: from ?sport= (default NFL). NBA/WNBA are category leagues; everything else
 // is the NFL points flow. Resolved at load and again when the setup Sport select changes.
-let sport = (new URLSearchParams(location.search).get('sport') || 'nfl').toLowerCase();
-if (sport !== 'nba' && sport !== 'wnba' && sport !== 'nfl') sport = 'nfl';
+const urlSport = (new URLSearchParams(location.search).get('sport') || '').toLowerCase();
+const sportInUrl = urlSport === 'nba' || urlSport === 'wnba' || urlSport === 'nfl';
+let sport = sportInUrl ? urlSport : 'nfl';
 const isNba = () => sport === 'nba' || sport === 'wnba';
 
 const $ = (id) => document.getElementById(id);
@@ -338,8 +364,7 @@ const startLabel = () => (wantMock ? 'Start Mock Draft' : 'Start Offline Draft')
 function applyMode() {
   const valuePhrase = isNba() ? 'realistic category value' : 'realistic ADP';
   $('navOffline').classList.toggle('active', !wantMock);
-  $('navMock').classList.toggle('active', wantMock && !isNba());
-  $('navMockNba').classList.toggle('active', wantMock && isNba());
+  $('navMock').classList.toggle('active', wantMock);
   $('pageTitle').textContent = wantMock ? 'MOCK DRAFT' : 'OFFLINE DRAFT';
   $('pageSubtitle').textContent = wantMock
     ? `Draft against AI opponents that pick at ${valuePhrase}, with the AI Coach on every pick.`
@@ -368,11 +393,29 @@ $('sportSel').addEventListener('change', () => {
 });
 syncSportUI();
 
+// In mock mode with no ?sport= in the URL, gate the settings screen behind a league
+// chooser. Deep links (?mode=mock&sport=nba) and offline mode skip it entirely. Once a
+// league is picked the gate clears for the rest of the session.
+let chooserPending = wantMock && !sportInUrl;
+
 function refreshAuthUI() {
   const signedIn = window.FE?.isSignedIn();
   $('signedOut').classList.toggle('hidden', !!signedIn);
-  $('setup').classList.toggle('hidden', !signedIn);
+  $('leagueChooser').classList.toggle('hidden', !signedIn || !chooserPending);
+  $('setup').classList.toggle('hidden', !signedIn || chooserPending);
 }
+
+// League tiles advance to the shared setup screen with the chosen sport selected.
+document.querySelectorAll('#leagueChooser .league-tile[data-sport]').forEach((tile) => {
+  tile.addEventListener('click', () => {
+    sport = tile.dataset.sport === 'nba' ? 'nba' : 'nfl';
+    players = []; byId = new Map(); // drop any cached pool for the other sport
+    $('sportSel').value = sport;
+    syncSportUI();
+    chooserPending = false;
+    refreshAuthUI();
+  });
+});
 
 // Setup ------------------------------------------------------------------------
 // This screen sets up BOTH modes; the Start button launches startMock or startOffline
