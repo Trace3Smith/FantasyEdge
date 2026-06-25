@@ -22,9 +22,18 @@ export class HttpError extends Error {
 }
 
 // Origins Clerk's token must have been minted for. Networkless verification rejects
-// tokens whose `azp` isn't in this list, blocking token reuse from other apps.
+// tokens whose `azp` isn't in this list, blocking token reuse from other apps. The
+// production app is served from the custom domain (apex + www), so the token's azp is
+// one of those — they must be listed here or every prod token 401s as
+// token-invalid-authorized-parties. The APP_URL origin (the vercel.app host) is kept
+// for preview/deploy URLs.
 function authorizedParties() {
-  const parties = ['http://localhost:3000', 'https://localhost:3000'];
+  const parties = [
+    'http://localhost:3000',
+    'https://localhost:3000',
+    'https://www.fantasyedgeapp.com',
+    'https://fantasyedgeapp.com',
+  ];
   try {
     parties.push(new URL(APP_URL).origin);
   } catch {}
