@@ -448,10 +448,12 @@ function promptReauth() {
 }
 
 async function startMock() {
-  // Guard: if the Clerk session has lapsed there's no token to attach, and the server
-  // would reject the POST as 401. Catch it here and prompt a re-auth instead.
+  // Guard: isSignedIn() (cached Clerk user) can stay true after the session token has
+  // lapsed, and the cached token would be sent stale, yielding a 401. Force a fresh token
+  // fetch (skipCache) so a lapsed session surfaces as null here; if so, prompt a re-auth
+  // instead of attempting the POST.
   let token = null;
-  try { token = await window.FE?.getToken(); } catch {}
+  try { token = await window.FE?.getToken({ skipCache: true }); } catch {}
   if (!token) { promptReauth(); return; }
 
   $('startBtn').disabled = true;

@@ -226,7 +226,7 @@ async function boot() {
   window.FE = {
     clerk,
     apiPost,
-    getToken: () => (clerk.session ? clerk.session.getToken() : Promise.resolve(null)),
+    getToken: (opts) => (clerk.session ? clerk.session.getToken(opts) : Promise.resolve(null)),
     isPremium,
     isSignedIn: () => !!clerk.user,
     openSignIn: () => clerk.openSignIn(),
