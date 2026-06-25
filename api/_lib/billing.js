@@ -21,5 +21,5 @@ export const PRICE_BY_INTERVAL = {
 };
 
 // Absolute base URL for Stripe success/cancel + portal return redirects. Falls back
-// to the known prod host so a missing env var degrades gracefully rather than 500ing.
-export const APP_URL = process.env.APP_URL || 'https://fantasy-edge-nine.vercel.app';
+// to the canonical prod domain so a missing env var degrades gracefully rather than 500ing.
+export const APP_URL = process.env.APP_URL || 'https://www.fantasyedgeapp.com';
