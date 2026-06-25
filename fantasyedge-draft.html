@@ -448,12 +448,15 @@ function promptReauth() {
 }
 
 async function startMock() {
-  // Guard: isSignedIn() (cached Clerk user) can stay true after the session token has
-  // lapsed, and the cached token would be sent stale, yielding a 401. Force a fresh token
-  // fetch (skipCache) so a lapsed session surfaces as null here; if so, prompt a re-auth
-  // instead of attempting the POST.
+  // Guard: isSignedIn() (cached Clerk user) can stay true after the Clerk session is gone.
+  // getToken() returns null when there's no session (and transparently refreshes a merely
+  // expired JWT for a live one), so a null here means a genuinely lapsed session — prompt a
+  // re-auth instead of a doomed POST. Do NOT force skipCache: that adds a mandatory network
+  // round-trip that can throw/return null for a valid session, falsely tripping the reauth
+  // prompt. A token that validates here but is rejected server-side falls through to the 401
+  // handler below.
   let token = null;
-  try { token = await window.FE?.getToken({ skipCache: true }); } catch {}
+  try { token = await window.FE?.getToken(); } catch {}
   if (!token) { promptReauth(); return; }
 
   $('startBtn').disabled = true;
