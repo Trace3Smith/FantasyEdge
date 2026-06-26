@@ -169,8 +169,8 @@
       <div class="league-tile" data-sport="nfl"><span class="lt-icon">🏈</span><span class="lt-name">NFL</span></div>
       <div class="league-tile" data-sport="nba"><span class="lt-icon">🏀</span><span class="lt-name">NBA</span></div>
       <div class="league-tile" data-sport="wnba"><span class="lt-icon">🏀</span><span class="lt-name">WNBA</span></div>
-      <div class="league-tile disabled"><span class="lt-icon">⚾</span><span class="lt-name">MLB</span><span class="coming-soon">Coming soon</span></div>
-      <div class="league-tile disabled"><span class="lt-icon">🏒</span><span class="lt-name">NHL</span><span class="coming-soon">Coming soon</span></div>
+      <div class="league-tile" data-sport="mlb"><span class="lt-icon">⚾</span><span class="lt-name">MLB</span></div>
+      <div class="league-tile" data-sport="nhl"><span class="lt-icon">🏒</span><span class="lt-name">NHL</span></div>
     </div>
   </div>
 
@@ -181,7 +181,7 @@
     <div class="start-row">
       <button class="btn btn-gold" id="startBtn">Start Offline Draft</button>
       <label class="muted" style="font-size:13px">Sport
-        <select id="sportSel"><option value="nfl">NFL</option><option value="nba">NBA</option><option value="wnba">WNBA</option></select>
+        <select id="sportSel"><option value="nfl">NFL</option><option value="nba">NBA</option><option value="wnba">WNBA</option><option value="mlb">MLB</option><option value="nhl">NHL</option></select>
       </label>
       <label class="muted" style="font-size:13px">League size
         <select id="teamsSel"><option>8</option><option selected>10</option><option>12</option><option>14</option></select>
@@ -256,36 +256,54 @@
 <script type="module" src="/auth.js"></script>
 <script type="module">
 // Shared per-sport scoring — the SAME functions the rankings tab uses, so the draft board
-// ranks players identically (no separate ranking system). NFL is points/VORP; NBA is a
-// 9-cat (roto) z-score game. We import both and dispatch on the active sport via a thin shim.
+// ranks players identically (no separate ranking system). NFL is points/VORP; NBA/WNBA/MLB/NHL
+// are category (roto) z-score games. We import all and dispatch on the active sport via a shim.
 import { nflFpts, nflReplacementLevels, nflBoardCmp } from '/nflScoring.js';
-import { nbaPlayerValue, nbaBoardCmp, nbaRankMap, NBA_CATS } from '/nbaScoring.js';
+import { nbaPlayerValue, nbaBoardCmp, nbaRankMap } from '/nbaScoring.js';
+import { value as mlbValue, boardCmp as mlbBoardCmp, rankMap as mlbRankMap } from '/mlbScoring.js';
+import { value as nhlValue, boardCmp as nhlBoardCmp, rankMap as nhlRankMap } from '/nhlScoring.js';
 
 // --- Mock draft controller ----------------------------------------------------
 let players = [];           // full player pool for the active sport
 let byId = new Map();
 let state = null;           // active draft state
 let rankMap = new Map();    // id -> big-board rank for the draft's format
-let levels = {};            // NFL: per-position replacement levels (unused for NBA)
+let levels = {};            // NFL: per-position replacement levels (unused for roto sports)
 
-// Active sport: from ?sport= (default NFL). NBA/WNBA are category leagues; everything else
-// is the NFL points flow. Resolved at load and again when the setup Sport select changes.
+// Active sport: from ?sport= (default NFL). NBA/WNBA/MLB/NHL are category leagues; everything
+// else is the NFL points flow. Resolved at load and again when the setup Sport select changes.
 const urlSport = (new URLSearchParams(location.search).get('sport') || '').toLowerCase();
-const sportInUrl = urlSport === 'nba' || urlSport === 'wnba' || urlSport === 'nfl';
+const sportInUrl = ['nfl', 'nba', 'wnba', 'mlb', 'nhl'].includes(urlSport);
 let sport = sportInUrl ? urlSport : 'nfl';
-const isNba = () => sport === 'nba' || sport === 'wnba';
+
+// Per-sport roto dispatch: each category sport supplies its own board comparator, rank map,
+// value function, board label, and stat-line renderer. NFL is absent (points flow). nbaStatLine
+// / rotoStatLine are hoisted function declarations defined below.
+const ROTO = {
+  nba:  { cmp: nbaBoardCmp, rank: nbaRankMap, val: nbaPlayerValue, label: '9-CAT', stat: nbaStatLine },
+  wnba: { cmp: nbaBoardCmp, rank: nbaRankMap, val: nbaPlayerValue, label: '9-CAT', stat: nbaStatLine },
+  mlb:  { cmp: mlbBoardCmp, rank: mlbRankMap, val: mlbValue, label: 'ROTO', stat: rotoStatLine },
+  nhl:  { cmp: nhlBoardCmp, rank: nhlRankMap, val: nhlValue, label: 'ROTO', stat: rotoStatLine },
+};
+const isRoto = () => !!ROTO[sport];
+const rotoMod = () => ROTO[sport];
 
 const $ = (id) => document.getElementById(id);
 const posClass = (p) => ({
   QB:'pos-q', RB:'pos-r', WR:'pos-w', TE:'pos-t', K:'pos-k', DST:'pos-d',
   // NBA — reuse the existing pill palette: guards blue, wings green, bigs red.
   PG:'pos-q', SG:'pos-q', G:'pos-q', SF:'pos-w', PF:'pos-w', F:'pos-w', C:'pos-r',
+  // MLB — infield bigs red, OF/corners wing, pitchers gold/purple, UTIL/DH amber.
+  '1B':'pos-t', '2B':'pos-w', '3B':'pos-t', SS:'pos-w', OF:'pos-w', DH:'pos-t',
+  SP:'pos-q', RP:'pos-k',
+  // NHL — centers reuse C (red), wings green, defense amber; goalies reuse G (blue).
+  LW:'pos-w', RW:'pos-w', D:'pos-t',
 }[p] || '');
 
 // Board comparator for the active sport (descending). NFL: VORP in the chosen format;
 // NBA: total 9-cat z. Used by every board render so all surfaces order identically.
 function boardCmp(a, b) {
-  if (isNba()) return nbaBoardCmp(a, b);
+  if (isRoto()) return rotoMod().cmp(a, b);
   return nflBoardCmp(a, b, state?.settings?.scoring || 'ppr', levels);
 }
 
@@ -362,7 +380,7 @@ const startLabel = () => (wantMock ? 'Start Mock Draft' : 'Start Offline Draft')
 // Tailor the page chrome (title, nav highlight, setup copy, button) to the mode. The
 // "realistic ADP" phrasing only applies to NFL; NBA opponents pick by category value.
 function applyMode() {
-  const valuePhrase = isNba() ? 'realistic category value' : 'realistic ADP';
+  const valuePhrase = isRoto() ? 'realistic category value' : 'realistic ADP';
   $('navOffline').classList.toggle('active', !wantMock);
   $('navMock').classList.toggle('active', wantMock);
   $('pageTitle').textContent = wantMock ? 'MOCK DRAFT' : 'OFFLINE DRAFT';
@@ -381,12 +399,12 @@ function applyMode() {
 // drafts ~13 rounds; NFL keeps its scoring select and 15-round default. Re-runs applyMode so
 // the ADP/value copy matches. Pool is fetched fresh at Start, so changing sport here is safe.
 function syncSportUI() {
-  $('scoringWrap').style.display = isNba() ? 'none' : '';
-  $('roundsSel').value = isNba() ? '13' : '15';
+  $('scoringWrap').style.display = isRoto() ? 'none' : '';
+  $('roundsSel').value = isRoto() ? '13' : '15';
   applyMode();
 }
-// Normalize any sport string to one we support (nfl/nba/wnba), defaulting to NFL.
-const normSport = (s) => (['nfl', 'nba', 'wnba'].includes(s) ? s : 'nfl');
+// Normalize any sport string to one we support, defaulting to NFL.
+const normSport = (s) => (['nfl', 'nba', 'wnba', 'mlb', 'nhl'].includes(s) ? s : 'nfl');
 $('sportSel').value = sport;
 $('sportSel').addEventListener('change', () => {
   sport = normSport($('sportSel').value);
@@ -466,8 +484,8 @@ async function startMock() {
   // League size + draft position are basic settings for everyone; scoring/rounds are premium.
   const settings = { teams };
   if (window.FE?.isPremium()) {
-    if (!isNba()) settings.scoring = $('scoringSel').value; // NBA is always 9-cat (server-set)
-    settings.rounds = Number($('roundsSel').value) || (isNba() ? 13 : 15);
+    if (!isRoto()) settings.scoring = $('scoringSel').value; // roto is always category (server-set)
+    settings.rounds = Number($('roundsSel').value) || (isRoto() ? 13 : 15);
   }
   const { ok, status, data } = await window.FE.apiPost('/api/draft/mock-start', { sport, settings, position });
   $('startBtn').disabled = false;
@@ -542,9 +560,9 @@ function advance() {
 // and defenses naturally go late without a special rule.
 function bestForAI(round) {
   const scoring = state.settings.scoring || 'ppr';
-  // NBA has no ADP, so opponents pick straight off the category board (best total z left);
-  // NFL opponents pick by ADP, with no-ADP players (K/DST/depth) sinking ~2 rounds.
-  const avail = isNba()
+  // Roto sports have no ADP, so opponents pick straight off the category board (best value
+  // left); NFL opponents pick by ADP, with no-ADP players (K/DST/depth) sinking ~2 rounds.
+  const avail = isRoto()
     ? players.filter((p) => !state.drafted.has(p.id)).sort(boardCmp)
     : players.filter((p) => !state.drafted.has(p.id))
         .sort((a, b) => {
@@ -663,7 +681,7 @@ async function analystOpening() {
   const top = data.candidates[0];
   lastReco = { name: top.name, pos: top.pos, team: top.team, rationale: data.rationale || '', reach: !!data.reach };
   const reachLine = data.reach
-    ? (isNba() ? ' — a clearly superior all-around player, worth the reach' : ' — an elite value falling past his ADP, worth the reach')
+    ? (isRoto() ? ' — a clearly superior all-around player, worth the reach' : ' — an elite value falling past his ADP, worth the reach')
     : '';
   const text = `My pick: ${top.name} (${top.pos}, ${top.team})${reachLine}.`
     + (data.rationale ? `\n\n${data.rationale}` : '');
@@ -689,8 +707,8 @@ function renderRecent() {
 // value (NFL VORP for the chosen scoring/league size; NBA total 9-cat z), giving each a 1..N
 // rank — the same metric as the rankings tab. Fixed for the draft since the league is set at setup.
 function buildRankMap() {
-  if (isNba()) {
-    rankMap = nbaRankMap(players); // orders by total z; no replacement levels needed
+  if (isRoto()) {
+    rankMap = rotoMod().rank(players); // orders by total category z; no replacement levels needed
     return;
   }
   const scoring = state?.settings?.scoring || 'ppr';
@@ -708,6 +726,17 @@ function nbaStatLine(p) {
   return `<div class="proj">${f(n.pts)}p · ${f(n.reb)}r · ${f(n.ast)}a · ${f(n.tpm)} 3PM · ${f(n.stl)} STL · ${f(n.blk)} BLK</div>`;
 }
 
+// Stat line for an MLB/NHL card, built from the dataset's display columns (s1..s6 + their
+// labels) — the same season-stat figures the rankings tab shows.
+function rotoStatLine(p) {
+  if (!Array.isArray(p.statLabels)) return '';
+  const vals = [p.s1, p.s2, p.s3, p.s4, p.s5, p.s6];
+  const parts = p.statLabels
+    .map((lab, i) => (vals[i] != null && vals[i] !== '—' ? `${vals[i]} ${lab}` : null))
+    .filter(Boolean);
+  return parts.length ? `<div class="proj">${parts.join(' · ')}</div>` : '';
+}
+
 function renderAvailable(filter = '') {
   const f = filter.toLowerCase();
   // Order the board by the active sport's value — identical to the rankings tab.
@@ -718,10 +747,11 @@ function renderAvailable(filter = '') {
   $('availList').innerHTML = list.map((p) => {
     const rk = rankMap.get(p.id) ?? '—';
     let meta, extra = '';
-    if (isNba()) {
-      const v = typeof p.zTotal === 'number' ? p.zTotal.toFixed(1) : '—';
-      meta = ` · ${p.team} · #${rk} · ${v} 9-CAT`;
-      extra = nbaStatLine(p);
+    if (isRoto()) {
+      const m = rotoMod();
+      const v = typeof p.zTotal === 'number' ? m.val(p).toFixed(1) : '—';
+      meta = ` · ${p.team} · #${rk} · ${v} ${m.label}`;
+      extra = m.stat(p);
     } else {
       const scoring = state.settings.scoring || 'ppr';
       const adp = adpFor(p, scoring);
@@ -754,8 +784,8 @@ async function startOffline() {
   const settings = {
     teams,
     sport,
-    rounds: Number($('roundsSel').value) || (isNba() ? 13 : 15),
-    scoring: isNba() ? '9cat' : ($('scoringSel') ? $('scoringSel').value : 'ppr'),
+    rounds: Number($('roundsSel').value) || (isRoto() ? 13 : 15),
+    scoring: isRoto() ? 'roto' : ($('scoringSel') ? $('scoringSel').value : 'ppr'),
   };
   const format = $('formatSel').value === 'linear' ? 'linear' : 'snake';
 
@@ -901,7 +931,7 @@ function coachTypeOut(bubble, text) {
 function buildDraftContext() {
   if (!state) return '';
   const s = state;
-  const scoring = isNba() ? '9-CAT' : (s.settings.scoring || 'ppr').toUpperCase();
+  const scoring = isRoto() ? rotoMod().label : (s.settings.scoring || 'ppr').toUpperCase();
   const round = roundOf(s.pickIndex, s.settings.teams);
   const rounds = s.settings.rounds || Math.round(s.totalPicks / s.settings.teams);
   const rosterStr = s.roster.map((r) => { const p = byId.get(r.id); return p ? `${p.pos} ${p.name}` : r.pos; }).join(', ') || '(empty)';
@@ -909,8 +939,8 @@ function buildDraftContext() {
   const avail = players.filter((p) => !s.drafted.has(p.id))
     .sort(boardCmp)
     .slice(0, 12).map((p) => `${p.pos} ${p.name} (#${rankMap.get(p.id) ?? '—'})`).join(', ');
-  // NBA: surface the roster's weak categories so the Coach steers toward balance.
-  const weakStr = isNba() && lastBoard?.weakCats?.length
+  // Roto: surface the roster's weak categories so the Coach steers toward balance.
+  const weakStr = isRoto() && lastBoard?.weakCats?.length
     ? ` Weak categories right now: ${lastBoard.weakCats.join(', ')}.` : '';
   // Fold in the pick you just recommended so follow-ups ("why not the WR?") stay coherent.
   const recoStr = lastReco

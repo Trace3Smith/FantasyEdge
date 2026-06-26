@@ -2,7 +2,10 @@
 // premium users get unlimited mocks and may tweak settings. Returns the league setup
 // the frontend uses to simulate the snake draft (AI opponents pick client-side).
 import { getEntitlement, consumeMockQuota, getMockUsage, sendError, FREE_MAX_ROUND } from '../_lib/auth.js';
-import { DEFAULT_SETTINGS } from '../_lib/draft.js';
+import { DEFAULT_SETTINGS, isRoto } from '../_lib/draft.js';
+
+// Sports whose mock draft we can start (a roto sport, or the NFL points flow).
+const SUPPORTED = new Set(['nfl', 'nba', 'wnba', 'mlb', 'nhl']);
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -10,20 +13,20 @@ export default async function handler(req, res) {
   try {
     const { userId, premium } = await getEntitlement(req);
 
-    // Which sport's draft to start. NBA/WNBA are 9-cat (roto); everything else is the
-    // points-based NFL flow. Unknown sports fall back to NFL.
+    // Which sport's draft to start. NBA/WNBA/MLB/NHL are category (roto) leagues; everything
+    // else is the points-based NFL flow. Unknown sports fall back to NFL.
     const reqSport = req.body?.sport;
-    const sport = reqSport === 'nba' || reqSport === 'wnba' ? reqSport : 'nfl';
-    const isNba = sport === 'nba' || sport === 'wnba';
+    const sport = SUPPORTED.has(reqSport) ? reqSport : 'nfl';
+    const roto = isRoto(sport);
 
     let settings = { ...DEFAULT_SETTINGS, sport };
-    if (isNba) {
-      // NBA defaults: 9-cat scoring, a shorter draft, and the basketball starting lineup
-      // (PG/SG/SF/PF/C/G/F/UTIL). The lineup detail lives in nbaScoring.js; the client reads
+    if (roto) {
+      // Roto defaults: category scoring, a shorter draft, and the sport's own starting lineup
+      // (the slot detail lives in each sport's scoring module). The client reads
       // `scoring`/`rounds` for the draft mechanics.
-      settings.scoring = '9cat';
+      settings.scoring = sport === 'nba' || sport === 'wnba' ? '9cat' : 'roto';
       settings.rounds = 13;
-      settings.starters = null; // NFL-specific; NBA roster slots come from nbaScoring.js
+      settings.starters = null; // NFL-specific; roto roster slots come from the scoring module
     }
     const o = req.body?.settings || {};
 
@@ -32,8 +35,8 @@ export default async function handler(req, res) {
 
     if (premium) {
       // Premium may also override scoring/rounds (Phase 2 will load saved settings). The
-      // points-format override is NFL-only — NBA has no PPR/Standard toggle.
-      if (!isNba && (o.scoring === 'standard' || o.scoring === 'ppr' || o.scoring === 'half')) settings.scoring = o.scoring;
+      // points-format override is NFL-only — roto leagues have no PPR/Standard toggle.
+      if (!roto && (o.scoring === 'standard' || o.scoring === 'ppr' || o.scoring === 'half')) settings.scoring = o.scoring;
       if (Number.isInteger(o.rounds) && o.rounds >= 10 && o.rounds <= 20) settings.rounds = o.rounds;
     } else {
       // Free tier: enforce the daily quota (settings otherwise stay basic).

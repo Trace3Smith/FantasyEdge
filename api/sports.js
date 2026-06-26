@@ -17,7 +17,9 @@ import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY,
 // match is treated as a miss and rebuilt, so a deploy self-heals on the next
 // request. MLB has no version (existence check only — preserves cron enrichment).
 const SPORTS = {
-  mlb: { key: DATASET_KEY, build: () => buildDataset({ season: new Date().getFullYear() }) },
+  // MLB has no build-version (its cold-start build skips prospect enrichment), so it rebuilds
+  // on a missing roto value (zTotal) — needed by the draft board — rather than a version bump.
+  mlb: { key: DATASET_KEY, build: () => buildDataset({ season: new Date().getFullYear() }), needsValue: true },
   nba: { key: NBA_DATASET_KEY, build: () => buildNbaDataset(), version: DATASET_VERSION },
   wnba: { key: WNBA_DATASET_KEY, build: () => buildWnbaDataset(), version: DATASET_VERSION },
   nhl: { key: NHL_DATASET_KEY, build: () => buildNhlDataset(), version: DATASET_VERSION },
@@ -63,8 +65,11 @@ export default async function handler(req, res) {
   try {
     let dataset = await redis.get(cfg.key);
 
-    // Rebuild on a cold start (missing/evicted key) or a stale build version.
-    const stale = !dataset || !dataset.players || (cfg.version != null && dataset.version !== cfg.version);
+    // Rebuild on a cold start (missing/evicted key), a stale build version, or — for MLB — a
+    // dataset that predates the draft-board roto value (no ranked player carries zTotal yet).
+    const stale = !dataset || !dataset.players
+      || (cfg.version != null && dataset.version !== cfg.version)
+      || (cfg.needsValue && !dataset.players.some((p) => !p.searchOnly && typeof p.zTotal === 'number'));
     if (stale) {
       dataset = await cfg.build();
       if (cfg.version != null) dataset.version = cfg.version;

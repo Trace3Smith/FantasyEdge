@@ -87,10 +87,43 @@ function assignHitting(rec, stat) {
   };
 }
 
+// The full roto category key set (hitting + pitching). Each player's z block carries
+// all keys so a mixed roster's category profile spans both groups (a hitter is simply 0
+// in every pitching cat and vice-versa) — see mlbScoring.js. Kept in sync with MLB_CATS.
+const Z_KEYS = ['r', 'hr', 'rbi', 'sb', 'avg', 'obp', 'w', 'sv', 'k', 'era', 'whip'];
+const emptyZ = () => Object.fromEntries(Z_KEYS.map((k) => [k, 0]));
+
+// Standardize a pool over a set of {srcKey -> zKey} columns: z-score each column and write
+// a per-player z block (rec.z) + summed value (rec.zTotal). `read(rec)` returns the raw
+// numeric source object for that record. Counting cats are plain z; pre-marginalized rate
+// cats (mAVG/mOBP/mERA/mWHIP) are passed as their own columns by the callers.
+function standardize(pool, cols, read) {
+  if (!pool.length) return;
+  const norm = {};
+  for (const [src] of cols) {
+    const xs = pool.map((p) => read(p)[src]);
+    const m = xs.reduce((a, b) => a + b, 0) / xs.length;
+    const sd = Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / xs.length) || 1;
+    norm[src] = { m, sd };
+  }
+  for (const p of pool) {
+    const z = emptyZ();
+    let tot = 0;
+    for (const [src, zKey] of cols) {
+      const v = (read(p)[src] - norm[src].m) / norm[src].sd;
+      z[zKey] = v;
+      tot += v;
+    }
+    p.z = z;
+    p.zTotal = tot;
+    p.score = tot; // legacy: hitter ranking still sorts by this (unchanged value)
+  }
+}
+
 // Rank qualified hitters by total standardized roto value across the six
 // hitting categories. Counting cats (HR/R/RBI/SB) use a plain z-score; rate
 // cats (AVG/OBP) use a playing-time-weighted marginal value so a hot bat in a
-// small sample can't outrank a regular. Sets rec.score in place.
+// small sample can't outrank a regular. Sets rec.z / rec.zTotal / rec.score in place.
 function scoreHitters(pool) {
   if (!pool.length) return;
   // Pool-aggregate league rates (weighted by opportunity).
@@ -103,17 +136,40 @@ function scoreHitters(pool) {
     h.mAVG = (h.avg - lgAVG) * h.ab; // hits above average given their at-bats
     h.mOBP = (h.obp - lgOBP) * (h.ab + h.bb + h.hbp + h.sf); // times-on-base above avg
   }
-  const keys = ['hr', 'r', 'rbi', 'sb', 'mAVG', 'mOBP'];
-  const norm = {};
-  for (const k of keys) {
-    const xs = pool.map((p) => p._h[k]);
-    const m = xs.reduce((a, b) => a + b, 0) / xs.length;
-    const sd = Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / xs.length) || 1;
-    norm[k] = { m, sd };
-  }
+  standardize(
+    pool,
+    [['r', 'r'], ['hr', 'hr'], ['rbi', 'rbi'], ['sb', 'sb'], ['mAVG', 'avg'], ['mOBP', 'obp']],
+    (p) => p._h,
+  );
+}
+
+// Score pitchers across the five standard pitching cats (W/SV/K + inverted, innings-weighted
+// ERA/WHIP). Counting cats are plain z; the rate cats use an innings-weighted marginal so a
+// dominant ratio over many innings beats the same ratio in a cup of coffee. Adds rec.z /
+// rec.zTotal for the draft board WITHOUT changing rec.rank (pitchers still display K-sorted).
+function scorePitchers(pool) {
+  if (!pool.length) return;
+  const sumIp = pool.reduce((a, p) => a + p._p.ip, 0) || 1;
+  const lgERA = pool.reduce((a, p) => a + p._p.era * p._p.ip, 0) / sumIp;
+  const lgWHIP = pool.reduce((a, p) => a + p._p.whip * p._p.ip, 0) / sumIp;
   for (const p of pool) {
-    p.score = keys.reduce((a, k) => a + (p._h[k] - norm[k].m) / norm[k].sd, 0);
+    const pi = p._p;
+    pi.mERA = (lgERA - pi.era) * pi.ip; // earned runs prevented vs. league, over his innings
+    pi.mWHIP = (lgWHIP - pi.whip) * pi.ip; // baserunners prevented vs. league, over his innings
   }
+  standardize(
+    pool,
+    [['w', 'w'], ['sv', 'sv'], ['k', 'k'], ['mERA', 'era'], ['mWHIP', 'whip']],
+    (p) => p._p,
+  );
+}
+
+// Innings pitched: MLB notates partial innings as .1 (1 out) / .2 (2 outs), so
+// "50.1" is 50⅓ IP — convert the fractional part from thirds, not tenths.
+function parseIp(s) {
+  if (s == null) return 0;
+  const [whole, frac] = String(s).split('.');
+  return (parseInt(whole) || 0) + (frac ? parseInt(frac) / 3 : 0);
 }
 
 function assignPitching(rec, stat) {
@@ -132,6 +188,15 @@ function assignPitching(rec, stat) {
   rec.s6 = stat.whip ?? '—';
   rec.statLabels = ['K', 'W', 'SV', 'HD', 'ERA', 'WHIP'];
   rec.cats = buildMLBPitchingCats(stat);
+  // Raw numeric inputs for z-score valuation (stripped before the wire).
+  rec._p = {
+    ip: parseIp(stat.inningsPitched),
+    w: parseInt(stat.wins) || 0,
+    sv: parseInt(stat.saves) || 0,
+    k: parseInt(stat.strikeOuts) || 0,
+    era: parseFloat(stat.era) || 0,
+    whip: parseFloat(stat.whip) || 0,
+  };
 }
 
 // Cosmetic trend/own/tag, derived from a player's rank within its group —
@@ -244,6 +309,9 @@ export async function buildDataset({ season = new Date().getFullYear() } = {}) {
 
   scoreHitters(qualHitters);
   qualHitters.sort((a, b) => b.score - a.score);
+  // Pitchers keep their K-sorted rank/order (unchanged for the rankings page), but get a
+  // roto z block + zTotal so the draft board can value them on the same scale as hitters.
+  scorePitchers(pitchers);
 
   qualHitters.forEach(decorate);
   pitchers.forEach(decorate);
@@ -255,13 +323,14 @@ export async function buildDataset({ season = new Date().getFullYear() } = {}) {
   }
 
   const players = [...qualHitters, ...pitchers, ...searchOnly];
-  // Clean internal-only fields off the wire.
+  // Clean internal-only fields off the wire (z / zTotal are kept for the draft board).
   for (const r of players) {
     delete r.posType;
     delete r.sortVal;
     delete r.group;
     delete r.score;
     delete r._h;
+    delete r._p;
   }
 
   return {

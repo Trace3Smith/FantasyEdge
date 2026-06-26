@@ -19,13 +19,6 @@ const SKATER_GAMES_FLOOR = 3;
 const GOALIE_GAMES_FRAC = 0.25;
 const GOALIE_GAMES_FLOOR = 2;
 
-// Detailed ESPN position -> coarse F/D/G (the position-filter buttons).
-function coarsePos(abbr) {
-  if (abbr === 'G') return 'G';
-  if (abbr === 'D') return 'D';
-  return 'F'; // C / LW / RW / F
-}
-
 const fmt = (v, d = 0) => (v == null ? '—' : v.toFixed(d));
 const pct = (v) => (v == null ? '—' : '.' + String(Math.round(v * 1000)).padStart(3, '0')); // .908
 
@@ -43,6 +36,45 @@ function zScore(pool, keys) {
     p.score = keys.reduce((a, [k, sign]) => a + (sign * (p._n[k] - norm[k].m)) / norm[k].sd, 0);
   }
 }
+
+// The published roto category keys (skater + goalie), kept in sync with nhlScoring.js.
+// Each ranked player's z block carries all keys (own group filled, other group 0) so a
+// mixed roster's category profile spans both — the basis for draft category balance.
+const NHL_Z_KEYS = ['g', 'a', 'pm', 'pim', 'ppp', 'sog', 'fow', 'gwg', 'w', 'gaa', 'svpct', 'so', 'sv'];
+const emptyNhlZ = () => Object.fromEntries(NHL_Z_KEYS.map((k) => [k, 0]));
+
+// Publish a per-category z block (rec.z) + summed value (rec.zTotal) over [srcKey, sign,
+// zKey] columns, for the draft board. Separate from zScore (which keeps the rec.score used
+// for the rankings rank) so adding draft value never shifts the existing rank/order.
+function zPublish(pool, cols) {
+  if (!pool.length) return;
+  const norm = {};
+  for (const [src] of cols) {
+    const xs = pool.map((p) => p._n[src]);
+    const m = xs.reduce((a, b) => a + b, 0) / xs.length;
+    const sd = Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / xs.length) || 1;
+    norm[src] = { m, sd };
+  }
+  for (const p of pool) {
+    const z = emptyNhlZ();
+    let tot = 0;
+    for (const [src, sign, zKey] of cols) {
+      const v = (sign * (p._n[src] - norm[src].m)) / norm[src].sd;
+      z[zKey] = v;
+      tot += v;
+    }
+    p.z = z;
+    p.zTotal = tot;
+  }
+}
+
+const SKATER_Z_COLS = [
+  ['g', 1, 'g'], ['a', 1, 'a'], ['plusMinus', 1, 'pm'], ['pim', 1, 'pim'],
+  ['ppp', 1, 'ppp'], ['sog', 1, 'sog'], ['fow', 1, 'fow'], ['gwg', 1, 'gwg'],
+];
+const GOALIE_Z_COLS = [
+  ['w', 1, 'w'], ['gaa', -1, 'gaa'], ['svImp', 1, 'svpct'], ['so', 1, 'so'], ['sv', 1, 'sv'],
+];
 
 function skaterCats(n, gp) {
   const pg = (x) => (gp > 0 ? x / gp : 0);
@@ -89,7 +121,9 @@ export async function buildNhlDataset() {
   for (const a of athletes) {
     const at = a.athlete || {};
     if (at.id == null) continue;
-    const pos = coarsePos(at.position?.abbreviation || '');
+    // Detailed position (C / LW / RW / D / G) drives the draft's roster slots; the goalie
+    // branch below keys off pos === 'G'. Unknown forwards fall back to a generic 'F'.
+    const pos = at.position?.abbreviation || 'F';
     const base = {
       id: at.id,
       name: at.displayName || `${at.firstName || ''} ${at.lastName || ''}`.trim() || 'Unknown',
@@ -161,6 +195,9 @@ export async function buildNhlDataset() {
   ]);
   rankedSk.sort((a, b) => b.score - a.score);
   rankedSk.forEach(decorate);
+  // Published per-category z block + zTotal for the draft board (excludes shootImp, an
+  // internal signal — keeps zTotal == sum of the labeled categories).
+  zPublish(rankedSk, SKATER_Z_COLS);
 
   // --- Goalies: gate, then goalie z-score ----------------------------------
   const maxG = goalies.reduce((m, r) => Math.max(m, r._n.gp), 0);
@@ -174,6 +211,7 @@ export async function buildNhlDataset() {
   ]);
   rankedG.sort((a, b) => b.score - a.score);
   rankedG.forEach(decorate);
+  zPublish(rankedG, GOALIE_Z_COLS); // draft-board z block + zTotal (goalie cats)
 
   const subThreshold = [...subSk, ...subG];
   for (const r of subThreshold) {
