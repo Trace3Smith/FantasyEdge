@@ -79,7 +79,7 @@ async function disconnect(res, userId) {
   return res.json({ connected: false });
 }
 
-// Pull the user's ESPN fantasy-football leagues and current rosters.
+// Pull the user's ESPN fantasy-baseball leagues and current rosters.
 async function leagues(res, userId) {
   const creds = await getCreds(redis, userId);
   if (!creds) {

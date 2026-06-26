@@ -125,7 +125,7 @@
 <main class="main">
   <div class="top-header">
     <div class="page-title">LINEUP <span>AUTOPILOT</span></div>
-    <div class="page-subtitle">Connect your ESPN fantasy football account to pull your leagues and rosters. Lineup suggestions &amp; autopilot are coming next.</div>
+    <div class="page-subtitle">Connect your ESPN fantasy baseball account to pull your leagues and rosters. Lineup suggestions &amp; autopilot are coming next.</div>
   </div>
 
   <!-- Premium lock (non-premium users) -->
@@ -319,7 +319,7 @@
   function renderLeagues(data) {
     const leagues = (data && data.leagues) || [];
     if (!leagues.length) {
-      $('leaguesArea').innerHTML = '<div class="panel"><div class="empty">No ESPN fantasy football leagues found for this account. If you just joined a league, give ESPN a few minutes, then hit Refresh.</div></div>';
+      $('leaguesArea').innerHTML = '<div class="panel"><div class="empty">No ESPN fantasy baseball leagues found for this account. If you just joined a league, give ESPN a few minutes, then hit Refresh.</div></div>';
       return;
     }
     if (data.truncated) setMsg('leaguesMsg', `Showing your first ${leagues.length} of ${data.count} leagues.`, 'ok');

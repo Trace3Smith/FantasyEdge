@@ -1,4 +1,4 @@
-// ESPN fantasy-football integration helpers (Autopilot feature, step 1).
+// ESPN fantasy-baseball integration helpers (Autopilot feature, step 1).
 //
 // Talks to ESPN's unofficial fantasy API using a user's own browser cookies
 // (espn_s2 + SWID), which they paste once and we store in Redis keyed by their
@@ -63,30 +63,34 @@ export function maskSwid(swid) {
 }
 
 // --- ESPN id → label maps --------------------------------------------------------------------
-// NFL default position ids (playerPoolEntry.player.defaultPositionId).
-const POSITION_BY_ID = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'D/ST' };
-// Lineup slot ids (entry.lineupSlotId) — the slot a player currently occupies.
+// ESPN baseball (flb) uses one id scheme for both a player's default position
+// (player.defaultPositionId) and the lineup slot they occupy (entry.lineupSlotId).
 const SLOT_BY_ID = {
-  0: 'QB', 1: 'TQB', 2: 'RB', 3: 'RB/WR', 4: 'WR', 5: 'WR/TE', 6: 'TE', 7: 'OP',
-  16: 'D/ST', 17: 'K', 18: 'P', 19: 'HC', 20: 'BE', 21: 'IR', 23: 'FLEX', 24: 'ER',
+  0: 'C', 1: '1B', 2: '2B', 3: '3B', 4: 'SS', 5: 'OF', 6: '2B/SS', 7: '1B/3B',
+  8: 'LF', 9: 'CF', 10: 'RF', 11: 'DH', 12: 'UTIL', 13: 'P', 14: 'SP', 15: 'RP',
+  16: 'BE', 17: 'IL', 18: 'P', 19: 'IF',
 };
-// Slots that are NOT in the active lineup (bench / injured-reserve / unused).
-const BENCH_SLOTS = new Set([20, 21, 24]);
+// A player's default (eligible) position shares the same id scheme.
+const POSITION_BY_ID = SLOT_BY_ID;
+// Slots that are NOT in the active lineup (bench / injured list).
+const BENCH_SLOTS = new Set([16, 17]);
 // Display order for active lineup slots (everything else, e.g. bench, sorts after).
-const SLOT_ORDER = [0, 1, 2, 4, 6, 23, 3, 5, 7, 16, 17, 18, 19];
-// NFL pro-team ids → abbreviations (proTeamId).
+const SLOT_ORDER = [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 5, 11, 12, 14, 15, 13, 18, 19];
+// MLB pro-team ids → abbreviations (proTeamId).
 const PROTEAM_BY_ID = {
-  0: 'FA', 1: 'ATL', 2: 'BUF', 3: 'CHI', 4: 'CIN', 5: 'CLE', 6: 'DAL', 7: 'DEN',
-  8: 'DET', 9: 'GB', 10: 'TEN', 11: 'IND', 12: 'KC', 13: 'LV', 14: 'LAR', 15: 'MIA',
-  16: 'MIN', 17: 'NE', 18: 'NO', 19: 'NYG', 20: 'NYJ', 21: 'PHI', 22: 'ARI', 23: 'PIT',
-  24: 'LAC', 25: 'SF', 26: 'SEA', 27: 'TB', 28: 'WSH', 29: 'CAR', 30: 'JAX', 33: 'BAL', 34: 'HOU',
+  0: 'FA', 1: 'BAL', 2: 'BOS', 3: 'LAA', 4: 'CHW', 5: 'CLE', 6: 'DET', 7: 'KC',
+  8: 'MIL', 9: 'MIN', 10: 'NYY', 11: 'OAK', 12: 'SEA', 13: 'TEX', 14: 'TOR',
+  15: 'ATL', 16: 'CHC', 17: 'CIN', 18: 'HOU', 19: 'LAD', 20: 'WSH', 21: 'NYM',
+  22: 'PHI', 23: 'PIT', 24: 'STL', 25: 'SD', 26: 'SF', 27: 'COL', 28: 'MIA',
+  29: 'ARI', 30: 'TB',
 };
 const INJURY_LABEL = {
   ACTIVE: '', NORMAL: '', QUESTIONABLE: 'Q', DOUBTFUL: 'D', OUT: 'O',
-  INJURY_RESERVE: 'IR', SUSPENSION: 'SUSP', DAY_TO_DAY: 'DTD',
+  DAY_TO_DAY: 'DTD', SUSPENSION: 'SUSP',
+  SEVEN_DAY_DL: 'IL', TEN_DAY_DL: 'IL', FIFTEEN_DAY_DL: 'IL', SIXTY_DAY_DL: '60-IL',
 };
 
-const posOf = (id) => POSITION_BY_ID[id] || 'FLEX';
+const posOf = (id) => POSITION_BY_ID[id] || 'UTIL';
 const slotOf = (id) => SLOT_BY_ID[id] ?? String(id);
 const teamOf = (id) => PROTEAM_BY_ID[id] || '';
 
@@ -117,7 +121,7 @@ async function espnGet(url, creds) {
 }
 
 // --- league discovery (fan API) --------------------------------------------------------------
-// Enumerate every fantasy-football team the SWID owns. Returns a light list of
+// Enumerate every fantasy-baseball team the SWID owns. Returns a light list of
 // { leagueId, seasonId, teamId, leagueName } — the league/team names here are
 // best-effort; the v3 roster fetch supplies the authoritative ones.
 export async function fetchFanLeagues(creds) {
@@ -136,8 +140,8 @@ export async function fetchFanLeagues(creds) {
   for (const p of prefs) {
     const e = p?.metaData?.entry;
     if (!e) continue;
-    // FFL == fantasy football. ESPN tags the entry's game via `abbrev`.
-    if (e.abbrev && e.abbrev !== 'FFL') continue;
+    // FLB == fantasy baseball. ESPN tags the entry's game via `abbrev`.
+    if (e.abbrev && e.abbrev !== 'FLB') continue;
     const group = (Array.isArray(e.groups) && e.groups[0]) || {};
     const leagueId = String(group.groupId ?? e.groupId ?? '');
     const teamId = e.entryId ?? e.teamId;
@@ -156,7 +160,7 @@ export async function fetchFanLeagues(creds) {
 }
 
 // --- roster fetch (v3 league API) ------------------------------------------------------------
-const V3_BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons';
+const V3_BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/flb/seasons';
 
 function parseRoster(entries = []) {
   const players = entries.map((en) => {
@@ -224,7 +228,7 @@ async function mapLimit(items, limit, fn) {
   return results;
 }
 
-// Top-level: discover the user's FFL leagues, then fetch each league's roster. Caps the
+// Top-level: discover the user's FLB leagues, then fetch each league's roster. Caps the
 // number of leagues so one user with dozens can't blow the function budget. A single
 // league's fetch failing degrades to an error note on that league, not the whole call.
 export async function fetchLeaguesWithRosters(creds, { maxLeagues = 12 } = {}) {
