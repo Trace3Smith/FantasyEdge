@@ -1,0 +1,242 @@
+// ESPN fantasy-football integration helpers (Autopilot feature, step 1).
+//
+// Talks to ESPN's unofficial fantasy API using a user's own browser cookies
+// (espn_s2 + SWID), which they paste once and we store in Redis keyed by their
+// Clerk user id. Two ESPN surfaces are used:
+//   • the "fan" API  — enumerates every fantasy team the SWID owns, so we can
+//     discover the user's league + team ids without them typing anything.
+//   • the v3 league API — the authoritative league/team/roster data per league.
+//
+// SECURITY: the cookies are bearer-equivalent secrets. They live ONLY in Redis
+// (server-side) and are never returned to the browser — status checks expose a
+// connected boolean and a masked SWID at most. Every caller is premium-gated.
+
+const credsKey = (userId) => `espn:creds:${userId}`;
+
+// A thrown EspnAuthError means ESPN rejected the cookies (expired/invalid) — the
+// endpoints turn it into a "reconnect" signal for the UI rather than a 500.
+export class EspnAuthError extends Error {
+  constructor(message = 'ESPN rejected the saved cookies') {
+    super(message);
+    this.name = 'EspnAuthError';
+  }
+}
+
+// --- credential storage (Redis, per Clerk user) ----------------------------------------------
+// SWID is the GUID-in-braces cookie; normalize so a paste with/without braces or
+// surrounding quotes/whitespace all land in the canonical `{...}` form ESPN expects.
+export function normalizeSwid(raw) {
+  let s = String(raw || '').trim().replace(/^["']|["']$/g, '').trim();
+  if (!s) return '';
+  if (!s.startsWith('{')) s = '{' + s;
+  if (!s.endsWith('}')) s = s + '}';
+  return s;
+}
+
+// espn_s2 is a long URL-encoded token; just trim surrounding whitespace/quotes.
+export function normalizeS2(raw) {
+  return String(raw || '').trim().replace(/^["']|["']$/g, '').trim();
+}
+
+export async function saveCreds(redis, userId, { espn_s2, swid }) {
+  const creds = { espn_s2: normalizeS2(espn_s2), swid: normalizeSwid(swid), savedAt: new Date().toISOString() };
+  await redis.set(credsKey(userId), creds);
+  return creds;
+}
+
+export async function getCreds(redis, userId) {
+  const c = await redis.get(credsKey(userId));
+  return c && c.espn_s2 && c.swid ? c : null;
+}
+
+export async function deleteCreds(redis, userId) {
+  await redis.del(credsKey(userId));
+}
+
+// Mask the SWID for display ("{ABCD…WXYZ}") so the UI can confirm WHICH account is
+// linked without exposing the full identifier.
+export function maskSwid(swid) {
+  const s = String(swid || '');
+  const inner = s.replace(/[{}]/g, '');
+  if (inner.length <= 8) return s;
+  return `{${inner.slice(0, 4)}…${inner.slice(-4)}}`;
+}
+
+// --- ESPN id → label maps --------------------------------------------------------------------
+// NFL default position ids (playerPoolEntry.player.defaultPositionId).
+const POSITION_BY_ID = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'D/ST' };
+// Lineup slot ids (entry.lineupSlotId) — the slot a player currently occupies.
+const SLOT_BY_ID = {
+  0: 'QB', 1: 'TQB', 2: 'RB', 3: 'RB/WR', 4: 'WR', 5: 'WR/TE', 6: 'TE', 7: 'OP',
+  16: 'D/ST', 17: 'K', 18: 'P', 19: 'HC', 20: 'BE', 21: 'IR', 23: 'FLEX', 24: 'ER',
+};
+// Slots that are NOT in the active lineup (bench / injured-reserve / unused).
+const BENCH_SLOTS = new Set([20, 21, 24]);
+// Display order for active lineup slots (everything else, e.g. bench, sorts after).
+const SLOT_ORDER = [0, 1, 2, 4, 6, 23, 3, 5, 7, 16, 17, 18, 19];
+// NFL pro-team ids → abbreviations (proTeamId).
+const PROTEAM_BY_ID = {
+  0: 'FA', 1: 'ATL', 2: 'BUF', 3: 'CHI', 4: 'CIN', 5: 'CLE', 6: 'DAL', 7: 'DEN',
+  8: 'DET', 9: 'GB', 10: 'TEN', 11: 'IND', 12: 'KC', 13: 'LV', 14: 'LAR', 15: 'MIA',
+  16: 'MIN', 17: 'NE', 18: 'NO', 19: 'NYG', 20: 'NYJ', 21: 'PHI', 22: 'ARI', 23: 'PIT',
+  24: 'LAC', 25: 'SF', 26: 'SEA', 27: 'TB', 28: 'WSH', 29: 'CAR', 30: 'JAX', 33: 'BAL', 34: 'HOU',
+};
+const INJURY_LABEL = {
+  ACTIVE: '', NORMAL: '', QUESTIONABLE: 'Q', DOUBTFUL: 'D', OUT: 'O',
+  INJURY_RESERVE: 'IR', SUSPENSION: 'SUSP', DAY_TO_DAY: 'DTD',
+};
+
+const posOf = (id) => POSITION_BY_ID[id] || 'FLEX';
+const slotOf = (id) => SLOT_BY_ID[id] ?? String(id);
+const teamOf = (id) => PROTEAM_BY_ID[id] || '';
+
+// --- low-level fetch -------------------------------------------------------------------------
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+
+function cookieHeader(creds) {
+  return `espn_s2=${creds.espn_s2}; SWID=${creds.swid}`;
+}
+
+// GET an ESPN JSON endpoint with the user's cookies. Throws EspnAuthError on 401/403
+// (bad/expired cookies) so callers can prompt a reconnect; other non-2xx → generic Error.
+async function espnGet(url, creds) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 12000);
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: { Cookie: cookieHeader(creds), 'User-Agent': UA, Accept: 'application/json' },
+      signal: ctrl.signal,
+    });
+  } finally {
+    clearTimeout(t);
+  }
+  if (res.status === 401 || res.status === 403) throw new EspnAuthError();
+  if (!res.ok) throw new Error(`ESPN HTTP ${res.status} for ${url}`);
+  return res.json();
+}
+
+// --- league discovery (fan API) --------------------------------------------------------------
+// Enumerate every fantasy-football team the SWID owns. Returns a light list of
+// { leagueId, seasonId, teamId, leagueName } — the league/team names here are
+// best-effort; the v3 roster fetch supplies the authoritative ones.
+export async function fetchFanLeagues(creds) {
+  const url = `https://fan.api.espn.com/apis/v2/fans/${encodeURIComponent(creds.swid)}`
+    + `?featureFlags=expandAthlete&context=fantasy&useCookies=true&displayEvents=true&displayNow=true&recentDays=30`;
+  let data;
+  try {
+    data = await espnGet(url, creds);
+  } catch (err) {
+    if (err instanceof EspnAuthError) throw err;
+    return []; // fan API is flaky; degrade to "no leagues found" rather than 500
+  }
+  const prefs = Array.isArray(data?.preferences) ? data.preferences : [];
+  const out = [];
+  const seen = new Set();
+  for (const p of prefs) {
+    const e = p?.metaData?.entry;
+    if (!e) continue;
+    // FFL == fantasy football. ESPN tags the entry's game via `abbrev`.
+    if (e.abbrev && e.abbrev !== 'FFL') continue;
+    const group = (Array.isArray(e.groups) && e.groups[0]) || {};
+    const leagueId = String(group.groupId ?? e.groupId ?? '');
+    const teamId = e.entryId ?? e.teamId;
+    if (!leagueId || teamId == null) continue;
+    const key = `${e.seasonId}:${leagueId}:${teamId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      leagueId,
+      seasonId: e.seasonId || new Date().getFullYear(),
+      teamId,
+      leagueName: group.groupName || e.name || `League ${leagueId}`,
+    });
+  }
+  return out;
+}
+
+// --- roster fetch (v3 league API) ------------------------------------------------------------
+const V3_BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons';
+
+function parseRoster(entries = []) {
+  const players = entries.map((en) => {
+    const pl = en.playerPoolEntry?.player || en.player || {};
+    const slotId = en.lineupSlotId;
+    return {
+      name: pl.fullName || 'Unknown',
+      pos: posOf(pl.defaultPositionId),
+      proTeam: teamOf(pl.proTeamId),
+      slot: slotOf(slotId),
+      slotId,
+      starter: !BENCH_SLOTS.has(slotId),
+      injury: INJURY_LABEL[pl.injuryStatus] || '',
+    };
+  });
+  // Starters first (in lineup-slot order), then bench/IR.
+  players.sort((a, b) => {
+    if (a.starter !== b.starter) return a.starter ? -1 : 1;
+    const ai = SLOT_ORDER.indexOf(a.slotId), bi = SLOT_ORDER.indexOf(b.slotId);
+    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+  });
+  return players;
+}
+
+// Fetch one league and pull the authoritative league name + the user's team + roster.
+export async function fetchLeagueRoster(creds, { leagueId, seasonId, teamId }) {
+  const url = `${V3_BASE}/${seasonId}/segments/0/leagues/${leagueId}`
+    + `?view=mTeam&view=mRoster&view=mSettings`;
+  const data = await espnGet(url, creds);
+  const teams = Array.isArray(data?.teams) ? data.teams : [];
+  const team = teams.find((t) => t.id === teamId) || null;
+  const name = (t) => `${t.location || ''} ${t.nickname || ''}`.trim() || t.name || t.abbrev || `Team ${t.id}`;
+  return {
+    leagueId,
+    season: seasonId,
+    leagueName: data?.settings?.name || `League ${leagueId}`,
+    teamCount: teams.length,
+    scoringType: data?.settings?.scoringSettings?.scoringType || null,
+    team: team
+      ? {
+          id: team.id,
+          name: name(team),
+          abbrev: team.abbrev || '',
+          logo: team.logo || null,
+          wins: team.record?.overall?.wins ?? null,
+          losses: team.record?.overall?.losses ?? null,
+          ties: team.record?.overall?.ties ?? null,
+        }
+      : null,
+    roster: team ? parseRoster(team.roster?.entries || []) : [],
+  };
+}
+
+// Run async fn over items with bounded concurrency (kind to ESPN + bounds latency).
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+// Top-level: discover the user's FFL leagues, then fetch each league's roster. Caps the
+// number of leagues so one user with dozens can't blow the function budget. A single
+// league's fetch failing degrades to an error note on that league, not the whole call.
+export async function fetchLeaguesWithRosters(creds, { maxLeagues = 12 } = {}) {
+  const discovered = await fetchFanLeagues(creds);
+  const leagues = discovered.slice(0, maxLeagues);
+  const results = await mapLimit(leagues, 4, async (lg) => {
+    try {
+      return await fetchLeagueRoster(creds, lg);
+    } catch (err) {
+      if (err instanceof EspnAuthError) throw err;
+      return { leagueId: lg.leagueId, season: lg.seasonId, leagueName: lg.leagueName, team: null, roster: [], error: 'fetch_failed' };
+    }
+  });
+  return { count: discovered.length, truncated: discovered.length > leagues.length, leagues: results };
+}

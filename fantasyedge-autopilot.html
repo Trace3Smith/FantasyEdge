@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FantasyEdge — Lineup Autopilot</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --gold: #D4A017; --gold-light: #F0C040; --black: #080808; --dark: #111111;
+    --dark2: #1A1A1A; --dark3: #222222; --dark4: #2A2A2A; --white: #F5F5F0;
+    --gray: #888888; --gray-light: #AAAAAA; --green: #4CAF50; --red: #F44336; --orange: #FF9800;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--dark); color: var(--white); font-family: 'Barlow', sans-serif; display: flex; min-height: 100vh; }
+  /* ---- sidebar (shared chrome) ---- */
+  .sidebar { width: 200px; min-width: 200px; background: var(--black); border-right: 1px solid rgba(212,160,23,0.15); display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; overflow-y: auto; }
+  .sidebar-logo { padding: 24px 20px 20px; border-bottom: 1px solid rgba(212,160,23,0.15); font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 3px; color: var(--white); }
+  .sidebar-logo span { color: var(--gold); }
+  .sidebar-section-label { padding: 18px 20px 6px; font-size: 10px; font-weight: 600; letter-spacing: 2px; color: var(--gray); text-transform: uppercase; }
+  .sidebar-nav { list-style: none; padding: 0 8px; }
+  .sidebar-nav li a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 6px; color: var(--gray-light); text-decoration: none; font-size: 13px; font-weight: 500; transition: all 0.15s; }
+  .sidebar-nav li a:hover { background: var(--dark3); color: var(--white); }
+  .sidebar-nav li a.active { background: rgba(212,160,23,0.12); color: var(--gold); }
+  .sidebar-nav li a .icon { font-size: 15px; width: 18px; text-align: center; }
+  .upgrade-box { margin: auto 14px 18px; padding: 16px; background: linear-gradient(160deg, rgba(212,160,23,0.15), rgba(212,160,23,0.03)); border: 1px solid rgba(212,160,23,0.25); border-radius: 10px; }
+  .upgrade-box p { font-size: 12px; color: var(--gray-light); line-height: 1.5; margin-bottom: 12px; }
+  .upgrade-btn { display: block; text-align: center; padding: 9px; background: var(--gold); color: #111; font-weight: 700; font-size: 13px; border-radius: 6px; text-decoration: none; }
+  .upgrade-btn:hover { background: var(--gold-light); }
+
+  /* ---- main ---- */
+  .main { margin-left: 200px; flex: 1; padding: 28px 34px 60px; max-width: 1080px; }
+  .top-header { margin-bottom: 22px; }
+  .page-title { font-family: 'Bebas Neue', sans-serif; font-size: 32px; letter-spacing: 2px; }
+  .page-title span { color: var(--gold); }
+  .page-subtitle { color: var(--gray); font-size: 13px; margin-top: 2px; }
+
+  .panel { background: var(--dark2); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 22px; margin-bottom: 20px; }
+  .panel h2 { font-size: 18px; margin-bottom: 4px; }
+  .panel .hint { color: var(--gray); font-size: 13px; line-height: 1.55; margin-bottom: 16px; }
+
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .5px; padding: 4px 10px; border-radius: 20px; text-transform: uppercase; }
+  .pill.ok { background: rgba(76,175,80,0.15); color: #9bdc9e; border: 1px solid rgba(76,175,80,0.4); }
+  .pill.off { background: rgba(255,255,255,0.06); color: var(--gray-light); }
+
+  label.fld { display: block; margin-bottom: 14px; }
+  label.fld .lbl { display: block; font-size: 12px; color: var(--gray-light); margin-bottom: 6px; font-weight: 600; }
+  label.fld .lbl code { color: var(--gold-light); background: rgba(212,160,23,0.1); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+  input.txt, textarea.txt { width: 100%; background: var(--dark3); color: var(--white); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 10px 12px; font-family: 'Barlow', monospace, sans-serif; font-size: 13px; line-height: 1.4; }
+  input.txt:focus, textarea.txt:focus { border-color: rgba(212,160,23,0.55); outline: none; }
+  textarea.txt { resize: vertical; min-height: 64px; word-break: break-all; }
+
+  .btn { padding: 11px 20px; border-radius: 8px; border: none; cursor: pointer; font-family: inherit; font-weight: 700; font-size: 14px; }
+  .btn-gold { background: var(--gold); color: #111; }
+  .btn-gold:hover:not(:disabled) { background: var(--gold-light); }
+  .btn-ghost { background: transparent; border: 1px solid rgba(255,255,255,0.2); color: var(--gray-light); }
+  .btn-ghost:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+  .msg { font-size: 13px; margin-top: 12px; padding: 10px 14px; border-radius: 8px; display: none; }
+  .msg.show { display: block; }
+  .msg.err { background: rgba(244,67,54,0.12); border: 1px solid rgba(244,67,54,0.4); color: #ffb4ad; }
+  .msg.ok { background: rgba(76,175,80,0.12); border: 1px solid rgba(76,175,80,0.4); color: #b6e3b8; }
+
+  details.how { margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.07); padding-top: 14px; }
+  details.how summary { cursor: pointer; color: var(--gold); font-size: 13px; font-weight: 600; }
+  details.how ol { margin: 12px 0 0 18px; color: var(--gray-light); font-size: 13px; line-height: 1.7; }
+  details.how code { color: var(--gold-light); background: rgba(212,160,23,0.1); padding: 1px 5px; border-radius: 4px; }
+
+  /* ---- leagues / rosters ---- */
+  .leagues-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px; }
+  .league-card { background: var(--dark2); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; margin-bottom: 16px; overflow: hidden; }
+  .league-card .lc-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; background: rgba(212,160,23,0.05); border-bottom: 1px solid rgba(255,255,255,0.06); flex-wrap: wrap; }
+  .lc-head .lc-league { font-size: 12px; color: var(--gray); letter-spacing: .5px; text-transform: uppercase; }
+  .lc-head .lc-team { font-size: 18px; font-weight: 700; }
+  .lc-head .lc-meta { font-size: 12px; color: var(--gray-light); margin-top: 2px; }
+  .lc-head .lc-record { font-size: 13px; color: var(--gold-light); font-weight: 600; }
+
+  table.roster { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.roster th { text-align: left; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray); padding: 8px 18px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  table.roster td { padding: 8px 18px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  table.roster tr.bench td { color: var(--gray-light); }
+  table.roster tr.bench-sep td { padding: 4px 18px; background: rgba(255,255,255,0.02); color: var(--gray); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
+  .slot-badge { display: inline-block; min-width: 46px; text-align: center; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.08); color: var(--gray-light); }
+  .slot-badge.start { background: rgba(212,160,23,0.16); color: var(--gold-light); }
+  .pname { font-weight: 600; }
+  .pmeta { color: var(--gray); font-size: 12px; }
+  .inj { color: var(--orange); font-size: 11px; font-weight: 700; margin-left: 4px; }
+
+  .empty { color: var(--gray); font-size: 13px; padding: 8px 0; }
+  .loading { color: var(--gray-light); font-size: 14px; padding: 20px 0; }
+
+  /* ---- premium lock ---- */
+  .locked { text-align: center; padding: 50px 20px; }
+  .locked .lock-emoji { font-size: 44px; margin-bottom: 12px; }
+  .locked h2 { font-family: 'Bebas Neue', sans-serif; font-size: 30px; letter-spacing: 2px; color: var(--gold); margin-bottom: 10px; }
+  .locked p { font-size: 13px; color: var(--gray-light); line-height: 1.6; margin: 0 auto 22px; max-width: 460px; }
+  .locked button { background: var(--gold); color: #111; border: none; border-radius: 8px; padding: 12px 24px; font-family: inherit; font-weight: 700; font-size: 14px; cursor: pointer; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">FANTASY<span>EDGE</span></div>
+  <div class="sidebar-section-label">Main</div>
+  <ul class="sidebar-nav">
+    <li><a href="fantasyedge.html"><span class="icon">🏠</span> Home</a></li>
+    <li><a href="fantasyedge-rankings.html"><span class="icon">📊</span> Rankings</a></li>
+    <li><a href="fantasyedge-analyzer.html"><span class="icon">🔍</span> Roster Analyzer</a></li>
+    <li><a href="fantasyedge-draft.html"><span class="icon">📋</span> Offline Draft</a></li>
+    <li><a href="fantasyedge-draft.html?mode=mock"><span class="icon">🎯</span> Mock Draft</a></li>
+    <li><a href="fantasyedge-coach.html"><span class="icon">🤖</span> AI Coach</a></li>
+    <li><a href="fantasyedge-autopilot.html" class="active"><span class="icon">🛩️</span> Lineup Autopilot</a></li>
+    <li><a href="fantasyedge-trending.html"><span class="icon">🔥</span> Trending Players</a></li>
+    <li><a href="fantasyedge-brackets.html"><span class="icon">🏆</span> Brackets &amp; Bowls</a></li>
+  </ul>
+  <div class="upgrade-box">
+    <p>Connect your ESPN leagues for lineup suggestions &amp; autopilot.</p>
+    <a href="#" class="upgrade-btn">Get Pro — $9.99/mo</a>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="top-header">
+    <div class="page-title">LINEUP <span>AUTOPILOT</span></div>
+    <div class="page-subtitle">Connect your ESPN fantasy football account to pull your leagues and rosters. Lineup suggestions &amp; autopilot are coming next.</div>
+  </div>
+
+  <!-- Premium lock (non-premium users) -->
+  <div class="panel locked hidden" id="locked">
+    <div class="lock-emoji">🛩️</div>
+    <h2>Lineup Autopilot is a Premium feature</h2>
+    <p>Link your ESPN leagues once, and FantasyEdge will surface start/sit suggestions every week — with an optional autopilot that sets your optimal lineup for you.</p>
+    <button id="upsell">Go Premium</button>
+  </div>
+
+  <!-- Signed-out (premium check needs a session) -->
+  <div class="panel hidden" id="signedOut">
+    <h2>Sign in to connect ESPN</h2>
+    <p class="hint">Lineup Autopilot links your ESPN fantasy account to your FantasyEdge profile.</p>
+    <button class="btn btn-gold" id="signInBtn">Sign in</button>
+  </div>
+
+  <!-- Connect form (premium, not connected) -->
+  <div class="panel hidden" id="connectPanel">
+    <h2>Connect your ESPN account</h2>
+    <p class="hint">
+      ESPN doesn't offer a public login API, so we use the two cookies your browser already has after
+      you log in to <a href="https://fantasy.espn.com" target="_blank" rel="noopener" style="color:var(--gold)">fantasy.espn.com</a>.
+      Paste them below — they're stored securely on our server, tied only to your account, and never shown again.
+    </p>
+    <label class="fld">
+      <span class="lbl"><code>espn_s2</code> cookie</span>
+      <textarea class="txt" id="s2Input" rows="3" placeholder="AEB... (a long string)" autocomplete="off" spellcheck="false"></textarea>
+    </label>
+    <label class="fld">
+      <span class="lbl"><code>SWID</code> cookie</span>
+      <input class="txt" id="swidInput" placeholder="{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}" autocomplete="off" spellcheck="false">
+    </label>
+    <div class="row">
+      <button class="btn btn-gold" id="connectBtn">Connect ESPN</button>
+      <span class="pill off">🔌 Not connected</span>
+    </div>
+    <div class="msg" id="connectMsg"></div>
+
+    <details class="how">
+      <summary>How do I find these cookies?</summary>
+      <ol>
+        <li>Log in to <code>fantasy.espn.com</code> in Chrome, Edge, or Firefox on a computer.</li>
+        <li>Open DevTools (<code>F12</code> or right-click → Inspect) and go to the <b>Application</b> tab (Chrome/Edge) or <b>Storage</b> tab (Firefox).</li>
+        <li>Under <b>Cookies</b>, click <code>https://fantasy.espn.com</code>.</li>
+        <li>Find the row named <code>espn_s2</code> and copy its full <b>Value</b> into the first box above.</li>
+        <li>Find the row named <code>SWID</code> and copy its <b>Value</b> (including the curly braces) into the second box.</li>
+        <li>Click <b>Connect ESPN</b>. We'll verify the cookies with ESPN before saving them.</li>
+      </ol>
+    </details>
+  </div>
+
+  <!-- Connected state (premium, connected) -->
+  <div id="connectedWrap" class="hidden">
+    <div class="panel">
+      <div class="leagues-head">
+        <div>
+          <h2 style="margin-bottom:6px">ESPN account connected</h2>
+          <div class="hint" style="margin:0">
+            <span class="pill ok">✓ Connected</span>
+            <span id="connInfo" style="margin-left:8px"></span>
+          </div>
+        </div>
+        <div class="row">
+          <button class="btn btn-ghost" id="refreshBtn">↻ Refresh</button>
+          <button class="btn btn-ghost" id="disconnectBtn">Disconnect</button>
+        </div>
+      </div>
+      <div class="msg" id="leaguesMsg"></div>
+    </div>
+
+    <div id="leaguesArea"></div>
+  </div>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const isPremium = () => !!(window.FE && window.FE.isPremium && window.FE.isPremium());
+  const isSignedIn = () => !!(window.FE && window.FE.isSignedIn && window.FE.isSignedIn());
+
+  function show(id, on) { $(id).classList.toggle('hidden', !on); }
+  function setMsg(id, text, kind) {
+    const el = $(id);
+    el.textContent = text || '';
+    el.className = 'msg' + (text ? ' show ' + (kind || 'err') : '');
+  }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // POST to one of our ESPN endpoints with the Clerk bearer token.
+  async function api(path, body) {
+    if (!window.FE || !window.FE.apiPost) return { ok: false, status: 0, data: null };
+    return window.FE.apiPost(path, body || {});
+  }
+
+  // ---- top-level gate: locked / signed-out / connect / connected -----------------
+  let loadedOnce = false;
+  async function applyGate() {
+    const premium = isPremium();
+    const signedIn = isSignedIn();
+    show('locked', signedIn && !premium);
+    show('signedOut', !signedIn);
+    // Hide both premium surfaces until we know the connection status.
+    if (!signedIn || !premium) { show('connectPanel', false); show('connectedWrap', false); return; }
+    if (!loadedOnce) { loadedOnce = true; await refreshStatus(); }
+  }
+
+  // ---- connection status ---------------------------------------------------------
+  async function refreshStatus() {
+    const { ok, status, data } = await api('/api/espn/status');
+    if (status === 401) { show('connectPanel', false); show('connectedWrap', false); show('signedOut', true); return; }
+    if (!ok) { show('connectPanel', true); return; }
+    if (data.connected) {
+      show('connectPanel', false);
+      show('connectedWrap', true);
+      $('connInfo').textContent = `ESPN ID ${data.swid || ''}` + (data.savedAt ? ` · linked ${fmtDate(data.savedAt)}` : '');
+      loadLeagues();
+    } else {
+      show('connectedWrap', false);
+      show('connectPanel', true);
+    }
+  }
+
+  function fmtDate(iso) {
+    const d = new Date(iso);
+    return isNaN(d) ? '' : d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  // ---- connect -------------------------------------------------------------------
+  async function connect() {
+    const espn_s2 = $('s2Input').value.trim();
+    const swid = $('swidInput').value.trim();
+    if (!espn_s2 || !swid) { setMsg('connectMsg', 'Paste both the espn_s2 and SWID cookie values.', 'err'); return; }
+    $('connectBtn').disabled = true;
+    $('connectBtn').textContent = 'Verifying with ESPN…';
+    setMsg('connectMsg', '');
+    const { ok, status, data } = await api('/api/espn/connect', { espn_s2, swid });
+    $('connectBtn').disabled = false;
+    $('connectBtn').textContent = 'Connect ESPN';
+    if (ok) {
+      $('s2Input').value = ''; $('swidInput').value = '';
+      await refreshStatus();
+      return;
+    }
+    if (status === 401 && data?.error === 'espn_auth') {
+      setMsg('connectMsg', 'ESPN rejected those cookies. Double-check you copied the full espn_s2 value and the SWID (with braces), then try again.', 'err');
+    } else if (status === 401) {
+      setMsg('connectMsg', 'Your FantasyEdge session expired — please sign in again.', 'err');
+    } else if (status === 403) {
+      setMsg('connectMsg', 'Lineup Autopilot is a Premium feature.', 'err');
+    } else if (data?.error === 'missing_cookies') {
+      setMsg('connectMsg', 'Both cookie values are required.', 'err');
+    } else {
+      setMsg('connectMsg', (data && data.error) ? data.error : 'Could not connect to ESPN. Try again in a moment.', 'err');
+    }
+  }
+
+  // ---- disconnect ----------------------------------------------------------------
+  async function disconnect() {
+    if (!confirm('Disconnect your ESPN account? Your cookies will be deleted from FantasyEdge.')) return;
+    $('disconnectBtn').disabled = true;
+    await api('/api/espn/disconnect');
+    $('disconnectBtn').disabled = false;
+    $('leaguesArea').innerHTML = '';
+    show('connectedWrap', false);
+    show('connectPanel', true);
+    setMsg('connectMsg', '');
+  }
+
+  // ---- leagues + rosters ---------------------------------------------------------
+  async function loadLeagues() {
+    setMsg('leaguesMsg', '');
+    $('leaguesArea').innerHTML = '<div class="loading">Pulling your ESPN leagues and rosters…</div>';
+    const { ok, status, data } = await api('/api/espn/leagues');
+    if (!ok) {
+      $('leaguesArea').innerHTML = '';
+      if (status === 409 && data?.error === 'not_connected') { show('connectedWrap', false); show('connectPanel', true); return; }
+      if (data?.error === 'espn_auth') {
+        setMsg('leaguesMsg', 'Your ESPN cookies have expired. Please reconnect with fresh cookies.', 'err');
+        show('connectedWrap', false); show('connectPanel', true);
+        return;
+      }
+      if (status === 401) { setMsg('leaguesMsg', 'Session expired — please sign in again.', 'err'); return; }
+      setMsg('leaguesMsg', (data && data.error) ? data.error : 'Could not load leagues from ESPN.', 'err');
+      return;
+    }
+    renderLeagues(data);
+  }
+
+  function renderLeagues(data) {
+    const leagues = (data && data.leagues) || [];
+    if (!leagues.length) {
+      $('leaguesArea').innerHTML = '<div class="panel"><div class="empty">No ESPN fantasy football leagues found for this account. If you just joined a league, give ESPN a few minutes, then hit Refresh.</div></div>';
+      return;
+    }
+    if (data.truncated) setMsg('leaguesMsg', `Showing your first ${leagues.length} of ${data.count} leagues.`, 'ok');
+    $('leaguesArea').innerHTML = leagues.map(renderLeagueCard).join('');
+  }
+
+  function renderLeagueCard(lg) {
+    const team = lg.team;
+    if (lg.error || !team) {
+      return `<div class="league-card"><div class="lc-head"><div>
+        <div class="lc-league">${escapeHtml(lg.leagueName || 'League')}</div>
+        <div class="lc-team">Couldn't load this team</div>
+        <div class="lc-meta">ESPN didn't return your roster for this league.</div>
+      </div></div></div>`;
+    }
+    const rec = (team.wins != null) ? `${team.wins}-${team.losses}${team.ties ? '-' + team.ties : ''}` : '';
+    const rows = renderRoster(lg.roster || []);
+    return `<div class="league-card">
+      <div class="lc-head">
+        <div>
+          <div class="lc-league">${escapeHtml(lg.leagueName)} · ${escapeHtml(String(lg.season || ''))}${team.abbrev ? ' · ' + escapeHtml(team.abbrev) : ''}</div>
+          <div class="lc-team">${escapeHtml(team.name)}</div>
+          <div class="lc-meta">${lg.teamCount ? team_count_label(lg) : ''}</div>
+        </div>
+        ${rec ? `<div class="lc-record">${rec}</div>` : ''}
+      </div>
+      <table class="roster">
+        <thead><tr><th style="width:64px">Slot</th><th>Player</th><th style="width:110px">Pos · Team</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }
+
+  function team_count_label(lg) {
+    return `${lg.teamCount}-team league` + (lg.scoringType ? ` · ${escapeHtml(lg.scoringType)}` : '');
+  }
+
+  function renderRoster(roster) {
+    if (!roster.length) return '<tr><td colspan="3" class="empty">No players on this roster.</td></tr>';
+    let benchOpened = false;
+    let html = '';
+    for (const p of roster) {
+      if (!p.starter && !benchOpened) { benchOpened = true; html += '<tr class="bench-sep"><td colspan="3">Bench</td></tr>'; }
+      const slotCls = p.starter ? 'slot-badge start' : 'slot-badge';
+      const inj = p.injury ? ` <span class="inj">${escapeHtml(p.injury)}</span>` : '';
+      html += `<tr class="${p.starter ? '' : 'bench'}">
+        <td><span class="${slotCls}">${escapeHtml(p.slot)}</span></td>
+        <td><span class="pname">${escapeHtml(p.name)}</span>${inj}</td>
+        <td><span class="pmeta">${escapeHtml(p.pos)}${p.proTeam ? ' · ' + escapeHtml(p.proTeam) : ''}</span></td>
+      </tr>`;
+    }
+    return html;
+  }
+
+  // ---- wiring --------------------------------------------------------------------
+  $('connectBtn').addEventListener('click', connect);
+  $('disconnectBtn').addEventListener('click', disconnect);
+  $('refreshBtn').addEventListener('click', loadLeagues);
+  $('signInBtn').addEventListener('click', () => window.FE && window.FE.openSignIn && window.FE.openSignIn());
+  $('upsell').addEventListener('click', () => window.FE && window.FE.openPricing && window.FE.openPricing());
+
+  document.addEventListener('fe-auth-ready', () => { loadedOnce = false; applyGate(); });
+  if (window.FE) applyGate();
+</script>
+<script type="module" src="/auth.js"></script>
+</body>
+</html>
