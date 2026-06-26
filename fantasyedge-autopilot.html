@@ -236,7 +236,7 @@
 
   // ---- connection status ---------------------------------------------------------
   async function refreshStatus() {
-    const { ok, status, data } = await api('/api/espn/status');
+    const { ok, status, data } = await api('/api/espn', { action: 'status' });
     if (status === 401) { show('connectPanel', false); show('connectedWrap', false); show('signedOut', true); return; }
     if (!ok) { show('connectPanel', true); return; }
     if (data.connected) {
@@ -263,7 +263,7 @@
     $('connectBtn').disabled = true;
     $('connectBtn').textContent = 'Verifying with ESPN…';
     setMsg('connectMsg', '');
-    const { ok, status, data } = await api('/api/espn/connect', { espn_s2, swid });
+    const { ok, status, data } = await api('/api/espn', { action: 'connect', espn_s2, swid });
     $('connectBtn').disabled = false;
     $('connectBtn').textContent = 'Connect ESPN';
     if (ok) {
@@ -288,7 +288,7 @@
   async function disconnect() {
     if (!confirm('Disconnect your ESPN account? Your cookies will be deleted from FantasyEdge.')) return;
     $('disconnectBtn').disabled = true;
-    await api('/api/espn/disconnect');
+    await api('/api/espn', { action: 'disconnect' });
     $('disconnectBtn').disabled = false;
     $('leaguesArea').innerHTML = '';
     show('connectedWrap', false);
@@ -300,7 +300,7 @@
   async function loadLeagues() {
     setMsg('leaguesMsg', '');
     $('leaguesArea').innerHTML = '<div class="loading">Pulling your ESPN leagues and rosters…</div>';
-    const { ok, status, data } = await api('/api/espn/leagues');
+    const { ok, status, data } = await api('/api/espn', { action: 'leagues' });
     if (!ok) {
       $('leaguesArea').innerHTML = '';
       if (status === 409 && data?.error === 'not_connected') { show('connectedWrap', false); show('connectPanel', true); return; }
