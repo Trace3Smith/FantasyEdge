@@ -7,8 +7,10 @@
 // Claude call is unavailable or returns anything unparseable, so advice always ships.
 // Free users get advice through round 7 (FREE_MAX_ROUND); later rounds return an upsell.
 import { getEntitlement, sendError, HttpError, FREE_MAX_ROUND } from '../_lib/auth.js';
-import { loadPlayers, recommend, DEFAULT_SETTINGS } from '../_lib/draft.js';
+import { loadPlayers, recommend, DEFAULT_SETTINGS, isRoto } from '../_lib/draft.js';
 import { NBA_CATS } from '../../nbaScoring.js';
+import { MLB_CATS } from '../../mlbScoring.js';
+import { NHL_CATS } from '../../nhlScoring.js';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-4-6';
@@ -38,8 +40,39 @@ You are given the roster, round, your currently weak categories, positional scar
 Respond with ONLY a JSON object — no prose, no markdown fences:
 {"pick": <candidate number>, "rationale": "<2-3 conversational sentences like a sharp friend; speak in categories, roster balance, and which cats this player wins or punts; NEVER mention internal jargon like z-score or a 'score'>", "reach": <true only if you are reaching for a clearly superior all-around player ahead of a slot or category need, else false>}`;
 
+const SYSTEM_MLB = `You are an elite fantasy baseball draft analyst for a standard mixed roto league. Hitters score on R, HR, RBI, SB, AVG and OBP; pitchers on W, SV, K, ERA and WHIP. The user is on the clock and you make ONE decisive pick recommendation. Balance four things:
+1. Category balance — a roto team wins by being competitive across all categories on both sides (hitting and pitching), not by stacking one. Favor players who shore up categories the roster is currently WEAK in; once your bats are stocked, pivot to pitching (and vice-versa).
+2. Best player available — total all-around category value is the baseline; a clearly superior multi-cat player is worth taking even when his strengths overlap what you have.
+3. Roster slots — you must end with a legal lineup (C, 1B, 2B, 3B, SS, OF, UTIL, SP, RP). Fill open starting slots, leaning on UTIL flexibility to stay flexible.
+4. Rate vs. counting cats — AVG/OBP and ERA/WHIP are ratios: a high-volume regular moves them more than a part-timer, and an inefficient pitcher with lots of innings actively drags down your ERA/WHIP. Weigh that against the counting stats.
+
+ROSTER NECESSITY OVERRIDE: if the prompt includes a ROSTER NECESSITY note, it overrides everything above — you MUST use this pick to fill one of the named open starting slots. An incomplete, illegal lineup is worse than any category edge, so take the slot now and set reach=false.
+
+You are given the roster, round, your currently weak categories, positional scarcity, recent runs, and a numbered shortlist of the best available candidates (already filtered by our model) with each one's stat line and category profile. Pick THE single best candidate from that shortlist. You may deviate from board order when category need or roster need justifies it.
+
+Respond with ONLY a JSON object — no prose, no markdown fences:
+{"pick": <candidate number>, "rationale": "<2-3 conversational sentences like a sharp friend; speak in categories, roster balance, and which cats this player wins; NEVER mention internal jargon like z-score or a 'score'>", "reach": <true only if you are reaching for a clearly superior all-around player ahead of a slot or category need, else false>}`;
+
+const SYSTEM_NHL = `You are an elite fantasy hockey draft analyst for a standard roto league. Skaters score on G, A, +/-, PIM, PPP, SOG, FOW and GWG; goalies on W, GAA, SV%, SO and saves. The user is on the clock and you make ONE decisive pick recommendation. Balance four things:
+1. Category balance — a roto team wins by being competitive across categories, not by stacking one. Favor players who shore up the categories the roster is currently WEAK in; don't pile onto a category you've already locked up.
+2. Best player available — total all-around category value is the baseline; a clearly superior multi-cat player is worth taking even when his strengths overlap what you have.
+3. Roster slots — you must end with a legal lineup (C, LW, RW, D, G). Fill open starting slots, and remember goalie wins/ratios are scarce and worth securing.
+4. Goalies vs. skaters — a roster of pure skaters punts every goalie category. Make sure you draft enough goalies to compete in W/GAA/SV%/SO, but don't reach for a shaky starter.
+
+ROSTER NECESSITY OVERRIDE: if the prompt includes a ROSTER NECESSITY note, it overrides everything above — you MUST use this pick to fill one of the named open starting slots. An incomplete, illegal lineup is worse than any category edge, so take the slot now and set reach=false.
+
+You are given the roster, round, your currently weak categories, positional scarcity, recent runs, and a numbered shortlist of the best available candidates (already filtered by our model) with each one's stat line and category profile. Pick THE single best candidate from that shortlist. You may deviate from board order when category need or roster need justifies it.
+
+Respond with ONLY a JSON object — no prose, no markdown fences:
+{"pick": <candidate number>, "rationale": "<2-3 conversational sentences like a sharp friend; speak in categories, roster balance, and which cats this player wins; NEVER mention internal jargon like z-score or a 'score'>", "reach": <true only if you are reaching for a clearly superior all-around player ahead of a slot or category need, else false>}`;
+
 const isNba = (sport) => sport === 'nba' || sport === 'wnba';
-const systemFor = (sport) => (isNba(sport) ? SYSTEM_NBA : SYSTEM_NFL);
+function systemFor(sport) {
+  if (isNba(sport)) return SYSTEM_NBA;
+  if (sport === 'mlb') return SYSTEM_MLB;
+  if (sport === 'nhl') return SYSTEM_NHL;
+  return SYSTEM_NFL;
+}
 
 const fmt1 = (v) => (v == null ? '—' : (Math.round(v * 10) / 10).toFixed(1));
 const pct3 = (v) => (v == null ? '—' : '.' + String(Math.round(v * 1000)).padStart(3, '0')); // 0.55 -> ".550"
@@ -74,7 +107,34 @@ function describeNba(c, i) {
   return bits.join(', ');
 }
 
-const describeFor = (sport) => (isNba(sport) ? describeNba : describeNfl);
+// Describe one MLB/NHL candidate: the real stat line (from statLabels/stats) + which cats he
+// wins/hurts (from his per-cat z block over the sport's categories) + roster-slot relevance.
+function describeRoto(c, i, CATS) {
+  const bits = [`[${i}] ${c.name} (${c.pos}, ${c.team})`, `board #${c.rank ?? '—'}`];
+  if (c.statLabels && c.stats) {
+    const line = c.statLabels
+      .map((lab, k) => (c.stats[k] != null && c.stats[k] !== '—' ? `${c.stats[k]} ${lab}` : null))
+      .filter(Boolean).join(', ');
+    if (line) bits.push(line);
+  }
+  if (c.z) {
+    const ranked = CATS.map((cat) => ({ label: cat.label, z: c.z[cat.key] || 0 })).sort((a, b) => b.z - a.z);
+    const strong = ranked.filter((x) => x.z >= 0.7).slice(0, 3).map((x) => x.label);
+    const weak = ranked.filter((x) => x.z <= -0.6).map((x) => x.label).slice(-2);
+    if (strong.length) bits.push(`strong ${strong.join('/')}`);
+    if (weak.length) bits.push(`weak ${weak.join('/')}`);
+  }
+  if (c.need) bits.push('fills an open lineup slot');
+  if (c.forced) bits.push('open starting slot still unfilled');
+  return bits.join(', ');
+}
+
+function describeFor(sport) {
+  if (isNba(sport)) return describeNba;
+  if (sport === 'mlb') return (c, i) => describeRoto(c, i, MLB_CATS);
+  if (sport === 'nhl') return (c, i) => describeRoto(c, i, NHL_CATS);
+  return describeNfl;
+}
 
 // Pull the analyst's decision out of Claude's reply. Strict + defensive: any missing
 // key, out-of-range pick, or unparseable body returns null so the caller falls back to
@@ -100,7 +160,7 @@ async function analyzePick({ sport, round, scoring, teams, roster, candidates, r
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key || !candidates.length) return null;
   const describe = describeFor(sport);
-  const nba = isNba(sport);
+  const roto = isRoto(sport);
   const rosterStr = roster.length ? roster.map((r) => r.pos).join(', ') : '(empty)';
   const scarcityStr = Object.entries(board?.startableLeft || {})
     .sort((a, b) => a[1] - b[1])
@@ -117,11 +177,11 @@ async function analyzePick({ sport, round, scoring, teams, roster, candidates, r
     necessity = `\n\nROSTER HEADS-UP: only ${board.picksLeft} picks left with mandatory slots still open (${needPos.join(', ')}). `
       + `Room for one more value pick, but plan to lock in ${needPos.join('/')} within your next pick or two so you don't get squeezed.`;
   }
-  // NBA leagues run on 9-cat, not a points format; surface the roster's weak categories so the
-  // analyst steers toward balance instead of stacking a strength.
-  const scoringLabel = nba ? '9-CAT' : `${scoring.toUpperCase()} scoring`;
-  const leagueLabel = nba ? 'category league' : 'league';
-  const weakLine = nba && board?.weakCats?.length
+  // Roto leagues run on categories, not a points format; surface the roster's weak categories
+  // so the analyst steers toward balance instead of stacking a strength.
+  const scoringLabel = isNba(sport) ? '9-CAT' : roto ? 'roto categories' : `${scoring.toUpperCase()} scoring`;
+  const leagueLabel = roto ? 'category league' : 'league';
+  const weakLine = roto && board?.weakCats?.length
     ? `\nMy weak categories right now: ${board.weakCats.join(', ')} (favor candidates who help these).`
     : '';
   const prompt = `Round ${round}, ${scoringLabel}, ${teams}-team ${leagueLabel}.`
@@ -178,15 +238,16 @@ export default async function handler(req, res) {
     const sport = b.sport || 'nfl';
     const o = b.settings || {};
     const settings = { ...DEFAULT_SETTINGS, sport };
-    if (isNba(sport)) {
-      // NBA is 9-cat with a shorter default draft and its own lineup (handled in nbaScoring);
-      // there's no PPR/Standard toggle, so the points-format override below never applies.
-      settings.scoring = '9cat';
+    if (isRoto(sport)) {
+      // Roto sports are category-based with a shorter default draft and their own lineup
+      // (handled in each scoring module); there's no PPR/Standard toggle, so the points-format
+      // override below never applies.
+      settings.scoring = isNba(sport) ? '9cat' : 'roto';
       settings.rounds = 13;
     }
     if ([8, 10, 12, 14].includes(Number(o.teams))) settings.teams = Number(o.teams);
     if (premium) {
-      if (!isNba(sport) && (o.scoring === 'standard' || o.scoring === 'ppr' || o.scoring === 'half')) settings.scoring = o.scoring;
+      if (!isRoto(sport) && (o.scoring === 'standard' || o.scoring === 'ppr' || o.scoring === 'half')) settings.scoring = o.scoring;
       if (Number.isInteger(o.rounds) && o.rounds >= 10 && o.rounds <= 20) settings.rounds = o.rounds;
     }
     const players = await loadPlayers(sport);
