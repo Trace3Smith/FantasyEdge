@@ -11,6 +11,8 @@
 // (server-side) and are never returned to the browser — status checks expose a
 // connected boolean and a masked SWID at most. Every caller is premium-gated.
 
+import { normName } from './golf.js';
+
 const credsKey = (userId) => `espn:creds:${userId}`;
 
 // A thrown EspnAuthError means ESPN rejected the cookies (expired/invalid) — the
@@ -263,8 +265,13 @@ const V3_BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/flb/seasons
 
 function parseRoster(entries = []) {
   const players = entries.map((en) => {
-    const pl = en.playerPoolEntry?.player || en.player || {};
+    const ppe = en.playerPoolEntry || {};
+    const pl = ppe.player || en.player || {};
     const slotId = en.lineupSlotId;
+    // A player is "locked" once their MLB game has started — ESPN rejects the WHOLE
+    // lineup transaction if it includes a locked move. Read it from whichever field
+    // is present (defensive). The advisor must not move these.
+    const locked = ppe.lineupLocked === true || ppe.rosterLocked === true || en.lineupLocked === true;
     // eligibleSlots is the set of lineup-slot ids this player may legally fill —
     // the basis for optimal start/sit assignment (a hitter's includes UTIL, a
     // pitcher's SP/RP/P, etc.). ESPN already encodes the generic-slot rules here.
@@ -279,6 +286,7 @@ function parseRoster(entries = []) {
       starter: !BENCH_SLOTS.has(slotId),
       injury: INJURY_LABEL[pl.injuryStatus] || '',
       injuryStatus: pl.injuryStatus || 'ACTIVE',
+      locked,
     };
   });
   // Starters first (in lineup-slot order), then bench/IR.
@@ -347,12 +355,9 @@ export async function fetchLeagueByOwner(creds, { leagueId, seasonId }) {
 // --- lineup write (v3 transactions) ----------------------------------------------------------
 const V3_WRITE_BASE = 'https://lm-api-writes.fantasy.espn.com/apis/v3/games/flb/seasons';
 
-// Apply a lineup change to ESPN: a single ROSTER transaction whose items each move
-// one player from its current slot to a target slot (active slot, or 16=BE to bench).
-// `items` = [{ playerId, fromLineupSlotId, toLineupSlotId }]. No-op for an empty list.
-// Throws EspnAuthError on 401/403 so callers can prompt a reconnect.
-export async function setLineup(creds, { leagueId, seasonId, teamId, scoringPeriodId }, items = []) {
-  if (!items.length) return { applied: 0 };
+// POST one lineup transaction; returns { ok, status, body } without throwing on a
+// non-2xx so the caller can inspect (e.g. a 409 "X is locked").
+async function postLineupTxn(creds, { leagueId, seasonId, teamId, scoringPeriodId }, items) {
   const url = `${V3_WRITE_BASE}/${seasonId}/segments/0/leagues/${leagueId}/transactions/`;
   const body = {
     isLeagueManager: false,
@@ -362,10 +367,8 @@ export async function setLineup(creds, { leagueId, seasonId, teamId, scoringPeri
     scoringPeriodId,
     executionType: 'EXECUTE',
     items: items.map((it) => ({
-      playerId: it.playerId,
-      type: 'LINEUP',
-      fromLineupSlotId: it.fromLineupSlotId,
-      toLineupSlotId: it.toLineupSlotId,
+      playerId: it.playerId, type: 'LINEUP',
+      fromLineupSlotId: it.fromLineupSlotId, toLineupSlotId: it.toLineupSlotId,
     })),
   };
   const ctrl = new AbortController();
@@ -375,23 +378,61 @@ export async function setLineup(creds, { leagueId, seasonId, teamId, scoringPeri
     res = await fetch(url, {
       method: 'POST',
       headers: {
-        Cookie: cookieHeader(creds),
-        'User-Agent': UA,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'x-fantasy-source': 'kona',
-        'x-fantasy-platform': 'kona-PROD',
+        Cookie: cookieHeader(creds), 'User-Agent': UA, 'Content-Type': 'application/json',
+        Accept: 'application/json', 'x-fantasy-source': 'kona', 'x-fantasy-platform': 'kona-PROD',
       },
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
   } finally { clearTimeout(t); }
-  if (res.status === 401 || res.status === 403) throw new EspnAuthError();
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '');
-    throw new Error(`ESPN lineup write HTTP ${res.status}${txt ? ': ' + txt.slice(0, 180) : ''}`);
+  const txt = await res.text().catch(() => '');
+  return { ok: res.ok, status: res.status, body: txt };
+}
+
+// Pull the player names ESPN names as locked out of a 409 body, e.g.
+// "...could not be completed, Spencer Horwitz is locked." → ["Spencer Horwitz"].
+function parseLockedNames(body) {
+  const out = [];
+  const re = /([A-Za-z][A-Za-z.'\- ]*?)\s+is\s+locked/gi;
+  let m;
+  while ((m = re.exec(String(body || '')))) { const n = m[1].trim(); if (n) out.push(n); }
+  return out;
+}
+
+// Apply a lineup change to ESPN: a single ROSTER transaction whose items each move
+// one player from its current slot to a target slot (active slot, or 16=BE to bench).
+// `items` = [{ playerId, fromLineupSlotId, toLineupSlotId }]. No-op for an empty list.
+// Throws EspnAuthError on 401/403. Safety net: ESPN rejects the WHOLE transaction
+// (409) if any player is locked (game started). When it names a locked player, drop
+// that player's move and retry — so the rest of the optimal lineup still applies.
+// Pass { roster } so names in the 409 can be mapped back to playerIds.
+export async function setLineup(creds, ids, items = [], { roster = [] } = {}) {
+  if (!items.length) return { applied: 0, skippedLocked: [] };
+  const skippedLocked = [];
+  let attempt = items.slice();
+
+  for (let tries = 0; tries < 4 && attempt.length; tries++) {
+    const r = await postLineupTxn(creds, ids, attempt);
+    if (r.ok) return { applied: attempt.length, skippedLocked };
+    if (r.status === 401 || r.status === 403) throw new EspnAuthError();
+
+    if (r.status === 409 && /locked/i.test(r.body)) {
+      const names = parseLockedNames(r.body);
+      const lockedIds = new Set();
+      for (const nm of names) {
+        const p = roster.find((rp) => normName(rp.name) === normName(nm));
+        if (p && p.id != null) lockedIds.add(p.id);
+      }
+      const next = attempt.filter((it) => !lockedIds.has(it.playerId));
+      if (lockedIds.size && next.length < attempt.length) {
+        skippedLocked.push(...names);
+        attempt = next;
+        continue; // retry without the locked player(s)
+      }
+    }
+    throw new Error(`ESPN lineup write HTTP ${r.status}${r.body ? ': ' + r.body.slice(0, 180) : ''}`);
   }
-  return { applied: items.length };
+  return { applied: attempt.length, skippedLocked };
 }
 
 // --- manually-added leagues (Redis, per Clerk user) ------------------------------------------

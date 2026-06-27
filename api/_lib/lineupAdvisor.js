@@ -63,20 +63,34 @@ const eligibleFor = (rp, slotId) => {
 };
 
 // Greedy optimal assignment: fill the most-constrained slots first (fewest eligible
-// players), each with the best-value player still available. Returns Map<rosterIdx, slotId>.
+// players), each with the best-value player still available. Returns Map<rosterIdx,
+// slotId>. Locked players (game started) are IMMOVABLE: a locked starter is pinned to
+// its current slot (that opening is consumed), and locked players are never assigned
+// elsewhere — so the resulting plan never tries to move one (ESPN 409s the whole txn).
 function assignOptimal(roster, openings) {
-  const candCount = (slotId) => roster.reduce((n, rp) => n + (eligibleFor(rp, slotId) ? 1 : 0), 0);
-  const orderedSlots = openings
+  const movable = (i) => !roster[i].locked && roster[i].slotId !== IL_SLOT;
+  const assigned = new Map();
+  const used = new Set();
+
+  // Pin locked starters to the active slot they already hold; consume that opening.
+  const remaining = [...openings];
+  for (let i = 0; i < roster.length; i++) {
+    const rp = roster[i];
+    if (rp.locked && rp.starter) {
+      const at = remaining.indexOf(rp.slotId);
+      if (at >= 0) { remaining.splice(at, 1); assigned.set(i, rp.slotId); used.add(i); }
+    }
+  }
+
+  const candCount = (slotId) => roster.reduce((n, rp, i) => n + (movable(i) && eligibleFor(rp, slotId) ? 1 : 0), 0);
+  const orderedSlots = remaining
     .map((slotId) => ({ slotId, scarcity: candCount(slotId) }))
     .sort((a, b) => a.scarcity - b.scarcity);
 
-  const assigned = new Map();
-  const used = new Set();
   for (const { slotId } of orderedSlots) {
     let bestIdx = -1, bestVal = -Infinity;
     for (let i = 0; i < roster.length; i++) {
-      // Never pull an injured-list player (slot 17) into an active slot — they can't play.
-      if (used.has(i) || roster[i].slotId === IL_SLOT || !eligibleFor(roster[i], slotId)) continue;
+      if (used.has(i) || !movable(i) || !eligibleFor(roster[i], slotId)) continue;
       if (roster[i]._v.adjZ > bestVal) { bestVal = roster[i]._v.adjZ; bestIdx = i; }
     }
     if (bestIdx >= 0) { assigned.set(bestIdx, slotId); used.add(bestIdx); }
@@ -138,7 +152,8 @@ export function suggestLineup(league, idx) {
   const plan = [];
   for (let i = 0; i < roster.length; i++) {
     const rp = roster[i];
-    if (rp.slotId === IL_SLOT || rp.id == null) continue;
+    // Never move a locked player (ESPN 409s the txn), an IL player, or one w/o an id.
+    if (rp.locked || rp.slotId === IL_SLOT || rp.id == null) continue;
     const target = assigned.has(i) ? assigned.get(i) : BE_SLOT;
     if (target !== rp.slotId) {
       plan.push({ playerId: rp.id, name: rp.name, fromLineupSlotId: rp.slotId, toLineupSlotId: target });

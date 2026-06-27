@@ -173,15 +173,16 @@ async function applyLineup(req, res, userId) {
   const sugg = suggestLineup(league, buildMlbValueIndex(players));
   if (!sugg.plan.length) return res.json({ applied: 0, moves: [], message: 'Lineup already optimal' });
 
+  let result;
   try {
-    await setLineup(creds, {
+    result = await setLineup(creds, {
       leagueId: String(leagueId), seasonId: season, teamId, scoringPeriodId: league.scoringPeriodId,
-    }, sugg.plan);
+    }, sugg.plan, { roster: league.roster });
   } catch (err) {
     if (err instanceof EspnAuthError) throw new HttpError(409, 'ESPN cookies expired', { error: 'espn_auth', reconnect: true });
     throw new HttpError(502, 'ESPN rejected the lineup change', { error: 'apply_failed', detail: String(err.message || err) });
   }
-  return res.json({ applied: sugg.plan.length, moves: sugg.moves });
+  return res.json({ applied: result.applied, moves: sugg.moves, skippedLocked: result.skippedLocked || [] });
 }
 
 // Get or set the per-league autopilot preference. Body { league:{leagueId,season,

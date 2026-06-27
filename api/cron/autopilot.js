@@ -43,7 +43,7 @@ export default async function handler(req, res) {
           if (!sugg.plan.length) { summary.optimal++; continue; }
           await setLineup(creds, {
             leagueId, seasonId: Number(season), teamId: Number(teamId), scoringPeriodId: league.scoringPeriodId,
-          }, sugg.plan);
+          }, sugg.plan, { roster: league.roster });
           summary.applied++;
         } catch (err) {
           if (err instanceof EspnAuthError) {

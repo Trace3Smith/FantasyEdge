@@ -552,7 +552,8 @@
     const { ok, data } = await api('/api/espn', { action: 'apply', leagueId, season: Number(season), teamId: Number(teamId) });
     btn.disabled = false; btn.textContent = old;
     if (ok) {
-      msg.textContent = data.applied ? `✓ Applied ${data.applied} change${data.applied > 1 ? 's' : ''}` : '✓ Already optimal';
+      const locked = (data.skippedLocked && data.skippedLocked.length) ? ` (skipped ${data.skippedLocked.length} locked: ${data.skippedLocked.join(', ')})` : '';
+      msg.textContent = (data.applied ? `✓ Applied ${data.applied} change${data.applied > 1 ? 's' : ''}` : '✓ Already optimal') + locked;
       msg.className = 'ap-msg ok';
       setTimeout(loadLeagues, 1000); // re-pull rosters so the table reflects the new lineup
     } else {
