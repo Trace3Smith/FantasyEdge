@@ -11,6 +11,8 @@
 // (server-side) and are never returned to the browser — status checks expose a
 // connected boolean and a masked SWID at most. Every caller is premium-gated.
 
+import https from 'node:https';
+
 const credsKey = (userId) => `espn:creds:${userId}`;
 
 // A thrown EspnAuthError means ESPN rejected the cookies (expired/invalid) — the
@@ -121,21 +123,35 @@ function cookieHeader(creds) {
 
 // GET an ESPN JSON endpoint with the user's cookies. Throws EspnAuthError on 401/403
 // (bad/expired cookies) so callers can prompt a reconnect; other non-2xx → generic Error.
-async function espnGet(url, creds) {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 12000);
-  let res;
-  try {
-    res = await fetch(url, {
-      headers: { Cookie: cookieHeader(creds), 'User-Agent': UA, Accept: 'application/json' },
-      signal: ctrl.signal,
-    });
-  } finally {
-    clearTimeout(t);
-  }
-  if (res.status === 401 || res.status === 403) throw new EspnAuthError();
-  if (!res.ok) throw new Error(`ESPN HTTP ${res.status} for ${url}`);
-  return res.json();
+//
+// Uses the Node https core module rather than fetch on purpose: WHATWG URL parsing
+// (which fetch/new URL apply) ALWAYS percent-encodes `{` and `}` to %7B/%7D, but the
+// fan API needs the SWID's literal curly braces in the path (it 404s on %7B). The
+// core module sends the path exactly as given, so we split host + raw path with a
+// regex (no URL normalization) to preserve them.
+function espnGet(url, creds) {
+  const m = String(url).match(/^https?:\/\/([^/]+)(\/[^\s]*)?$/);
+  const host = m ? m[1] : '';
+  const path = (m && m[2]) || '/';
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      { host, path, method: 'GET', headers: { Cookie: cookieHeader(creds), 'User-Agent': UA, Accept: 'application/json' } },
+      (res) => {
+        const status = res.statusCode || 0;
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (c) => { body += c; });
+        res.on('end', () => {
+          if (status === 401 || status === 403) return reject(new EspnAuthError());
+          if (status < 200 || status >= 300) return reject(new Error(`ESPN HTTP ${status} for ${url}`));
+          try { resolve(JSON.parse(body)); } catch { reject(new Error(`ESPN returned non-JSON for ${url}`)); }
+        });
+      },
+    );
+    req.on('error', reject);
+    req.setTimeout(12000, () => req.destroy(new Error('ESPN request timed out')));
+    req.end();
+  });
 }
 
 // --- league discovery (fan API) --------------------------------------------------------------
@@ -178,7 +194,8 @@ export async function discoverFanLeagues(creds) {
   const addUnique = (arr, v) => { if (v && !arr.includes(v)) arr.push(v); };
 
   for (const params of FAN_PARAM_VARIANTS) {
-    const url = `https://fan.api.espn.com/apis/v2/fans/${encodeURIComponent(creds.swid)}?${params}`;
+    // Raw SWID with literal { } — espnGet preserves them in the path (see its note).
+    const url = `https://fan.api.espn.com/apis/v2/fans/${creds.swid}?${params}`;
     let data;
     try {
       data = await espnGet(url, creds);
