@@ -162,7 +162,11 @@ function espnGet(url, creds) {
         res.on('data', (c) => { body += c; });
         res.on('end', () => {
           if (status === 401 || status === 403) return reject(new EspnAuthError());
-          if (status < 200 || status >= 300) return reject(new Error(`ESPN HTTP ${status} for ${url}`));
+          if (status < 200 || status >= 300) {
+            // Include ESPN's response body — its 400s usually name the rejected param.
+            const snip = body ? `: ${body.replace(/\s+/g, ' ').slice(0, 200)}` : '';
+            return reject(new Error(`ESPN HTTP ${status} for ${url}${snip}`));
+          }
           try { resolve(JSON.parse(body)); } catch { reject(new Error(`ESPN returned non-JSON for ${url}`)); }
         });
       },
@@ -193,13 +197,13 @@ export async function fetchFanLeagues(creds) {
   return leagues;
 }
 
-// The fan API scopes its `preferences` list by query params (e.g. recentDays /
-// displayNow can hide in-season leagues the user hasn't touched lately). We try a
-// few param variants and merge, so a baseball league missing from one shows up in
-// another. Listed broad→narrow.
+// The fan API is finicky about query params — the heavier ones (featureFlags,
+// displayNow, recentDays) appear to 400 some accounts. Try the barest requests
+// first and only fall back to richer ones; first variant that returns entries wins.
 const FAN_PARAM_VARIANTS = [
-  'context=fantasy&useCookies=true', // minimal: most likely to return everything
-  'featureFlags=expandAthlete&context=fantasy&useCookies=true&displayEvents=true&displayNow=true&recentDays=30',
+  '',                                 // bare: just the SWID, no query at all
+  'context=fantasy',                  // context only
+  'context=fantasy&useCookies=true',  // + useCookies
 ];
 
 // Same discovery as fetchFanLeagues, but also returns a non-sensitive `diag`
@@ -214,7 +218,7 @@ export async function discoverFanLeagues(creds) {
 
   for (const params of FAN_PARAM_VARIANTS) {
     // Raw SWID with literal { } — espnGet preserves them in the path (see its note).
-    const url = `https://fan.api.espn.com/apis/v2/fans/${creds.swid}?${params}`;
+    const url = `https://fan.api.espn.com/apis/v2/fans/${creds.swid}${params ? '?' + params : ''}`;
     let data;
     try {
       data = await espnGet(url, creds);
