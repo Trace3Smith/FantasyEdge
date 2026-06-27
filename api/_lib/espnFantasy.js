@@ -306,5 +306,12 @@ export async function fetchLeaguesWithRosters(creds, { maxLeagues = 12 } = {}) {
       return { leagueId: lg.leagueId, season: lg.seasonId, leagueName: lg.leagueName, team: null, roster: [], error: 'fetch_failed' };
     }
   });
-  return { count: discovered.length, truncated: discovered.length > leagues.length, leagues: results, diag };
+  // Classify an empty result so the UI can react precisely: a fan call that
+  // succeeds but returns ZERO entries is the signature of an expired espn_s2
+  // (ESPN serves a 200 guest profile, not a 401). Entries present but none in
+  // baseball means the account simply has no MLB league.
+  let state = 'ok';
+  if (!diag.ok) state = 'fan_error';
+  else if (discovered.length === 0) state = diag.prefCount === 0 ? 'expired' : 'no_baseball';
+  return { count: discovered.length, truncated: discovered.length > leagues.length, leagues: results, diag, state };
 }

@@ -42,6 +42,11 @@
   .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .5px; padding: 4px 10px; border-radius: 20px; text-transform: uppercase; }
   .pill.ok { background: rgba(76,175,80,0.15); color: #9bdc9e; border: 1px solid rgba(76,175,80,0.4); }
   .pill.off { background: rgba(255,255,255,0.06); color: var(--gray-light); }
+  .pill.warn { background: rgba(212,160,23,0.14); color: var(--gold-light); border: 1px solid rgba(212,160,23,0.4); text-transform: none; letter-spacing: 0; }
+  .reconnect { text-align: center; }
+  .reconnect .lock-emoji { font-size: 44px; margin-bottom: 12px; }
+  .reconnect .how, .reconnect .row { text-align: left; }
+  .reconnect .row { justify-content: center; }
 
   label.fld { display: block; margin-bottom: 14px; }
   label.fld .lbl { display: block; font-size: 12px; color: var(--gray-light); margin-bottom: 6px; font-weight: 600; }
@@ -145,6 +150,7 @@
 
   <!-- Connect form (premium, not connected) -->
   <div class="panel hidden" id="connectPanel">
+    <div class="msg show ok hidden" id="reconnectNote" style="margin-bottom:12px">↻ Refreshing your ESPN connection — paste your latest cookies below and you're set for another month or two.</div>
     <h2>Connect your ESPN account</h2>
     <p class="hint">
       ESPN doesn't offer a public login API, so we use the two cookies your browser already has after
@@ -165,17 +171,7 @@
     </div>
     <div class="msg" id="connectMsg"></div>
 
-    <details class="how">
-      <summary>How do I find these cookies?</summary>
-      <ol>
-        <li>Log in to <code>fantasy.espn.com</code> in Chrome, Edge, or Firefox on a computer.</li>
-        <li>Open DevTools (<code>F12</code> or right-click → Inspect) and go to the <b>Application</b> tab (Chrome/Edge) or <b>Storage</b> tab (Firefox).</li>
-        <li>Under <b>Cookies</b>, click <code>https://fantasy.espn.com</code>.</li>
-        <li>Find the row named <code>espn_s2</code> and copy its full <b>Value</b> into the first box above.</li>
-        <li>Find the row named <code>SWID</code> and copy its <b>Value</b> (including the curly braces) into the second box.</li>
-        <li>Click <b>Connect ESPN</b>. We'll verify the cookies with ESPN before saving them.</li>
-      </ol>
-    </details>
+    <div id="connectGuide"></div>
   </div>
 
   <!-- Connected state (premium, connected) -->
@@ -242,17 +238,39 @@
     if (data.connected) {
       show('connectPanel', false);
       show('connectedWrap', true);
-      $('connInfo').textContent = `ESPN ID ${data.swid || ''}` + (data.savedAt ? ` · linked ${fmtDate(data.savedAt)}` : '');
+      $('connInfo').innerHTML = connInfoHtml(data.swid, data.savedAt);
       loadLeagues();
     } else {
       show('connectedWrap', false);
       show('connectPanel', true);
+      $('reconnectNote').classList.add('hidden'); // first-time connect, not a reconnect
     }
   }
 
   function fmtDate(iso) {
     const d = new Date(iso);
     return isNaN(d) ? '' : d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function daysSince(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return null;
+    return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
+  }
+
+  // Connected-state line: which ESPN account, when it was linked, and a gentle
+  // heads-up as the ~30–90 day cookie window approaches so expiry isn't a surprise.
+  function connInfoHtml(swid, savedAt) {
+    let s = `ESPN ${escapeHtml(swid || '')}`;
+    if (!savedAt) return s;
+    const n = daysSince(savedAt);
+    s += ` · linked ${escapeHtml(fmtDate(savedAt))}` + (n != null ? ` (${n}d ago)` : '');
+    if (n != null && n >= 25) {
+      s += ` <span class="pill warn" style="margin-left:6px">↻ ESPN cookies last ~30–90 days — reconnect if leagues stop loading</span>`;
+    } else {
+      s += ` <span class="hint" style="opacity:.6">· ESPN cookies last ~30–90 days</span>`;
+    }
+    return s;
   }
 
   // ---- connect -------------------------------------------------------------------
@@ -268,6 +286,7 @@
     $('connectBtn').textContent = 'Connect ESPN';
     if (ok) {
       $('s2Input').value = ''; $('swidInput').value = '';
+      $('reconnectNote').classList.add('hidden');
       await refreshStatus();
       return;
     }
@@ -319,12 +338,57 @@
   function renderLeagues(data) {
     const leagues = (data && data.leagues) || [];
     if (!leagues.length) {
-      $('leaguesArea').innerHTML = '<div class="panel"><div class="empty">No ESPN fantasy baseball leagues found for this account. If you just joined a league, give ESPN a few minutes, then hit Refresh.</div>'
-        + renderDiag(data && data.diag) + '</div>';
+      // Expired espn_s2: ESPN returned a 200 guest profile with no entries. Don't
+      // mislead with "no leagues found" — prompt a reconnect.
+      if (data && data.state === 'expired') { renderExpired(); return; }
+      const msg = (data && data.state === 'no_baseball')
+        ? 'This ESPN account has no fantasy baseball leagues. Lineup Autopilot currently supports MLB — if your baseball league is on a different ESPN login, reconnect with that account\'s cookies.'
+        : 'No ESPN fantasy baseball leagues found for this account. If you just joined a league, give ESPN a few minutes, then hit Refresh.';
+      $('leaguesArea').innerHTML = `<div class="panel"><div class="empty">${msg}</div>${renderDiag(data && data.diag)}</div>`;
       return;
     }
     if (data.truncated) setMsg('leaguesMsg', `Showing your first ${leagues.length} of ${data.count} leagues.`, 'ok');
     $('leaguesArea').innerHTML = leagues.map(renderLeagueCard).join('');
+  }
+
+  // Expired-session panel: clear explanation + one-click path back to the connect
+  // form + the 60-second guide to grabbing fresh cookies.
+  function renderExpired() {
+    $('leaguesArea').innerHTML = `
+      <div class="panel reconnect">
+        <div class="lock-emoji">🔑</div>
+        <h2>Your ESPN session expired — reconnect your cookies</h2>
+        <p class="hint">ESPN sign-in cookies (<code>espn_s2</code>) only last about 30–90 days, then ESPN stops accepting them. Yours have expired. Grab fresh cookies — it takes under a minute — and you're back in.</p>
+        <div class="row"><button class="btn btn-gold" id="reconnectBtn">Reconnect ESPN →</button></div>
+        ${quickGuideHtml()}
+      </div>`;
+    const btn = $('reconnectBtn');
+    if (btn) btn.addEventListener('click', goReconnect);
+  }
+
+  // Reveal the connect form in "reconnect" mode and jump to it.
+  function goReconnect() {
+    setMsg('connectMsg', '');
+    show('connectedWrap', false);
+    show('connectPanel', true);
+    $('reconnectNote').classList.remove('hidden');
+    $('connectPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTimeout(() => $('s2Input').focus(), 250);
+  }
+
+  // The shared 60-second "get fresh cookies" walkthrough.
+  function quickGuideHtml() {
+    return `<details class="how" open>
+      <summary>Get fresh cookies in under 60 seconds</summary>
+      <ol>
+        <li>Open <a href="https://fantasy.espn.com" target="_blank" rel="noopener" style="color:var(--gold)">fantasy.espn.com</a> in a desktop browser and make sure you're <b>logged in</b> (you should see your teams).</li>
+        <li>Press <code>F12</code> (or right-click → <b>Inspect</b>) to open DevTools.</li>
+        <li>Go to <b>Application</b> (Chrome/Edge) or <b>Storage</b> (Firefox) → <b>Cookies</b> → <code>https://fantasy.espn.com</code>.</li>
+        <li>Copy the <b>Value</b> of <code>espn_s2</code> (long string) and the <b>Value</b> of <code>SWID</code> (keep the <code>{ }</code> braces).</li>
+        <li>Paste both below and hit <b>Connect ESPN</b>. We verify them with ESPN before saving.</li>
+      </ol>
+      <p class="hint" style="margin-top:6px;opacity:.7">Tip: bookmark this page — when leagues stop loading in a month or two, it's just time to repeat these steps.</p>
+    </details>`;
   }
 
   function renderLeagueCard(lg) {
@@ -401,6 +465,7 @@
   }
 
   // ---- wiring --------------------------------------------------------------------
+  $('connectGuide').innerHTML = quickGuideHtml(); // same 60-second walkthrough for first connect + reconnect
   $('connectBtn').addEventListener('click', connect);
   $('disconnectBtn').addEventListener('click', disconnect);
   $('refreshBtn').addEventListener('click', loadLeagues);
