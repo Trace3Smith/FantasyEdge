@@ -103,6 +103,16 @@
   .locked p { font-size: 13px; color: var(--gray-light); line-height: 1.6; margin: 0 auto 22px; max-width: 460px; }
   .locked button { background: var(--gold); color: #111; border: none; border-radius: 8px; padding: 12px 24px; font-family: inherit; font-weight: 700; font-size: 14px; cursor: pointer; }
   .hidden { display: none !important; }
+  /* Lineup suggestions */
+  .sugg { margin: 0 0 14px; padding: 12px 14px; background: rgba(212,160,23,0.07); border: 1px solid rgba(212,160,23,0.25); border-radius: 10px; }
+  .sugg-ok { color: #9bdc9e; font-size: 13px; background: rgba(76,175,80,0.08); border-color: rgba(76,175,80,0.3); }
+  .sugg-head { font-weight: 700; font-size: 13px; color: var(--gold-light); margin-bottom: 8px; }
+  .sugg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+  .sugg-list li { font-size: 13px; color: var(--gray-light); line-height: 1.5; }
+  .sugg-tag { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 2px 7px; border-radius: 12px; background: rgba(212,160,23,0.18); color: var(--gold-light); margin-right: 6px; }
+  .sugg-tag.inj { background: rgba(229,76,76,0.18); color: #f3a1a1; }
+  .sugg-meta { color: var(--gray); font-size: 12px; }
+  .sugg-arrow { color: var(--gold); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -130,7 +140,7 @@
 <main class="main">
   <div class="top-header">
     <div class="page-title">LINEUP <span>AUTOPILOT</span></div>
-    <div class="page-subtitle">Connect your ESPN fantasy baseball account to pull your leagues and rosters. Lineup suggestions &amp; autopilot are coming next.</div>
+    <div class="page-subtitle">Connect your ESPN fantasy baseball account for start/sit suggestions on every roster. One-tap autopilot is coming next.</div>
   </div>
 
   <!-- Premium lock (non-premium users) -->
@@ -411,6 +421,7 @@
         </div>
         ${rec ? `<div class="lc-record">${rec}</div>` : ''}
       </div>
+      ${renderSuggestions(lg.suggestions)}
       <table class="roster">
         <thead><tr><th style="width:64px">Slot</th><th>Player</th><th style="width:110px">Pos · Team</th></tr></thead>
         <tbody>${rows}</tbody>
@@ -445,6 +456,28 @@
 
   function team_count_label(lg) {
     return `${lg.teamCount}-team league` + (lg.scoringType ? ` · ${escapeHtml(lg.scoringType)}` : '');
+  }
+
+  // Start/sit suggestions for one league (computed server-side from our MLB values).
+  function renderSuggestions(s) {
+    if (!s) return ''; // dataset unavailable / non-baseball — show nothing
+    if (!s.moves || !s.moves.length) {
+      return `<div class="sugg sugg-ok">✓ Your lineup looks optimal — every best available bat & arm is in.</div>`;
+    }
+    const head = `<div class="sugg-head">⚡ ${s.moves.length} lineup ${s.moves.length === 1 ? 'move' : 'moves'} suggested`
+      + (s.summary && s.summary.injuredStarters ? ` · ${s.summary.injuredStarters} injured starter${s.summary.injuredStarters > 1 ? 's' : ''}` : '')
+      + (s.summary && s.summary.totalGain > 0 ? ` · +${s.summary.totalGain} proj. value` : '') + '</div>';
+    const items = s.moves.map((m) => {
+      const tag = m.reason === 'injury' ? '<span class="sugg-tag inj">injury</span>'
+        : m.reason === 'empty_slot' ? '<span class="sugg-tag">empty slot</span>'
+        : `<span class="sugg-tag">+${m.gain}</span>`;
+      const inLine = `<b>${escapeHtml(m.in)}</b>${m.inHot ? ' 🔥' : ''} <span class="sugg-meta">${escapeHtml(m.inMeta)}</span>`;
+      const body = m.out
+        ? `Start ${inLine} <span class="sugg-arrow">over</span> ${escapeHtml(m.out)} <span class="sugg-meta">${escapeHtml(m.outMeta)}</span> at <b>${escapeHtml(m.slot)}</b>`
+        : `Start ${inLine} in your open <b>${escapeHtml(m.slot)}</b> slot`;
+      return `<li>${tag} ${body}</li>`;
+    }).join('');
+    return `<div class="sugg"><div>${head}</div><ul class="sugg-list">${items}</ul></div>`;
   }
 
   function renderRoster(roster) {

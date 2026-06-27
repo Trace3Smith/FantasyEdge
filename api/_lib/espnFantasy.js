@@ -107,6 +107,11 @@ const posOf = (id) => POSITION_BY_ID[id] || 'UTIL';
 const slotOf = (id) => SLOT_BY_ID[id] ?? String(id);
 const teamOf = (id) => PROTEAM_BY_ID[id] || '';
 
+// Exposed for the lineup advisor: human label for a slot id, and whether a slot
+// is an active (startable) lineup spot rather than bench/IL.
+export const slotLabel = (id) => slotOf(id);
+export const isActiveSlot = (id) => !BENCH_SLOTS.has(Number(id));
+
 // --- low-level fetch -------------------------------------------------------------------------
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
@@ -230,14 +235,20 @@ function parseRoster(entries = []) {
   const players = entries.map((en) => {
     const pl = en.playerPoolEntry?.player || en.player || {};
     const slotId = en.lineupSlotId;
+    // eligibleSlots is the set of lineup-slot ids this player may legally fill —
+    // the basis for optimal start/sit assignment (a hitter's includes UTIL, a
+    // pitcher's SP/RP/P, etc.). ESPN already encodes the generic-slot rules here.
     return {
+      id: pl.id ?? null,
       name: pl.fullName || 'Unknown',
       pos: posOf(pl.defaultPositionId),
       proTeam: teamOf(pl.proTeamId),
       slot: slotOf(slotId),
       slotId,
+      eligibleSlots: Array.isArray(pl.eligibleSlots) ? pl.eligibleSlots : [],
       starter: !BENCH_SLOTS.has(slotId),
       injury: INJURY_LABEL[pl.injuryStatus] || '',
+      injuryStatus: pl.injuryStatus || 'ACTIVE',
     };
   });
   // Starters first (in lineup-slot order), then bench/IR.
@@ -263,6 +274,8 @@ export async function fetchLeagueRoster(creds, { leagueId, seasonId, teamId }) {
     leagueName: data?.settings?.name || `League ${leagueId}`,
     teamCount: teams.length,
     scoringType: data?.settings?.scoringSettings?.scoringType || null,
+    // Active lineup shape: { slotId: count }. Drives optimal-assignment slot openings.
+    slotCounts: data?.settings?.rosterSettings?.lineupSlotCounts || {},
     team: team
       ? {
           id: team.id,

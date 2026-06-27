@@ -10,11 +10,12 @@
 //   action: 'disconnect' -> delete stored cookies; { connected: false }
 //   action: 'leagues'    -> { leagues: [...] } with rosters
 import { requirePremium, sendError, HttpError } from '../_lib/auth.js';
-import { redis } from '../_lib/kv.js';
+import { redis, DATASET_KEY } from '../_lib/kv.js';
 import {
   normalizeS2, normalizeSwid, saveCreds, getCreds, deleteCreds,
   fetchFanLeagues, fetchLeaguesWithRosters, maskSwid, credsShape, EspnAuthError,
 } from '../_lib/espnFantasy.js';
+import { attachSuggestions } from '../_lib/lineupAdvisor.js';
 
 // connect + leagues make several ESPN network calls; raise above the 10s Hobby default.
 export const maxDuration = 30;
@@ -96,6 +97,15 @@ async function leagues(res, userId) {
     }
     throw err;
   }
+
+  // Annotate each league with start/sit suggestions from our MLB valuations.
+  // Best-effort: read the cached dataset directly (no rebuild) so a cold/missing
+  // dataset degrades to "no suggestions" rather than blocking the roster view.
+  try {
+    const ds = await redis.get(DATASET_KEY);
+    const players = (ds?.players || []).filter((p) => !p.searchOnly);
+    if (players.length) attachSuggestions(result, players);
+  } catch { /* suggestions are optional */ }
 
   // Surface (non-sensitive) cred shape for debugging "connected but no leagues".
   if (result.diag) result.diag.creds = credsShape(creds);
