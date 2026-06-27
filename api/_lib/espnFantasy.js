@@ -11,8 +11,6 @@
 // (server-side) and are never returned to the browser — status checks expose a
 // connected boolean and a masked SWID at most. Every caller is premium-gated.
 
-import https from 'node:https';
-
 const credsKey = (userId) => `espn:creds:${userId}`;
 
 // A thrown EspnAuthError means ESPN rejected the cookies (expired/invalid) — the
@@ -143,38 +141,30 @@ function cookieHeader(creds) {
 // GET an ESPN JSON endpoint with the user's cookies. Throws EspnAuthError on 401/403
 // (bad/expired cookies) so callers can prompt a reconnect; other non-2xx → generic Error.
 //
-// Uses the Node https core module rather than fetch on purpose: WHATWG URL parsing
-// (which fetch/new URL apply) ALWAYS percent-encodes `{` and `}` to %7B/%7D, but the
-// fan API needs the SWID's literal curly braces in the path (it 404s on %7B). The
-// core module sends the path exactly as given, so we split host + raw path with a
-// regex (no URL normalization) to preserve them.
-function espnGet(url, creds) {
-  const m = String(url).match(/^https?:\/\/([^/]+)(\/[^\s]*)?$/);
-  const host = m ? m[1] : '';
-  const path = (m && m[2]) || '/';
-  return new Promise((resolve, reject) => {
-    const req = https.request(
-      { host, path, method: 'GET', headers: { Cookie: cookieHeader(creds), 'User-Agent': UA, Accept: 'application/json' } },
-      (res) => {
-        const status = res.statusCode || 0;
-        let body = '';
-        res.setEncoding('utf8');
-        res.on('data', (c) => { body += c; });
-        res.on('end', () => {
-          if (status === 401 || status === 403) return reject(new EspnAuthError());
-          if (status < 200 || status >= 300) {
-            // Include ESPN's response body — its 400s usually name the rejected param.
-            const snip = body ? `: ${body.replace(/\s+/g, ' ').slice(0, 200)}` : '';
-            return reject(new Error(`ESPN HTTP ${status} for ${url}${snip}`));
-          }
-          try { resolve(JSON.parse(body)); } catch { reject(new Error(`ESPN returned non-JSON for ${url}`)); }
-        });
-      },
-    );
-    req.on('error', reject);
-    req.setTimeout(12000, () => req.destroy(new Error('ESPN request timed out')));
-    req.end();
-  });
+// Uses fetch, which percent-encodes the SWID's `{ }` to %7B/%7D — that's the correct,
+// RFC-3986-valid form the fan API expects (the same encoding Python's requests sends).
+// Do NOT send literal braces: they're illegal URI chars and ESPN's Tomcat layer 400s
+// them with an HTML error page.
+async function espnGet(url, creds) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 12000);
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: { Cookie: cookieHeader(creds), 'User-Agent': UA, Accept: 'application/json' },
+      signal: ctrl.signal,
+    });
+  } finally {
+    clearTimeout(t);
+  }
+  if (res.status === 401 || res.status === 403) throw new EspnAuthError();
+  if (!res.ok) {
+    // Include ESPN's response body — its 400s usually name what they rejected.
+    const body = await res.text().catch(() => '');
+    const snip = body ? `: ${body.replace(/\s+/g, ' ').slice(0, 200)}` : '';
+    throw new Error(`ESPN HTTP ${res.status} for ${url}${snip}`);
+  }
+  return res.json();
 }
 
 // --- league discovery (fan API) --------------------------------------------------------------
@@ -197,13 +187,13 @@ export async function fetchFanLeagues(creds) {
   return leagues;
 }
 
-// The fan API is finicky about query params — the heavier ones (featureFlags,
-// displayNow, recentDays) appear to 400 some accounts. Try the barest requests
-// first and only fall back to richer ones; first variant that returns entries wins.
+// `context=fantasy` is load-bearing: it routes the request to the modern fan
+// service. Without it the bare path falls through to an old Tomcat backend that
+// 400s. We keep the params minimal (no featureFlags/displayNow/recentDays — those
+// 400 some accounts); first variant that returns entries wins.
 const FAN_PARAM_VARIANTS = [
-  '',                                 // bare: just the SWID, no query at all
-  'context=fantasy',                  // context only
-  'context=fantasy&useCookies=true',  // + useCookies
+  'context=fantasy&useCookies=true',
+  'context=fantasy',
 ];
 
 // Same discovery as fetchFanLeagues, but also returns a non-sensitive `diag`
@@ -300,18 +290,14 @@ function parseRoster(entries = []) {
   return players;
 }
 
-// Fetch one league and pull the authoritative league name + the user's team + roster.
-export async function fetchLeagueRoster(creds, { leagueId, seasonId, teamId }) {
-  const url = `${V3_BASE}/${seasonId}/segments/0/leagues/${leagueId}`
-    + `?view=mTeam&view=mRoster&view=mSettings`;
-  const data = await espnGet(url, creds);
+// Shape one league + the user's team into our result object.
+function buildLeagueResult(data, team, { leagueId, seasonId }) {
   const teams = Array.isArray(data?.teams) ? data.teams : [];
-  const team = teams.find((t) => t.id === teamId) || null;
   const name = (t) => `${t.location || ''} ${t.nickname || ''}`.trim() || t.name || t.abbrev || `Team ${t.id}`;
   return {
     leagueId,
     season: seasonId,
-    teamId,
+    teamId: team ? team.id : null,
     // Current scoring period (the day, for MLB) — required by the lineup-set write.
     scoringPeriodId: data?.scoringPeriodId ?? data?.status?.latestScoringPeriod ?? null,
     leagueName: data?.settings?.name || `League ${leagueId}`,
@@ -332,6 +318,30 @@ export async function fetchLeagueRoster(creds, { leagueId, seasonId, teamId }) {
       : null,
     roster: team ? parseRoster(team.roster?.entries || []) : [],
   };
+}
+
+const leagueUrl = (leagueId, seasonId) => `${V3_BASE}/${seasonId}/segments/0/leagues/${leagueId}`
+  + `?view=mTeam&view=mRoster&view=mSettings`;
+
+// Fetch one league and pull the authoritative league name + the user's team + roster.
+export async function fetchLeagueRoster(creds, { leagueId, seasonId, teamId }) {
+  const data = await espnGet(leagueUrl(leagueId, seasonId), creds);
+  const teams = Array.isArray(data?.teams) ? data.teams : [];
+  const team = teams.find((t) => t.id === teamId) || null;
+  return buildLeagueResult(data, team, { leagueId, seasonId });
+}
+
+// Manual add: fetch a league by id and find the user's team by SWID ownership (no fan
+// API). Throws { code:'not_a_member' } if this SWID owns no team in the league.
+export async function fetchLeagueByOwner(creds, { leagueId, seasonId }) {
+  const data = await espnGet(leagueUrl(leagueId, seasonId), creds);
+  const teams = Array.isArray(data?.teams) ? data.teams : [];
+  const mySwid = normalizeSwid(creds.swid).toUpperCase();
+  const owns = (t) => [t.primaryOwner, ...(Array.isArray(t.owners) ? t.owners : [])]
+    .filter(Boolean).some((o) => String(o).toUpperCase() === mySwid);
+  const team = teams.find(owns) || null;
+  if (!team) { const e = new Error('SWID owns no team in this league'); e.code = 'not_a_member'; throw e; }
+  return buildLeagueResult(data, team, { leagueId, seasonId });
 }
 
 // --- lineup write (v3 transactions) ----------------------------------------------------------
@@ -382,6 +392,32 @@ export async function setLineup(creds, { leagueId, seasonId, teamId, scoringPeri
     throw new Error(`ESPN lineup write HTTP ${res.status}${txt ? ': ' + txt.slice(0, 180) : ''}`);
   }
   return { applied: items.length };
+}
+
+// --- manually-added leagues (Redis, per Clerk user) ------------------------------------------
+// Fallback when fan discovery fails: the user pastes a league id and we store it at
+// espn:manualleagues:{userId} = [{ leagueId, season }].
+const manualLeaguesKey = (userId) => `espn:manualleagues:${userId}`;
+
+export async function getManualLeagues(redis, userId) {
+  const list = await redis.get(manualLeaguesKey(userId));
+  return Array.isArray(list) ? list : [];
+}
+
+export async function addManualLeague(redis, userId, { leagueId, season }) {
+  const list = await getManualLeagues(redis, userId);
+  if (!list.some((l) => String(l.leagueId) === String(leagueId) && String(l.season) === String(season))) {
+    list.push({ leagueId: String(leagueId), season });
+  }
+  await redis.set(manualLeaguesKey(userId), list);
+  return list;
+}
+
+export async function removeManualLeague(redis, userId, { leagueId, season }) {
+  const list = (await getManualLeagues(redis, userId))
+    .filter((l) => !(String(l.leagueId) === String(leagueId) && String(l.season) === String(season)));
+  await redis.set(manualLeaguesKey(userId), list);
+  return list;
 }
 
 // --- autopilot preferences (Redis, per Clerk user) -------------------------------------------

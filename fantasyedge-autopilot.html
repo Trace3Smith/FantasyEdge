@@ -127,6 +127,9 @@
   .ap-msg { font-size: 12px; }
   .ap-msg.ok { color: #9bdc9e; }
   .ap-msg.err { color: #f3a1a1; }
+  .add-league summary { cursor: pointer; font-weight: 600; color: var(--gold); font-size: 14px; }
+  .add-league .row { margin-top: 12px; gap: 10px; align-items: center; }
+  .add-league .hint { margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -218,6 +221,16 @@
     </div>
 
     <div id="leaguesArea"></div>
+
+    <details class="panel add-league">
+      <summary>Missing a league? Add it by ID</summary>
+      <p class="hint">If automatic discovery didn't find one of your leagues, paste its League ID. It's in the league's URL on ESPN — <code>fantasy.espn.com/baseball/league?leagueId=<b>123456</b></code>. We match your team automatically from your SWID.</p>
+      <div class="row">
+        <input class="txt" id="addLeagueId" placeholder="League ID (e.g. 123456)" inputmode="numeric" autocomplete="off" spellcheck="false" style="max-width:220px">
+        <button class="btn btn-gold" id="addLeagueBtn">Add league</button>
+      </div>
+      <div class="msg" id="addLeagueMsg"></div>
+    </details>
   </div>
 </main>
 
@@ -341,6 +354,27 @@
       setMsg('connectMsg', 'That SWID isn\'t in the expected {GUID} format. Copy the value of the cookie named exactly "SWID".', 'err');
     } else {
       setMsg('connectMsg', (data && data.error) ? data.error : 'Could not connect to ESPN. Try again in a moment.', 'err');
+    }
+  }
+
+  // ---- add a league by id (fan-discovery fallback) -------------------------------
+  async function addLeagueById() {
+    const leagueId = $('addLeagueId').value.trim();
+    if (!/^\d+$/.test(leagueId)) { setMsg('addLeagueMsg', 'Enter the numeric League ID from your league\'s URL.', 'err'); return; }
+    $('addLeagueBtn').disabled = true; const old = $('addLeagueBtn').textContent; $('addLeagueBtn').textContent = 'Adding…';
+    setMsg('addLeagueMsg', '');
+    const { ok, data } = await api('/api/espn', { action: 'addLeague', leagueId });
+    $('addLeagueBtn').disabled = false; $('addLeagueBtn').textContent = old;
+    if (ok) {
+      $('addLeagueId').value = '';
+      setMsg('addLeagueMsg', `✓ Added ${(data.league && data.league.leagueName) || 'league'}${data.league && data.league.teamName ? ' — ' + data.league.teamName : ''}`, 'ok');
+      loadLeagues();
+    } else {
+      const m = data && data.error === 'not_a_member' ? 'That league exists, but your account has no team in it — check you\'re on the right ESPN login.'
+        : data && data.error === 'espn_auth' ? 'Your ESPN cookies expired — reconnect.'
+        : data && data.error === 'league_not_found' ? 'Couldn\'t open that league with your cookies. Double-check the ID.'
+        : (data && (data.detail || data.error)) || 'Could not add that league.';
+      setMsg('addLeagueMsg', '✗ ' + m, 'err');
     }
   }
 
@@ -592,6 +626,7 @@
   $('connectBtn').addEventListener('click', connect);
   $('disconnectBtn').addEventListener('click', disconnect);
   $('refreshBtn').addEventListener('click', loadLeagues);
+  $('addLeagueBtn').addEventListener('click', addLeagueById);
   // Delegated: league cards (and the apply button / autopilot toggle inside them)
   // are injected via innerHTML, so listen on the stable container.
   $('leaguesArea').addEventListener('click', (e) => {

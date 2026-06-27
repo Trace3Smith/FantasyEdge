@@ -13,8 +13,9 @@ import { requirePremium, sendError, HttpError } from '../_lib/auth.js';
 import { redis, DATASET_KEY } from '../_lib/kv.js';
 import {
   normalizeS2, normalizeSwid, isValidSwid, saveCreds, getCreds, deleteCreds,
-  fetchFanLeagues, fetchLeaguesWithRosters, fetchLeagueRoster, setLineup,
+  fetchFanLeagues, fetchLeaguesWithRosters, fetchLeagueRoster, fetchLeagueByOwner, setLineup,
   getAutopilot, setAutopilotLeague, leagueKeyOf,
+  getManualLeagues, addManualLeague, removeManualLeague,
   maskSwid, credsShape, EspnAuthError,
 } from '../_lib/espnFantasy.js';
 import { attachSuggestions, buildMlbValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
@@ -35,6 +36,8 @@ export default async function handler(req, res) {
       case 'leagues':    return await leagues(res, userId);
       case 'apply':      return await applyLineup(req, res, userId);
       case 'autopilot':  return await autopilotPref(req, res, userId);
+      case 'addLeague':  return await addLeague(req, res, userId);
+      case 'removeLeague': return await removeLeague(req, res, userId);
       default:
         return res.status(400).json({ error: 'unknown_action' });
     }
@@ -106,6 +109,20 @@ async function leagues(res, userId) {
     }
     throw err;
   }
+
+  // Merge in any manually-added leagues (fan-discovery fallback), deduped against
+  // what discovery already found. Best-effort per league.
+  try {
+    const manual = await getManualLeagues(redis, userId);
+    const have = new Set((result.leagues || []).filter((l) => l.teamId != null).map(leagueKeyOf));
+    for (const m of manual) {
+      try {
+        const lg = await fetchLeagueByOwner(creds, { leagueId: m.leagueId, seasonId: Number(m.season) });
+        lg.manual = true;
+        if (!have.has(leagueKeyOf(lg))) { result.leagues = result.leagues || []; result.leagues.push(lg); have.add(leagueKeyOf(lg)); }
+      } catch { /* skip a manual league that fails to load */ }
+    }
+  } catch { /* manual merge is optional */ }
 
   // Annotate each league with start/sit suggestions from our MLB valuations.
   // Best-effort: read the cached dataset directly (no rebuild) so a cold/missing
@@ -179,4 +196,35 @@ async function autopilotPref(req, res, userId) {
     return res.json({ on, prefs });
   }
   return res.json({ prefs: await getAutopilot(redis, userId) });
+}
+
+// Manually add a league by id (fan-discovery fallback). Verifies the SWID owns a team
+// in it BEFORE saving, so we never store a league the user isn't actually in.
+async function addLeague(req, res, userId) {
+  const creds = await getCreds(redis, userId);
+  if (!creds) throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
+
+  const leagueId = String(req.body?.leagueId || '').trim();
+  const season = Number(req.body?.season) || new Date().getFullYear();
+  if (!/^\d+$/.test(leagueId)) throw new HttpError(400, 'Invalid league id', { error: 'bad_league_id' });
+
+  let lg;
+  try {
+    lg = await fetchLeagueByOwner(creds, { leagueId, seasonId: season });
+  } catch (err) {
+    if (err instanceof EspnAuthError) throw new HttpError(409, 'ESPN cookies expired', { error: 'espn_auth', reconnect: true });
+    if (err.code === 'not_a_member') throw new HttpError(404, 'No team for you in that league', { error: 'not_a_member' });
+    // 404 from ESPN = league not found / not visible to these cookies.
+    throw new HttpError(404, 'League not found', { error: 'league_not_found', detail: String(err.message || err) });
+  }
+
+  await addManualLeague(redis, userId, { leagueId, season });
+  return res.json({ added: true, league: { leagueId, season, teamName: lg.team?.name || null, leagueName: lg.leagueName } });
+}
+
+async function removeLeague(req, res, userId) {
+  const leagueId = String(req.body?.leagueId || '').trim();
+  const season = Number(req.body?.season) || new Date().getFullYear();
+  const list = await removeManualLeague(redis, userId, { leagueId, season });
+  return res.json({ removed: true, count: list.length });
 }
