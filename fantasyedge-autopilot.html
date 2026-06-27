@@ -452,7 +452,7 @@
     const sk = diag.skipped || {};
     const c = diag.creds || {};
     const credsLine = c.present
-      ? `yes · espn_s2 ${c.s2Len} chars · ${c.swid || ''}${c.savedAt ? ' · saved ' + c.savedAt : ''}`
+      ? `yes · espn_s2 ${c.s2Len} chars · SWID ${c.swid || ''} (${c.swidLen} chars, braces ${c.swidBraces || '?'})${c.savedAt ? ' · saved ' + c.savedAt : ''}`
       : 'NO — nothing stored for this user';
     const rows = [
       ['stored cookies', credsLine],

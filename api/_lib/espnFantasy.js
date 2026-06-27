@@ -28,11 +28,13 @@ export class EspnAuthError extends Error {
 // SWID is the GUID-in-braces cookie; normalize so a paste with/without braces or
 // surrounding quotes/whitespace all land in the canonical `{...}` form ESPN expects.
 export function normalizeSwid(raw) {
-  let s = String(raw || '').trim().replace(/^["']|["']$/g, '').trim();
-  if (!s) return '';
-  if (!s.startsWith('{')) s = '{' + s;
-  if (!s.endsWith('}')) s = s + '}';
-  return s;
+  // Strip surrounding quotes/whitespace AND any existing braces, then re-wrap in
+  // exactly one pair. This canonicalizes every variant — "{GUID}", "GUID", "GUID}",
+  // "{GUID", '"{GUID}"', "{{GUID}}" — to the single "{GUID}" form ESPN's write API
+  // (memberId) validates strictly. The old version only added a brace when one was
+  // entirely absent, so a half-braced paste could persist and 400 the lineup write.
+  const inner = String(raw || '').trim().replace(/^["']+|["']+$/g, '').trim().replace(/[{}]/g, '');
+  return inner ? `{${inner}}` : '';
 }
 
 // espn_s2 is a long URL-encoded token; just trim surrounding whitespace/quotes.
@@ -48,7 +50,11 @@ export async function saveCreds(redis, userId, { espn_s2, swid }) {
 
 export async function getCreds(redis, userId) {
   const c = await redis.get(credsKey(userId));
-  return c && c.espn_s2 && c.swid ? c : null;
+  if (!(c && c.espn_s2 && c.swid)) return null;
+  // Re-normalize the SWID on read so a previously-saved malformed value (e.g. a
+  // missing brace) is healed transparently for both the fan path and the write
+  // memberId — no reconnect required.
+  return { ...c, swid: normalizeSwid(c.swid) };
 }
 
 export async function deleteCreds(redis, userId) {
@@ -69,10 +75,14 @@ export function maskSwid(swid) {
 // Never includes the raw cookie value; safe to surface to the client for debugging.
 export function credsShape(creds) {
   if (!creds) return { present: false };
+  const swid = String(creds.swid || '');
   return {
     present: true,
     s2Len: String(creds.espn_s2 || '').length,
     swid: maskSwid(creds.swid),
+    // True brace state (maskSwid fabricates braces, so it can't reveal this).
+    swidLen: swid.length,
+    swidBraces: `${swid.startsWith('{') ? 'open✓' : 'open✗'} ${swid.endsWith('}') ? 'close✓' : 'close✗'}`,
     savedAt: creds.savedAt || null,
   };
 }
@@ -325,7 +335,7 @@ export async function setLineup(creds, { leagueId, seasonId, teamId, scoringPeri
     isLeagueManager: false,
     teamId,
     type: 'ROSTER',
-    memberId: creds.swid,
+    memberId: normalizeSwid(creds.swid),
     scoringPeriodId,
     executionType: 'EXECUTE',
     items: items.map((it) => ({
