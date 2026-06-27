@@ -62,6 +62,19 @@ export function maskSwid(swid) {
   return `{${inner.slice(0, 4)}…${inner.slice(-4)}}`;
 }
 
+// Non-sensitive summary of what's stored for a user — confirms creds were actually
+// retrieved and are well-formed (a healthy espn_s2 is a long ~250-400 char token).
+// Never includes the raw cookie value; safe to surface to the client for debugging.
+export function credsShape(creds) {
+  if (!creds) return { present: false };
+  return {
+    present: true,
+    s2Len: String(creds.espn_s2 || '').length,
+    swid: maskSwid(creds.swid),
+    savedAt: creds.savedAt || null,
+  };
+}
+
 // --- ESPN id → label maps --------------------------------------------------------------------
 // ESPN baseball (flb) uses one id scheme for both a player's default position
 // (player.defaultPositionId) and the lineup slot they occupy (entry.lineupSlotId).
@@ -154,7 +167,7 @@ const FAN_PARAM_VARIANTS = [
 // seasons seen, why entries were skipped, any transport error). No cookies or tokens
 // are included — safe to surface to the client to debug "no leagues found".
 export async function discoverFanLeagues(creds) {
-  const diag = { ok: false, prefCount: 0, abbrevs: [], seasons: [], types: [], entryKeys: [], skipped: { abbrev: 0, ids: 0, noEntry: 0 }, kept: 0, variants: 0, error: null };
+  const diag = { ok: false, prefCount: 0, abbrevs: [], seasons: [], types: [], entryKeys: [], responseKeys: [], skipped: { abbrev: 0, ids: 0, noEntry: 0 }, kept: 0, variants: 0, error: null };
   const out = [];
   const seen = new Set();
   const addUnique = (arr, v) => { if (v && !arr.includes(v)) arr.push(v); };
@@ -172,6 +185,7 @@ export async function discoverFanLeagues(creds) {
       continue; // try the next variant
     }
 
+    if (!diag.responseKeys.length) diag.responseKeys = Object.keys(data || {}); // 'preferences' if logged in; guest/empty otherwise
     const prefs = Array.isArray(data?.preferences) ? data.preferences : [];
     diag.prefCount = Math.max(diag.prefCount, prefs.length);
 

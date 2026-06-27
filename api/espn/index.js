@@ -13,7 +13,7 @@ import { requirePremium, sendError, HttpError } from '../_lib/auth.js';
 import { redis } from '../_lib/kv.js';
 import {
   normalizeS2, normalizeSwid, saveCreds, getCreds, deleteCreds,
-  fetchFanLeagues, fetchLeaguesWithRosters, maskSwid, EspnAuthError,
+  fetchFanLeagues, fetchLeaguesWithRosters, maskSwid, credsShape, EspnAuthError,
 } from '../_lib/espnFantasy.js';
 
 // connect + leagues make several ESPN network calls; raise above the 10s Hobby default.
@@ -97,5 +97,7 @@ async function leagues(res, userId) {
     throw err;
   }
 
+  // Surface (non-sensitive) cred shape for debugging "connected but no leagues".
+  if (result.diag) result.diag.creds = credsShape(creds);
   return res.json(result);
 }

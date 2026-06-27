@@ -360,8 +360,14 @@
   function renderDiag(diag) {
     if (!diag) return '';
     const sk = diag.skipped || {};
+    const c = diag.creds || {};
+    const credsLine = c.present
+      ? `yes · espn_s2 ${c.s2Len} chars · ${c.swid || ''}${c.savedAt ? ' · saved ' + c.savedAt : ''}`
+      : 'NO — nothing stored for this user';
     const rows = [
+      ['stored cookies', credsLine],
       ['fan API call', diag.ok ? 'ok' : 'FAILED' + (diag.error ? ' — ' + diag.error : '')],
+      ['fan response keys', (diag.responseKeys || []).join(', ') || '—'],
       ['entries returned', diag.prefCount],
       ['sports seen', (diag.abbrevs || []).join(', ') || '—'],
       ['seasons seen', (diag.seasons || []).join(', ') || '—'],
