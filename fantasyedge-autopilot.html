@@ -298,10 +298,25 @@
   }
 
   // ---- connect -------------------------------------------------------------------
+  // SWID must be a GUID in braces: {8-4-4-4-12 hex}. Accept with/without braces and
+  // surrounding quotes; this is what ESPN's `SWID` cookie holds.
+  const SWID_RE = /^\{?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}?$/i;
+  function looksLikeSwid(raw) {
+    return SWID_RE.test(String(raw || '').trim().replace(/^["']+|["']+$/g, '').trim());
+  }
+
   async function connect() {
     const espn_s2 = $('s2Input').value.trim();
     const swid = $('swidInput').value.trim();
     if (!espn_s2 || !swid) { setMsg('connectMsg', 'Paste both the espn_s2 and SWID cookie values.', 'err'); return; }
+    if (!looksLikeSwid(swid)) {
+      setMsg('connectMsg', 'That doesn\'t look like a SWID. It must be a GUID in braces, e.g. {1A2B3C4D-5E6F-7890-ABCD-1234567890EF}. Copy the value of the cookie named exactly "SWID" (not espn_s2).', 'err');
+      return;
+    }
+    if (espn_s2.length < 60) {
+      setMsg('connectMsg', 'That espn_s2 looks too short — copy its full value (it\'s a very long string, usually 250+ characters).', 'err');
+      return;
+    }
     $('connectBtn').disabled = true;
     $('connectBtn').textContent = 'Verifying with ESPN…';
     setMsg('connectMsg', '');
@@ -322,6 +337,8 @@
       setMsg('connectMsg', 'Lineup Autopilot is a Premium feature.', 'err');
     } else if (data?.error === 'missing_cookies') {
       setMsg('connectMsg', 'Both cookie values are required.', 'err');
+    } else if (data?.error === 'bad_swid') {
+      setMsg('connectMsg', 'That SWID isn\'t in the expected {GUID} format. Copy the value of the cookie named exactly "SWID".', 'err');
     } else {
       setMsg('connectMsg', (data && data.error) ? data.error : 'Could not connect to ESPN. Try again in a moment.', 'err');
     }
@@ -408,10 +425,11 @@
         <li>Open <a href="https://fantasy.espn.com" target="_blank" rel="noopener" style="color:var(--gold)">fantasy.espn.com</a> in a desktop browser and make sure you're <b>logged in</b> (you should see your teams).</li>
         <li>Press <code>F12</code> (or right-click → <b>Inspect</b>) to open DevTools.</li>
         <li>Go to <b>Application</b> (Chrome/Edge) or <b>Storage</b> (Firefox) → <b>Cookies</b> → <code>https://fantasy.espn.com</code>.</li>
-        <li>Copy the <b>Value</b> of <code>espn_s2</code> (long string) and the <b>Value</b> of <code>SWID</code> (keep the <code>{ }</code> braces).</li>
-        <li>Paste both below and hit <b>Connect ESPN</b>. We verify them with ESPN before saving.</li>
+        <li>Find the cookie named exactly <code>espn_s2</code> and copy its <b>Value</b> — a very long string (250+ chars) — into the first box.</li>
+        <li>Find the cookie named exactly <code>SWID</code> and copy its <b>Value</b> into the second box. It must be a GUID in braces:<br><code>{1A2B3C4D-5E6F-7890-ABCD-1234567890EF}</code> — keep the <code>{ }</code>. If you grabbed a short value with no dashes, that's the wrong cookie.</li>
+        <li>Paste both and hit <b>Connect ESPN</b>. We verify them with ESPN before saving.</li>
       </ol>
-      <p class="hint" style="margin-top:6px;opacity:.7">Tip: bookmark this page — when leagues stop loading in a month or two, it's just time to repeat these steps.</p>
+      <p class="hint" style="margin-top:6px;opacity:.7">Don't see a <code>SWID</code> cookie? Some browsers list it under <code>https://www.espn.com</code> instead — it's the same value site-wide. Tip: bookmark this page; when leagues stop loading in a month or two, just repeat these steps.</p>
     </details>`;
   }
 

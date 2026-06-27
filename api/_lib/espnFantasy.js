@@ -37,6 +37,15 @@ export function normalizeSwid(raw) {
   return inner ? `{${inner}}` : '';
 }
 
+// A valid SWID is a GUID in braces: {8-4-4-4-12 hex}. ESPN's `SWID` cookie is
+// exactly this. Reject anything else (e.g. a value grabbed from the wrong cookie)
+// before it's saved — a malformed SWID passes the lenient fan path but 400s the
+// strict lineup-write memberId. Expects the normalized (braced) form.
+const SWID_RE = /^\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}$/i;
+export function isValidSwid(swid) {
+  return SWID_RE.test(String(swid || ''));
+}
+
 // espn_s2 is a long URL-encoded token; just trim surrounding whitespace/quotes.
 export function normalizeS2(raw) {
   return String(raw || '').trim().replace(/^["']|["']$/g, '').trim();

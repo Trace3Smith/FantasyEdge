@@ -12,7 +12,7 @@
 import { requirePremium, sendError, HttpError } from '../_lib/auth.js';
 import { redis, DATASET_KEY } from '../_lib/kv.js';
 import {
-  normalizeS2, normalizeSwid, saveCreds, getCreds, deleteCreds,
+  normalizeS2, normalizeSwid, isValidSwid, saveCreds, getCreds, deleteCreds,
   fetchFanLeagues, fetchLeaguesWithRosters, fetchLeagueRoster, setLineup,
   getAutopilot, setAutopilotLeague, leagueKeyOf,
   maskSwid, credsShape, EspnAuthError,
@@ -61,6 +61,11 @@ async function connect(req, res, userId) {
   const swid = normalizeSwid(req.body?.swid);
   if (!espn_s2 || !swid || swid === '{}') {
     throw new HttpError(400, 'Missing cookies', { error: 'missing_cookies' });
+  }
+  // The SWID must be a real GUID — a value from the wrong cookie would pass ESPN's
+  // lenient fan path but break the lineup write. Reject it up front.
+  if (!isValidSwid(swid)) {
+    throw new HttpError(400, 'That SWID is not in the expected format', { error: 'bad_swid' });
   }
 
   const creds = { espn_s2, swid };
