@@ -364,6 +364,7 @@
       ['fan API call', diag.ok ? 'ok' : 'FAILED' + (diag.error ? ' — ' + diag.error : '')],
       ['entries returned', diag.prefCount],
       ['sports seen', (diag.abbrevs || []).join(', ') || '—'],
+      ['seasons seen', (diag.seasons || []).join(', ') || '—'],
       ['kept (baseball)', diag.kept],
       ['skipped: other sport / no ids / no entry', `${sk.abbrev || 0} / ${sk.ids || 0} / ${sk.noEntry || 0}`],
       ['first entry fields', (diag.entryKeys || []).join(', ') || '—'],

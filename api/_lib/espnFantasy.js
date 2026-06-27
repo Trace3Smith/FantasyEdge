@@ -140,57 +140,70 @@ export async function fetchFanLeagues(creds) {
   return leagues;
 }
 
-// Same discovery, but also returns a non-sensitive `diag` describing what the fan
-// API actually returned (preference count, the sport abbrevs seen, why entries were
-// skipped, any transport error). No cookies or tokens are included — this is safe to
-// surface to the client to debug "no leagues found".
+// The fan API scopes its `preferences` list by query params (e.g. recentDays /
+// displayNow can hide in-season leagues the user hasn't touched lately). We try a
+// few param variants and merge, so a baseball league missing from one shows up in
+// another. Listed broad→narrow.
+const FAN_PARAM_VARIANTS = [
+  'context=fantasy&useCookies=true', // minimal: most likely to return everything
+  'featureFlags=expandAthlete&context=fantasy&useCookies=true&displayEvents=true&displayNow=true&recentDays=30',
+];
+
+// Same discovery as fetchFanLeagues, but also returns a non-sensitive `diag`
+// describing what the fan API actually returned (preference count, sport abbrevs +
+// seasons seen, why entries were skipped, any transport error). No cookies or tokens
+// are included — safe to surface to the client to debug "no leagues found".
 export async function discoverFanLeagues(creds) {
-  const url = `https://fan.api.espn.com/apis/v2/fans/${encodeURIComponent(creds.swid)}`
-    + `?featureFlags=expandAthlete&context=fantasy&useCookies=true&displayEvents=true&displayNow=true&recentDays=30`;
-  const diag = { ok: false, prefCount: 0, abbrevs: [], types: [], entryKeys: [], skipped: { abbrev: 0, ids: 0, noEntry: 0 }, kept: 0, error: null };
-
-  let data;
-  try {
-    data = await espnGet(url, creds);
-    diag.ok = true;
-  } catch (err) {
-    if (err instanceof EspnAuthError) throw err;
-    diag.error = err.message || 'fan API request failed';
-    return { leagues: [], diag };
-  }
-
-  const prefs = Array.isArray(data?.preferences) ? data.preferences : [];
-  diag.prefCount = prefs.length;
+  const diag = { ok: false, prefCount: 0, abbrevs: [], seasons: [], types: [], entryKeys: [], skipped: { abbrev: 0, ids: 0, noEntry: 0 }, kept: 0, variants: 0, error: null };
   const out = [];
   const seen = new Set();
   const addUnique = (arr, v) => { if (v && !arr.includes(v)) arr.push(v); };
 
-  for (const p of prefs) {
-    addUnique(diag.types, p?.type?.type);
-    const e = p?.metaData?.entry;
-    if (!e) { diag.skipped.noEntry++; continue; }
-    if (!diag.entryKeys.length) diag.entryKeys = Object.keys(e); // sample shape of first entry
+  for (const params of FAN_PARAM_VARIANTS) {
+    const url = `https://fan.api.espn.com/apis/v2/fans/${encodeURIComponent(creds.swid)}?${params}`;
+    let data;
+    try {
+      data = await espnGet(url, creds);
+      diag.ok = true;
+      diag.variants++;
+    } catch (err) {
+      if (err instanceof EspnAuthError) throw err;
+      diag.error = err.message || 'fan API request failed';
+      continue; // try the next variant
+    }
 
-    const abbrev = entryAbbrev(e, p);
-    addUnique(diag.abbrevs, abbrev || '(none)');
-    // Keep baseball only (other sports share the fan API). Tolerate a missing
-    // abbrev rather than dropping a league we can't classify.
-    if (abbrev && abbrev !== 'FLB') { diag.skipped.abbrev++; continue; }
+    const prefs = Array.isArray(data?.preferences) ? data.preferences : [];
+    diag.prefCount = Math.max(diag.prefCount, prefs.length);
 
-    const group = (Array.isArray(e.groups) && e.groups[0]) || {};
-    const leagueId = String(group.groupId ?? e.groupId ?? e.leagueId ?? '');
-    const teamId = e.entryId ?? e.teamId ?? group.groupManagerTeamId;
-    if (!leagueId || teamId == null) { diag.skipped.ids++; continue; }
+    for (const p of prefs) {
+      addUnique(diag.types, p?.type?.type);
+      const e = p?.metaData?.entry;
+      if (!e) { diag.skipped.noEntry++; continue; }
+      if (!diag.entryKeys.length) diag.entryKeys = Object.keys(e); // sample shape of first entry
 
-    const key = `${e.seasonId}:${leagueId}:${teamId}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({
-      leagueId,
-      seasonId: e.seasonId || new Date().getFullYear(),
-      teamId,
-      leagueName: group.groupName || e.name || `League ${leagueId}`,
-    });
+      const abbrev = entryAbbrev(e, p);
+      addUnique(diag.abbrevs, abbrev || '(none)');
+      addUnique(diag.seasons, e.seasonId);
+      // Keep baseball only (other sports share the fan API). Tolerate a missing
+      // abbrev rather than dropping a league we can't classify.
+      if (abbrev && abbrev !== 'FLB') { diag.skipped.abbrev++; continue; }
+
+      const group = (Array.isArray(e.groups) && e.groups[0]) || {};
+      const leagueId = String(group.groupId ?? e.groupId ?? e.leagueId ?? '');
+      const teamId = e.entryId ?? e.teamId ?? group.groupManagerTeamId;
+      if (!leagueId || teamId == null) { diag.skipped.ids++; continue; }
+
+      const key = `${e.seasonId}:${leagueId}:${teamId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        leagueId,
+        seasonId: e.seasonId || new Date().getFullYear(),
+        teamId,
+        leagueName: group.groupName || e.name || `League ${leagueId}`,
+      });
+    }
+    if (out.length) break; // found baseball — no need to try narrower variants
   }
   diag.kept = out.length;
   return { leagues: out, diag };
