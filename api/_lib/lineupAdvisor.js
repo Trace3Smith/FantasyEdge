@@ -15,7 +15,9 @@ const INJURY_PENALTY = { '': 0, Q: 0.4, DTD: 0.8, D: 1.5, O: 6, IL: 8, '60-IL': 
 // Only surface a value-based swap when the gain clears this (z units); injury-driven
 // swaps are always surfaced. Keeps the list to moves that actually matter.
 const MIN_DELTA = 1.5;
-const FLOOR_Z = -5; // value for a player we don't rank
+const FLOOR_Z = -5;   // value for a player we don't rank
+const BE_SLOT = 16;   // bench
+const IL_SLOT = 17;   // injured list
 
 // Index our MLB dataset by normalized name → { z, pos, tag, rank }. On duplicate
 // names, keep the higher-valued record.
@@ -73,7 +75,8 @@ function assignOptimal(roster, openings) {
   for (const { slotId } of orderedSlots) {
     let bestIdx = -1, bestVal = -Infinity;
     for (let i = 0; i < roster.length; i++) {
-      if (used.has(i) || !eligibleFor(roster[i], slotId)) continue;
+      // Never pull an injured-list player (slot 17) into an active slot — they can't play.
+      if (used.has(i) || roster[i].slotId === IL_SLOT || !eligibleFor(roster[i], slotId)) continue;
       if (roster[i]._v.adjZ > bestVal) { bestVal = roster[i]._v.adjZ; bestIdx = i; }
     }
     if (bestIdx >= 0) { assigned.set(bestIdx, slotId); used.add(bestIdx); }
@@ -129,10 +132,24 @@ export function suggestLineup(league, idx) {
     });
   }
 
+  // Executable plan: the from→to slot move for every player whose slot should
+  // change. Bench = 16; players currently on the IL (17) are never touched, and a
+  // player without an ESPN id can't be moved.
+  const plan = [];
+  for (let i = 0; i < roster.length; i++) {
+    const rp = roster[i];
+    if (rp.slotId === IL_SLOT || rp.id == null) continue;
+    const target = assigned.has(i) ? assigned.get(i) : BE_SLOT;
+    if (target !== rp.slotId) {
+      plan.push({ playerId: rp.id, name: rp.name, fromLineupSlotId: rp.slotId, toLineupSlotId: target });
+    }
+  }
+
   const injuredStarters = roster.filter((rp) => rp.starter && (INJURY_PENALTY[rp.injury] ?? 0) >= INJURY_PENALTY.O).length;
   const totalGain = Math.round(moves.reduce((s, m) => s + (m.gain > 0 ? m.gain : 0), 0) * 10) / 10;
   return {
     moves: moves.slice(0, 6),
+    plan,
     summary: { count: moves.length, injuredStarters, totalGain, optimal: moves.length === 0 },
   };
 }

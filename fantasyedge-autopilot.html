@@ -113,6 +113,20 @@
   .sugg-tag.inj { background: rgba(229,76,76,0.18); color: #f3a1a1; }
   .sugg-meta { color: var(--gray); font-size: 12px; }
   .sugg-arrow { color: var(--gold); font-weight: 600; }
+  /* Per-league controls: apply button + autopilot switch */
+  .lc-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 0 0 14px; }
+  .lc-controls .btn { padding: 8px 16px; font-size: 13px; }
+  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+  .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .switch-track { position: relative; width: 40px; height: 22px; background: rgba(255,255,255,0.16); border-radius: 22px; transition: background .15s; flex: none; }
+  .switch-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .15s; }
+  .switch input:checked + .switch-track { background: var(--gold); }
+  .switch input:checked + .switch-track::after { transform: translateX(18px); }
+  .switch input:focus-visible + .switch-track { box-shadow: 0 0 0 2px rgba(212,160,23,0.5); }
+  .switch-label { font-size: 13px; font-weight: 600; color: var(--gray-light); }
+  .ap-msg { font-size: 12px; }
+  .ap-msg.ok { color: #9bdc9e; }
+  .ap-msg.err { color: #f3a1a1; }
 </style>
 </head>
 <body>
@@ -140,7 +154,7 @@
 <main class="main">
   <div class="top-header">
     <div class="page-title">LINEUP <span>AUTOPILOT</span></div>
-    <div class="page-subtitle">Connect your ESPN fantasy baseball account for start/sit suggestions on every roster. One-tap autopilot is coming next.</div>
+    <div class="page-subtitle">Connect your ESPN fantasy baseball account for start/sit suggestions, one-tap optimal lineups, and daily autopilot.</div>
   </div>
 
   <!-- Premium lock (non-premium users) -->
@@ -422,6 +436,7 @@
         ${rec ? `<div class="lc-record">${rec}</div>` : ''}
       </div>
       ${renderSuggestions(lg.suggestions)}
+      ${renderControls(lg)}
       <table class="roster">
         <thead><tr><th style="width:64px">Slot</th><th>Player</th><th style="width:110px">Pos · Team</th></tr></thead>
         <tbody>${rows}</tbody>
@@ -456,6 +471,63 @@
 
   function team_count_label(lg) {
     return `${lg.teamCount}-team league` + (lg.scoringType ? ` · ${escapeHtml(lg.scoringType)}` : '');
+  }
+
+  // Per-league controls: one-tap apply + the autopilot toggle.
+  function renderControls(lg) {
+    const teamId = lg.teamId != null ? lg.teamId : (lg.team && lg.team.id);
+    if (teamId == null) return '';
+    const data = `data-league-id="${escapeHtml(String(lg.leagueId))}" data-season="${escapeHtml(String(lg.season))}" data-team-id="${escapeHtml(String(teamId))}"`;
+    const hasMoves = lg.suggestions && lg.suggestions.moves && lg.suggestions.moves.length;
+    const apply = hasMoves ? `<button class="btn btn-gold apply-btn" ${data}>Apply optimal lineup</button>` : '';
+    return `<div class="lc-controls">
+      ${apply}
+      <label class="switch" title="Automatically set your optimal lineup every morning">
+        <input type="checkbox" class="ap-toggle" ${lg.autopilot ? 'checked' : ''} ${data}>
+        <span class="switch-track"></span>
+        <span class="switch-label">Autopilot${lg.autopilot ? ' on' : ''}</span>
+      </label>
+      <span class="ap-msg"></span>
+    </div>`;
+  }
+
+  async function applyLineupClick(btn) {
+    const { leagueId, season, teamId } = btn.dataset;
+    const msg = btn.closest('.lc-controls').querySelector('.ap-msg');
+    if (!confirm('Apply the suggested optimal lineup to this ESPN league now? This changes your starting lineup on ESPN.')) return;
+    btn.disabled = true; const old = btn.textContent; btn.textContent = 'Applying…';
+    msg.textContent = '';
+    const { ok, data } = await api('/api/espn', { action: 'apply', leagueId, season: Number(season), teamId: Number(teamId) });
+    btn.disabled = false; btn.textContent = old;
+    if (ok) {
+      msg.textContent = data.applied ? `✓ Applied ${data.applied} change${data.applied > 1 ? 's' : ''}` : '✓ Already optimal';
+      msg.className = 'ap-msg ok';
+      setTimeout(loadLeagues, 1000); // re-pull rosters so the table reflects the new lineup
+    } else {
+      if (data && data.error === 'espn_auth') { msg.textContent = '✗ Cookies expired — reconnect.'; show('connectedWrap', false); show('connectPanel', true); }
+      else { msg.textContent = '✗ ' + ((data && (data.detail || data.error)) || 'Could not apply lineup'); }
+      msg.className = 'ap-msg err';
+    }
+  }
+
+  async function toggleAutopilot(input) {
+    const { leagueId, season, teamId } = input.dataset;
+    const on = input.checked;
+    const controls = input.closest('.lc-controls');
+    const msg = controls.querySelector('.ap-msg');
+    const label = controls.querySelector('.switch-label');
+    input.disabled = true;
+    const { ok } = await api('/api/espn', { action: 'autopilot', league: { leagueId, season: Number(season), teamId: Number(teamId) }, on });
+    input.disabled = false;
+    if (ok) {
+      label.textContent = 'Autopilot' + (on ? ' on' : '');
+      msg.textContent = on ? '✓ On — your lineup is set automatically each morning' : 'Off';
+      msg.className = 'ap-msg ok';
+    } else {
+      input.checked = !on; // revert on failure
+      msg.textContent = '✗ Could not update autopilot';
+      msg.className = 'ap-msg err';
+    }
   }
 
   // Start/sit suggestions for one league (computed server-side from our MLB values).
@@ -502,6 +574,15 @@
   $('connectBtn').addEventListener('click', connect);
   $('disconnectBtn').addEventListener('click', disconnect);
   $('refreshBtn').addEventListener('click', loadLeagues);
+  // Delegated: league cards (and the apply button / autopilot toggle inside them)
+  // are injected via innerHTML, so listen on the stable container.
+  $('leaguesArea').addEventListener('click', (e) => {
+    const btn = e.target.closest('.apply-btn');
+    if (btn) applyLineupClick(btn);
+  });
+  $('leaguesArea').addEventListener('change', (e) => {
+    if (e.target.classList.contains('ap-toggle')) toggleAutopilot(e.target);
+  });
   $('signInBtn').addEventListener('click', () => window.FE && window.FE.openSignIn && window.FE.openSignIn());
   $('upsell').addEventListener('click', () => window.FE && window.FE.openPricing && window.FE.openPricing());
 

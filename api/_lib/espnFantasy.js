@@ -271,6 +271,9 @@ export async function fetchLeagueRoster(creds, { leagueId, seasonId, teamId }) {
   return {
     leagueId,
     season: seasonId,
+    teamId,
+    // Current scoring period (the day, for MLB) — required by the lineup-set write.
+    scoringPeriodId: data?.scoringPeriodId ?? data?.status?.latestScoringPeriod ?? null,
     leagueName: data?.settings?.name || `League ${leagueId}`,
     teamCount: teams.length,
     scoringType: data?.settings?.scoringSettings?.scoringType || null,
@@ -289,6 +292,81 @@ export async function fetchLeagueRoster(creds, { leagueId, seasonId, teamId }) {
       : null,
     roster: team ? parseRoster(team.roster?.entries || []) : [],
   };
+}
+
+// --- lineup write (v3 transactions) ----------------------------------------------------------
+const V3_WRITE_BASE = 'https://lm-api-writes.fantasy.espn.com/apis/v3/games/flb/seasons';
+
+// Apply a lineup change to ESPN: a single ROSTER transaction whose items each move
+// one player from its current slot to a target slot (active slot, or 16=BE to bench).
+// `items` = [{ playerId, fromLineupSlotId, toLineupSlotId }]. No-op for an empty list.
+// Throws EspnAuthError on 401/403 so callers can prompt a reconnect.
+export async function setLineup(creds, { leagueId, seasonId, teamId, scoringPeriodId }, items = []) {
+  if (!items.length) return { applied: 0 };
+  const url = `${V3_WRITE_BASE}/${seasonId}/segments/0/leagues/${leagueId}/transactions/`;
+  const body = {
+    isLeagueManager: false,
+    teamId,
+    type: 'ROSTER',
+    memberId: creds.swid,
+    scoringPeriodId,
+    executionType: 'EXECUTE',
+    items: items.map((it) => ({
+      playerId: it.playerId,
+      type: 'LINEUP',
+      fromLineupSlotId: it.fromLineupSlotId,
+      toLineupSlotId: it.toLineupSlotId,
+    })),
+  };
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 15000);
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Cookie: cookieHeader(creds),
+        'User-Agent': UA,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'x-fantasy-source': 'kona',
+        'x-fantasy-platform': 'kona-PROD',
+      },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+  } finally { clearTimeout(t); }
+  if (res.status === 401 || res.status === 403) throw new EspnAuthError();
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`ESPN lineup write HTTP ${res.status}${txt ? ': ' + txt.slice(0, 180) : ''}`);
+  }
+  return { applied: items.length };
+}
+
+// --- autopilot preferences (Redis, per Clerk user) -------------------------------------------
+// A user's enabled leagues live at espn:autopilot:{userId} = { [leagueKey]: true }.
+// A set espn:autopilot:users tracks who has ANY league enabled, so the daily cron
+// only iterates opted-in users. leagueKey is "season:leagueId:teamId".
+const autopilotKey = (userId) => `espn:autopilot:${userId}`;
+const AUTOPILOT_USERS = 'espn:autopilot:users';
+export const leagueKeyOf = (lg) => `${lg.season ?? lg.seasonId}:${lg.leagueId}:${lg.teamId}`;
+
+export async function getAutopilot(redis, userId) {
+  return (await redis.get(autopilotKey(userId))) || {};
+}
+
+export async function setAutopilotLeague(redis, userId, leagueKey, on) {
+  const prefs = await getAutopilot(redis, userId);
+  if (on) prefs[leagueKey] = true; else delete prefs[leagueKey];
+  await redis.set(autopilotKey(userId), prefs);
+  if (Object.keys(prefs).length) await redis.sadd(AUTOPILOT_USERS, userId);
+  else await redis.srem(AUTOPILOT_USERS, userId);
+  return prefs;
+}
+
+export async function listAutopilotUsers(redis) {
+  return (await redis.smembers(AUTOPILOT_USERS)) || [];
 }
 
 // Run async fn over items with bounded concurrency (kind to ESPN + bounds latency).
