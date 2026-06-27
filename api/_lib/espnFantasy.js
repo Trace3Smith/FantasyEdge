@@ -121,31 +121,67 @@ async function espnGet(url, creds) {
 }
 
 // --- league discovery (fan API) --------------------------------------------------------------
+// ESPN tags a fantasy entry's sport in a few different places depending on the
+// payload version; FLB == fantasy baseball. Pull the abbreviation from whichever
+// field is present, case-insensitively.
+function entryAbbrev(entry, pref) {
+  const raw = entry?.abbrev || entry?.gameAbbrev || entry?.gameKey
+    || pref?.type?.abbrev || pref?.metaData?.abbrev || '';
+  return String(raw).toUpperCase();
+}
+
 // Enumerate every fantasy-baseball team the SWID owns. Returns a light list of
 // { leagueId, seasonId, teamId, leagueName } — the league/team names here are
-// best-effort; the v3 roster fetch supplies the authoritative ones.
+// best-effort; the v3 roster fetch supplies the authoritative ones. Thin wrapper
+// over discoverFanLeagues (which also returns a diagnostic) for callers that only
+// need the list (e.g. the connect verify).
 export async function fetchFanLeagues(creds) {
+  const { leagues } = await discoverFanLeagues(creds);
+  return leagues;
+}
+
+// Same discovery, but also returns a non-sensitive `diag` describing what the fan
+// API actually returned (preference count, the sport abbrevs seen, why entries were
+// skipped, any transport error). No cookies or tokens are included — this is safe to
+// surface to the client to debug "no leagues found".
+export async function discoverFanLeagues(creds) {
   const url = `https://fan.api.espn.com/apis/v2/fans/${encodeURIComponent(creds.swid)}`
     + `?featureFlags=expandAthlete&context=fantasy&useCookies=true&displayEvents=true&displayNow=true&recentDays=30`;
+  const diag = { ok: false, prefCount: 0, abbrevs: [], types: [], entryKeys: [], skipped: { abbrev: 0, ids: 0, noEntry: 0 }, kept: 0, error: null };
+
   let data;
   try {
     data = await espnGet(url, creds);
+    diag.ok = true;
   } catch (err) {
     if (err instanceof EspnAuthError) throw err;
-    return []; // fan API is flaky; degrade to "no leagues found" rather than 500
+    diag.error = err.message || 'fan API request failed';
+    return { leagues: [], diag };
   }
+
   const prefs = Array.isArray(data?.preferences) ? data.preferences : [];
+  diag.prefCount = prefs.length;
   const out = [];
   const seen = new Set();
+  const addUnique = (arr, v) => { if (v && !arr.includes(v)) arr.push(v); };
+
   for (const p of prefs) {
+    addUnique(diag.types, p?.type?.type);
     const e = p?.metaData?.entry;
-    if (!e) continue;
-    // FLB == fantasy baseball. ESPN tags the entry's game via `abbrev`.
-    if (e.abbrev && e.abbrev !== 'FLB') continue;
+    if (!e) { diag.skipped.noEntry++; continue; }
+    if (!diag.entryKeys.length) diag.entryKeys = Object.keys(e); // sample shape of first entry
+
+    const abbrev = entryAbbrev(e, p);
+    addUnique(diag.abbrevs, abbrev || '(none)');
+    // Keep baseball only (other sports share the fan API). Tolerate a missing
+    // abbrev rather than dropping a league we can't classify.
+    if (abbrev && abbrev !== 'FLB') { diag.skipped.abbrev++; continue; }
+
     const group = (Array.isArray(e.groups) && e.groups[0]) || {};
-    const leagueId = String(group.groupId ?? e.groupId ?? '');
-    const teamId = e.entryId ?? e.teamId;
-    if (!leagueId || teamId == null) continue;
+    const leagueId = String(group.groupId ?? e.groupId ?? e.leagueId ?? '');
+    const teamId = e.entryId ?? e.teamId ?? group.groupManagerTeamId;
+    if (!leagueId || teamId == null) { diag.skipped.ids++; continue; }
+
     const key = `${e.seasonId}:${leagueId}:${teamId}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -156,7 +192,8 @@ export async function fetchFanLeagues(creds) {
       leagueName: group.groupName || e.name || `League ${leagueId}`,
     });
   }
-  return out;
+  diag.kept = out.length;
+  return { leagues: out, diag };
 }
 
 // --- roster fetch (v3 league API) ------------------------------------------------------------
@@ -232,7 +269,7 @@ async function mapLimit(items, limit, fn) {
 // number of leagues so one user with dozens can't blow the function budget. A single
 // league's fetch failing degrades to an error note on that league, not the whole call.
 export async function fetchLeaguesWithRosters(creds, { maxLeagues = 12 } = {}) {
-  const discovered = await fetchFanLeagues(creds);
+  const { leagues: discovered, diag } = await discoverFanLeagues(creds);
   const leagues = discovered.slice(0, maxLeagues);
   const results = await mapLimit(leagues, 4, async (lg) => {
     try {
@@ -242,5 +279,5 @@ export async function fetchLeaguesWithRosters(creds, { maxLeagues = 12 } = {}) {
       return { leagueId: lg.leagueId, season: lg.seasonId, leagueName: lg.leagueName, team: null, roster: [], error: 'fetch_failed' };
     }
   });
-  return { count: discovered.length, truncated: discovered.length > leagues.length, leagues: results };
+  return { count: discovered.length, truncated: discovered.length > leagues.length, leagues: results, diag };
 }

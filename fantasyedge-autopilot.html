@@ -319,7 +319,8 @@
   function renderLeagues(data) {
     const leagues = (data && data.leagues) || [];
     if (!leagues.length) {
-      $('leaguesArea').innerHTML = '<div class="panel"><div class="empty">No ESPN fantasy baseball leagues found for this account. If you just joined a league, give ESPN a few minutes, then hit Refresh.</div></div>';
+      $('leaguesArea').innerHTML = '<div class="panel"><div class="empty">No ESPN fantasy baseball leagues found for this account. If you just joined a league, give ESPN a few minutes, then hit Refresh.</div>'
+        + renderDiag(data && data.diag) + '</div>';
       return;
     }
     if (data.truncated) setMsg('leaguesMsg', `Showing your first ${leagues.length} of ${data.count} leagues.`, 'ok');
@@ -351,6 +352,24 @@
         <tbody>${rows}</tbody>
       </table>
     </div>`;
+  }
+
+  // Temporary debugging aid: show what the ESPN fan API actually returned when no
+  // baseball leagues come back, so we can tell whether the call failed, returned
+  // other sports, or returned entries we couldn't parse. No cookies are exposed.
+  function renderDiag(diag) {
+    if (!diag) return '';
+    const sk = diag.skipped || {};
+    const rows = [
+      ['fan API call', diag.ok ? 'ok' : 'FAILED' + (diag.error ? ' — ' + diag.error : '')],
+      ['entries returned', diag.prefCount],
+      ['sports seen', (diag.abbrevs || []).join(', ') || '—'],
+      ['kept (baseball)', diag.kept],
+      ['skipped: other sport / no ids / no entry', `${sk.abbrev || 0} / ${sk.ids || 0} / ${sk.noEntry || 0}`],
+      ['first entry fields', (diag.entryKeys || []).join(', ') || '—'],
+    ];
+    const body = rows.map(([k, v]) => `<div style="display:flex;gap:8px"><span style="opacity:.6;min-width:200px">${escapeHtml(k)}</span><span>${escapeHtml(String(v))}</span></div>`).join('');
+    return `<details style="margin-top:12px;font-size:13px"><summary style="cursor:pointer;opacity:.7">Diagnostic (why no leagues?)</summary><div style="margin-top:8px;font-family:ui-monospace,monospace">${body}</div></details>`;
   }
 
   function team_count_label(lg) {
