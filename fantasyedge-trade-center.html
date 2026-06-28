@@ -78,6 +78,19 @@
   .leg.get .lbl { color: #9bdc9e; }
   .leg .players { font-size: 14px; font-weight: 600; }
   .prop-why { font-size: 13px; color: var(--gray-light); line-height: 1.5; }
+  .leg .cats { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .cat { font-size: 10px; font-weight: 700; letter-spacing: .3px; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.08); color: var(--gray-light); }
+  .cat.get { background: rgba(76,175,80,0.16); color: #9bdc9e; }
+  .prop-impact { font-size: 12px; margin: 8px 0; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .imp-up { color: #9bdc9e; font-weight: 600; }
+  .imp-dn { color: #f3a1a1; font-weight: 600; }
+  .imp-warn { color: #fdba74; font-weight: 600; }
+  .standings { background: var(--dark3); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+  .stand-title { font-weight: 700; font-size: 13px; color: var(--gold-light); margin-bottom: 8px; }
+  .stand-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+  .stand-cell { font-size: 12px; padding: 3px 8px; border-radius: 6px; background: rgba(255,255,255,0.06); color: var(--gray-light); }
+  .stand-cell.losing { background: rgba(244,67,54,0.16); color: #f3a1a1; }
+  .stand-cell b { color: var(--white); }
 
   /* chat (evaluator / counter / walk-away) */
   .chat-msgs { max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; margin-bottom: 12px; }
@@ -280,25 +293,49 @@
     renderProposals(data);
   }
   function fairColor(f) { return f >= 55 ? 'var(--green)' : f >= 45 ? 'var(--gold)' : 'var(--red)'; }
+  function catChips(cats, cls) { return (cats || []).map((c) => `<span class="cat ${cls || ''}">${escapeHtml(c)}</span>`).join(''); }
+
+  function renderStandings(standings) {
+    if (!standings || !standings.length) return '';
+    const losing = standings.filter((s) => s.losing).map((s) => s.label);
+    const note = losing.length
+      ? `Categories you're losing (a good trade should protect or improve these): <b>${losing.map(escapeHtml).join(', ')}</b>`
+      : `You're top-half in every category — nice. Trades below won't weaken a category you're losing.`;
+    return `<div class="standings"><div class="stand-title">📊 Your roto standings</div><div class="stand-grid">`
+      + standings.map((s) => `<span class="stand-cell${s.losing ? ' losing' : ''}">${escapeHtml(s.label)} <b>#${s.rank}</b></span>`).join('')
+      + `</div><div class="hint" style="margin:8px 0 0">${note}</div></div>`;
+  }
+
   function renderProposals(data) {
     const props = (data && data.proposals) || [];
+    const standHtml = data && data.isRoto ? renderStandings(data.standings) : '';
     if (!props.length) {
-      $('scanArea').innerHTML = `<div class="empty">No clean win-win trades stood out right now${data && data.raw ? ' — ' + escapeHtml(String(data.raw).slice(0, 240)) : '. Your roster may be balanced, or partners don\'t line up. Try the Evaluator for a specific idea.'}</div>`;
+      $('scanArea').innerHTML = standHtml + `<div class="empty">No clean win-win trades stood out right now${data && data.raw ? ' — ' + escapeHtml(String(data.raw).slice(0, 240)) : '. Your roster may be balanced, or partners don\'t line up. Try the Evaluator for a specific idea.'}</div>`;
       return;
     }
-    $('scanArea').innerHTML = '<div class="props">' + props.map((p) => {
+    $('scanArea').innerHTML = standHtml + '<div class="props">' + props.map((p) => {
       const f = Math.max(0, Math.min(100, Number(p.fairness) || 50));
       const get = (p.youGet || []).map(escapeHtml).join(', ') || '—';
       const give = (p.youGive || []).map(escapeHtml).join(', ') || '—';
+      const getCats = catChips(p.youGetCats, 'get');
+      const giveCats = catChips(p.youGiveCats);
+      let impact = '';
+      if (p.catGained || p.catLost) {
+        const gained = (p.catGained || []).length ? `<span class="imp-up">▲ ${p.catGained.map(escapeHtml).join(', ')}</span>` : '';
+        const lost = (p.catLost || []).length ? `<span class="imp-dn">▼ ${p.catLost.map(escapeHtml).join(', ')}</span>` : '';
+        const warn = (p.hurtsLosing || []).length ? `<span class="imp-warn">⚠️ weakens ${p.hurtsLosing.map(escapeHtml).join(', ')} (already losing)</span>` : '';
+        if (gained || lost || warn) impact = `<div class="prop-impact">Category impact: ${gained} ${lost} ${warn}</div>`;
+      }
       return `<div class="prop">
         <div class="prop-head">
           <div class="prop-partner">🤝 Trade with ${escapeHtml(p.partnerTeam || 'a team')}</div>
           <div class="fair"><span>Fairness ${f}</span><div class="fair-bar"><div class="fair-fill" style="width:${f}%;background:${fairColor(f)}"></div></div></div>
         </div>
         <div class="prop-legs">
-          <div class="leg get"><div class="lbl">You get</div><div class="players">${get}</div></div>
-          <div class="leg give"><div class="lbl">You give</div><div class="players">${give}</div></div>
+          <div class="leg get"><div class="lbl">You get</div><div class="players">${get}</div>${getCats ? '<div class="cats">' + getCats + '</div>' : ''}</div>
+          <div class="leg give"><div class="lbl">You give</div><div class="players">${give}</div>${giveCats ? '<div class="cats">' + giveCats + '</div>' : ''}</div>
         </div>
+        ${impact}
         <div class="prop-why">${escapeHtml(p.rationale || '')}</div>
       </div>`;
     }).join('') + '</div>';

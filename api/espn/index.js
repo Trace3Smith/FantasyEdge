@@ -29,23 +29,74 @@ export const maxDuration = 60;
 const DATASET_BY_SPORT = { mlb: DATASET_KEY, nba: NBA_DATASET_KEY, wnba: WNBA_DATASET_KEY, nhl: NHL_DATASET_KEY, nfl: NFL_DATASET_KEY };
 const TRADE_SPORTS = new Set(['mlb', 'wnba', 'nfl', 'nba', 'nhl']);
 
-// name → value (zTotal for roto sports, score/points for NFL). Best-effort; missing
-// dataset → empty map (Claude then reasons without our ratings).
-async function valueIndexFor(sport) {
+// Per-sport ROTO scoring categories: [z-block key, display label], in display order.
+// NFL is points-based (no categories) and handled via PPR weighting instead.
+const CATS_BY_SPORT = {
+  mlb: [['r', 'R'], ['hr', 'HR'], ['rbi', 'RBI'], ['sb', 'SB'], ['avg', 'BA'], ['obp', 'OBP'], ['w', 'W'], ['sv', 'SV'], ['k', 'K'], ['era', 'ERA'], ['whip', 'WHIP']],
+  nba: [['pts', 'PTS'], ['reb', 'REB'], ['ast', 'AST'], ['stl', 'STL'], ['blk', 'BLK'], ['tpm', '3PM'], ['fgPct', 'FG%'], ['ftPct', 'FT%'], ['to', 'TO']],
+  wnba: [['pts', 'PTS'], ['reb', 'REB'], ['ast', 'AST'], ['stl', 'STL'], ['blk', 'BLK'], ['tpm', '3PM'], ['fgPct', 'FG%'], ['ftPct', 'FT%']],
+  nhl: [['g', 'G'], ['a', 'A'], ['ppp', 'PPP'], ['sog', 'SOG'], ['pm', '+/-'], ['pim', 'PIM'], ['fow', 'FOW'], ['w', 'W'], ['gaa', 'GAA'], ['svpct', 'SV%'], ['so', 'SO'], ['sv', 'SV']],
+};
+
+// name → { value, cats: [labels the player is strong in], z: {catKey: zval}, pos }.
+// Best-effort; missing dataset → empty map (Claude then reasons without our ratings).
+async function playerDataFor(sport) {
   const key = DATASET_BY_SPORT[sport] || DATASET_KEY;
   const idx = new Map();
   try {
     const ds = await redis.get(key);
     for (const p of (ds?.players || [])) {
-      if (p.searchOnly) continue;
+      if (p.searchOnly || !p.name) continue;
       const v = typeof p.zTotal === 'number' ? p.zTotal : (typeof p.score === 'number' ? p.score : null);
-      if (v == null || !p.name) continue;
+      const rec = { value: v, cats: Array.isArray(p.cats) ? p.cats : [], z: (p.z && typeof p.z === 'object') ? p.z : null, pos: p.pos || '' };
       const k = normName(p.name);
       const prev = idx.get(k);
-      if (prev == null || v > prev) idx.set(k, v);
+      if (!prev || (v != null && (prev.value == null || v > prev.value))) idx.set(k, rec);
     }
   } catch { /* no dataset — degrade to no ratings */ }
   return idx;
+}
+
+// Roto standings from the league's rosters: rank the user per category (sum of each
+// player's category z across the team). Returns null for points sports (NFL).
+function computeStandings(teams, userTeamId, sport, idx) {
+  const cats = CATS_BY_SPORT[sport];
+  if (!cats || userTeamId == null) return null;
+  const totals = teams.map((t) => {
+    const tot = {};
+    for (const [k] of cats) tot[k] = 0;
+    for (const pl of (t.roster || [])) {
+      const rec = idx.get(normName(pl.name));
+      if (rec && rec.z) for (const [k] of cats) if (typeof rec.z[k] === 'number') tot[k] += rec.z[k];
+    }
+    return { id: t.id, tot };
+  });
+  const n = totals.length;
+  const standings = cats.map(([k, label]) => {
+    const sorted = [...totals].sort((a, b) => b.tot[k] - a.tot[k]);
+    const rank = sorted.findIndex((t) => t.id === userTeamId) + 1;
+    return { key: k, label, rank, losing: rank > Math.ceil(n / 2) };
+  });
+  return { n, standings };
+}
+
+// Decorate Claude's proposals with ACCURATE per-player categories from our data, the
+// net category gained/lost, and a flag when a trade weakens a category the user is
+// already losing. Drops proposals that hurt more categories than they help unless the
+// value edge is overwhelming (fairness >= 65).
+function decorateProposals(proposals, idx, standings) {
+  const losing = new Set((standings?.standings || []).filter((s) => s.losing).map((s) => s.label));
+  const catsOf = (names) => {
+    const set = new Set();
+    for (const nm of (names || [])) { const r = idx.get(normName(nm)); if (r) for (const c of (r.cats || [])) set.add(c); }
+    return [...set];
+  };
+  return proposals.map((p) => {
+    const getCats = catsOf(p.youGet), giveCats = catsOf(p.youGive);
+    const gained = getCats.filter((c) => !giveCats.includes(c));
+    const lost = giveCats.filter((c) => !getCats.includes(c));
+    return { ...p, youGetCats: getCats, youGiveCats: giveCats, catGained: gained, catLost: lost, hurtsLosing: lost.filter((c) => losing.has(c)) };
+  }).filter((p) => p.catLost.length <= p.catGained.length || (Number(p.fairness) || 50) >= 65);
 }
 
 export default async function handler(req, res) {
@@ -293,8 +344,9 @@ async function askClaude(system, messages, maxTokens = 1500) {
   return (j?.content?.find((b) => b.type === 'text')?.text || '').trim();
 }
 
-// Pull the full league + attach our value rating to each player; build the grounding
-// text Claude sees (your team first, then every opponent). Returns { ctx, info }.
+// Pull the full league, attach our value + category strengths to each player, compute
+// the user's roto standings, and build the grounding text Claude sees. Returns
+// { ctx, info, idx, standings, isRoto, ppr, league }.
 async function buildTradeContext(creds, { sport, leagueId, season }) {
   let league;
   try {
@@ -303,23 +355,41 @@ async function buildTradeContext(creds, { sport, leagueId, season }) {
     if (err instanceof EspnAuthError) throw new HttpError(409, 'ESPN cookies expired', { error: 'espn_auth', reconnect: true });
     throw new HttpError(502, 'Could not load that league from ESPN', { error: 'league_failed', detail: String(err.message || err) });
   }
-  const idx = await valueIndexFor(sport);
-  const val = (name) => { const v = idx.get(normName(name)); return v == null ? '' : ` val ${Math.round(v * 10) / 10}`; };
-  const rosterLines = (roster) => (roster || []).slice(0, 30)
-    .map((p) => `  - ${p.name}${p.pos ? ' (' + p.pos + ')' : ''}${p.injury ? ' [' + p.injury + ']' : ''}${val(p.name)}`).join('\n');
-
+  const idx = await playerDataFor(sport);
+  const isRoto = !!CATS_BY_SPORT[sport];
   const me = league.teams.find((t) => t.id === league.userTeamId) || league.teams.find((t) => t.mine);
+  const standings = computeStandings(league.teams, league.userTeamId, sport, idx);
+
+  const line = (p) => {
+    const r = idx.get(normName(p.name));
+    const val = r && r.value != null ? ` val ${Math.round(r.value * 10) / 10}` : '';
+    const cats = r && r.cats && r.cats.length ? ` · ${r.cats.join(',')}` : '';
+    return `  - ${p.name}${p.pos ? ' (' + p.pos + ')' : ''}${p.injury ? ' [' + p.injury + ']' : ''}${val}${cats}`;
+  };
+  const rosterLines = (roster) => (roster || []).slice(0, 30).map(line).join('\n');
   const others = league.teams.filter((t) => t !== me);
+
+  const fmtHint = isRoto
+    ? `This is a ROTO category league. Categories: ${CATS_BY_SPORT[sport].map(([, l]) => l).join(', ')}. Each player line lists the categories they're strong in (after the "·").`
+    : `This is a POINTS (head-to-head) league — ${league.ppr} scoring. Weight pass-catchers (WR/TE and pass-catching RB) per ${league.ppr}; value = our projected fantasy points.`;
+  const standLine = standings
+    ? '\nYOUR CATEGORY STANDINGS (rank of ' + standings.n + ', 1 = best). LOSING = bottom half — protect/improve these:\n'
+      + standings.standings.map((s) => `${s.label} ${s.rank}${s.losing ? ' (LOSING)' : ''}`).join(' · ')
+    : '';
+
   const parts = [
-    `LEAGUE: "${league.leagueName}" — ${league.teamCount}-team ${league.scoringType || ''} ${SPORT_LABEL[sport] || sport} league.`,
-    'Value rating = our model\'s player value (higher = better; same scale within this sport). Blank = depth/unranked.',
+    `LEAGUE: "${league.leagueName}" — ${league.teamCount}-team ${SPORT_LABEL[sport] || sport} league. ${fmtHint}`,
+    'Value rating = our model\'s player value (higher = better, same scale within this sport). Blank = depth/unranked.',
+    standLine,
     `\nYOUR TEAM: ${me ? me.name : 'You'}${me && me.record ? ' (' + me.record + ')' : ''}\n${me ? rosterLines(me.roster) : ''}`,
     '\nOTHER TEAMS:',
   ];
   for (const t of others) parts.push(`[${t.name}${t.record ? ' ' + t.record : ''}]\n${rosterLines(t.roster)}`);
-  // Bound the prompt (a 12-team league fits comfortably; clamp pathological cases).
-  const ctx = parts.join('\n').slice(0, 14000);
-  return { ctx, info: { leagueName: league.leagueName, teamCount: league.teamCount, scoringType: league.scoringType, myTeam: me ? me.name : null } };
+  const ctx = parts.join('\n').slice(0, 16000);
+  return {
+    ctx, idx, standings, isRoto, ppr: league.ppr,
+    info: { leagueName: league.leagueName, teamCount: league.teamCount, scoringType: league.scoringType, myTeam: me ? me.name : null },
+  };
 }
 
 // Best-effort JSON extraction from a model reply (handles ```json fences / stray prose).
@@ -340,16 +410,26 @@ async function tradeScan(req, res, userId) {
   const { leagueId, season } = req.body || {};
   if (!leagueId || !season) throw new HttpError(400, 'Missing league', { error: 'missing_league' });
 
-  const { ctx, info } = await buildTradeContext(creds, { sport, leagueId, season });
-  const system = `You are FantasyEdge's Trade Scanner for ${SPORT_LABEL[sport] || sport} fantasy. Using the rosters and our value ratings below, find 2-3 REALISTIC trades that genuinely improve BOTH the user's team and a partner team. A good trade sends from the user's surplus (a position of depth) to fill a partner's need, and returns a player who fills the user's need from that partner's surplus. Only propose trades that are roughly fair and that the other manager would plausibly consider — no fleecing.
+  const { ctx, idx, standings, isRoto } = await buildTradeContext(creds, { sport, leagueId, season });
+  const catRules = isRoto
+    ? `\nCATEGORY RULES (this is a roto league — follow strictly):
+- A trade must improve the user's team across CATEGORIES on balance, not just raw value.
+- NEVER propose a trade that hurts MORE categories than it helps, unless the value gain is overwhelming.
+- Especially avoid weakening any category marked (LOSING) in the standings above — those are the user's priority.
+- In each rationale, name the categories the user GAINS and the ones they give up.`
+    : `\nThis is a points league — weigh the scoring format (PPR weight noted above) and roster fit; favor value the user can actually start.`;
+  const system = `You are FantasyEdge's Trade Scanner for ${SPORT_LABEL[sport] || sport} fantasy. Using the rosters, value ratings, and category strengths below, find 2-3 REALISTIC trades that genuinely improve BOTH the user's team and a partner team. A good trade sends from the user's surplus to fill a partner's need and returns a player who fills the user's need. Only propose roughly-fair trades the other manager would plausibly consider — no fleecing.
+${catRules}
 
-Return STRICT JSON only (no prose, no markdown fences): {"proposals":[{"partnerTeam": "<team name>", "youGet": ["<player>", ...], "youGive": ["<player>", ...], "rationale": "<one or two sentences: why it helps both sides>", "fairness": <integer 0-100, 50 = perfectly even, higher = better for the user>}]}. If no sensible trade exists, return {"proposals":[]}.
+Return STRICT JSON only (no prose, no markdown fences): {"proposals":[{"partnerTeam":"<team name>","youGet":["<player>",...],"youGive":["<player>",...],"rationale":"<1-2 sentences incl. which categories you gain vs give up>","fairness":<integer 0-100, 50 = even, higher = better for user>}]}. If no sensible trade exists, return {"proposals":[]}.
 
 ${ctx}`;
   const text = await askClaude(system, [{ role: 'user', content: 'Scan my league and propose the best trades for my team.' }], 1500);
   const parsed = extractJson(text);
-  const proposals = Array.isArray(parsed?.proposals) ? parsed.proposals.slice(0, 4) : [];
-  return res.json({ proposals, info, raw: proposals.length ? undefined : text });
+  let proposals = Array.isArray(parsed?.proposals) ? parsed.proposals.slice(0, 5) : [];
+  // Decorate with accurate categories + drop trades that hurt more cats than they help.
+  proposals = decorateProposals(proposals, idx, standings).slice(0, 4);
+  return res.json({ proposals, standings: standings ? standings.standings : null, isRoto, info, raw: proposals.length ? undefined : text });
 }
 
 // TRADE EVALUATOR / COUNTER GENERATOR / WALK-AWAY — one grounded chat. The system
@@ -365,13 +445,17 @@ async function tradeAdvise(req, res, userId) {
   const messages = sanitizeChat(req.body?.messages);
   if (!messages.length) throw new HttpError(400, 'Describe the trade first', { error: 'empty' });
 
-  const { ctx } = await buildTradeContext(creds, { sport, leagueId, season });
-  const system = `You are FantasyEdge's Trade Negotiation Advisor for ${SPORT_LABEL[sport] || sport} fantasy. You already know the user's roster and every other team's roster (with our value ratings) — never ask them to list their team. Be decisive and concise.
+  const { ctx, isRoto } = await buildTradeContext(creds, { sport, leagueId, season });
+  const catRule = isRoto
+    ? 'This is a ROTO category league. Always evaluate trades by CATEGORY impact: which categories the user gains vs gives up. Flag any trade that weakens a category marked (LOSING) in the standings, and never endorse one that hurts more categories than it helps unless the value gain is overwhelming.'
+    : 'This is a points (H2H) league — weigh the noted PPR scoring and startable roster fit.';
+  const system = `You are FantasyEdge's Trade Negotiation Advisor for ${SPORT_LABEL[sport] || sport} fantasy. You already know the user's roster and every other team's roster (with value ratings and category strengths) — never ask them to list their team. Be decisive and concise.
+${catRule}
 
-When the user pastes/describes an INCOMING OFFER: open with a one-word verdict — ACCEPT, REJECT, or COUNTER — then 1-2 sentences why, grounded in value + roster fit.
+When the user pastes/describes an INCOMING OFFER: open with a one-word verdict — ACCEPT, REJECT, or COUNTER — then 1-2 sentences why, grounded in value, category impact, and roster fit.
 COUNTERS: if it's close, propose a fair counter. If they want options, give 2-3 counter variations RANKED by how likely the other manager accepts (most likely first), each one line.
 WALK AWAY: if they describe back-and-forth going in circles, or the other side lowballing, say so plainly and tell them to move on — then name 1-2 better trade partners in this league and a quick angle for each.
-Don't invent this week's injuries/news beyond what's given; reason from value, role, and roster fit. No markdown headers — just talk.
+Don't invent this week's injuries/news beyond what's given; reason from value, role, category fit, and roster fit. No markdown headers — just talk.
 
 ${ctx}`;
   const reply = await askClaude(system, messages, 1200);

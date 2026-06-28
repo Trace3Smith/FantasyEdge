@@ -375,10 +375,16 @@ export async function fetchLeagueAllTeams(creds, { leagueId, seasonId }, sport =
     roster: parseRoster(t.roster?.entries || [], cfg),
   }));
   const me = parsed.find((t) => t.mine) || null;
+  // NFL PPR detection from scoring settings (statId 53 = receptions).
+  const scoringItems = data?.settings?.scoringSettings?.scoringItems || [];
+  const recItem = scoringItems.find((s) => s.statId === 53);
+  const recPts = recItem ? (recItem.points ?? 0) : 0;
+  const ppr = recPts >= 1 ? 'full PPR' : recPts >= 0.5 ? 'half PPR' : 'standard';
   return {
     leagueId, season: seasonId,
     leagueName: data?.settings?.name || `League ${leagueId}`,
     scoringType: data?.settings?.scoringSettings?.scoringType || null,
+    ppr, // NFL scoring weight (full PPR / half PPR / standard)
     teamCount: parsed.length, userTeamId: me ? me.id : null, teams: parsed,
   };
 }
