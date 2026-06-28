@@ -112,6 +112,7 @@
   .sugg-tag { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 2px 7px; border-radius: 12px; background: rgba(212,160,23,0.18); color: var(--gold-light); margin-right: 6px; }
   .sugg-tag.inj { background: rgba(229,76,76,0.18); color: #f3a1a1; }
   .sugg-tag.il { background: rgba(96,165,250,0.18); color: #93c5fd; }
+  .sugg-tag.ilfull { background: rgba(251,146,60,0.2); color: #fdba74; }
   .sugg-meta { color: var(--gray); font-size: 12px; }
   .sugg-arrow { color: var(--gold); font-weight: 600; }
   /* Per-league controls: apply button + autopilot switch */
@@ -591,11 +592,21 @@
       return `<div class="sugg sugg-ok">✓ Your lineup looks optimal — every best available bat & arm is in.</div>`;
     }
     const il = (s.summary && s.summary.ilMoves) || 0;
+    const ilFull = (s.summary && s.summary.ilFull) || 0;
     const head = `<div class="sugg-head">⚡ ${s.moves.length} ${s.moves.length === 1 ? 'move' : 'moves'} suggested`
       + (il ? ` · ${il} IL move${il > 1 ? 's' : ''}` : '')
+      + (ilFull ? ` · ${ilFull} need a roster move` : '')
       + (s.summary && s.summary.injuredStarters ? ` · ${s.summary.injuredStarters} injured starter${s.summary.injuredStarters > 1 ? 's' : ''}` : '')
       + (s.summary && s.summary.totalGain > 0 ? ` · +${s.summary.totalGain} proj. value` : '') + '</div>';
     const items = s.moves.map((m) => {
+      // IL/IR full — can't fit; user must drop someone on ESPN. Not in the Apply txn.
+      if (m.ilFull) {
+        const tag = '<span class="sugg-tag ilfull">IL FULL</span>';
+        const who = `<b>${escapeHtml(m.name)}</b> <span class="sugg-meta">${escapeHtml(m.nameMeta || '')}</span>`;
+        return m.action === 'cant_activate'
+          ? `<li>${tag} Your IL is full — to activate ${who}, you need to drop someone from your roster first. Visit ESPN to make a roster move.</li>`
+          : `<li>${tag} IL full — no open slot to move ${who}. You may need to drop an IL player to make room.</li>`;
+      }
       // IL/IR roster moves.
       if (m.il) {
         const tag = '<span class="sugg-tag il">IL MOVE</span>';
