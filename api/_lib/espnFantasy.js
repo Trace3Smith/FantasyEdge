@@ -96,42 +96,59 @@ export function credsShape(creds) {
   };
 }
 
-// --- ESPN id → label maps --------------------------------------------------------------------
-// ESPN baseball (flb) uses one id scheme for both a player's default position
-// (player.defaultPositionId) and the lineup slot they occupy (entry.lineupSlotId).
-const SLOT_BY_ID = {
+// --- per-sport ESPN config (game code, fan abbrev, id → label maps) --------------------------
+// The cookies (espn_s2/SWID) work across ALL of a user's ESPN fantasy games, so the only
+// per-sport differences are the v3 game code, the fan-API abbreviation, and the id maps.
+// MLB (flb) uses one id scheme for both a player's default position and lineup slot.
+const MLB_SLOTS = {
   0: 'C', 1: '1B', 2: '2B', 3: '3B', 4: 'SS', 5: 'OF', 6: '2B/SS', 7: '1B/3B',
   8: 'LF', 9: 'CF', 10: 'RF', 11: 'DH', 12: 'UTIL', 13: 'P', 14: 'SP', 15: 'RP',
   16: 'BE', 17: 'IL', 18: 'P', 19: 'IF',
 };
-// A player's default (eligible) position shares the same id scheme.
-const POSITION_BY_ID = SLOT_BY_ID;
-// Slots that are NOT in the active lineup (bench / injured list).
-const BENCH_SLOTS = new Set([16, 17]);
-// Display order for active lineup slots (everything else, e.g. bench, sorts after).
-const SLOT_ORDER = [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 5, 11, 12, 14, 15, 13, 18, 19];
-// MLB pro-team ids → abbreviations (proTeamId).
-const PROTEAM_BY_ID = {
-  0: 'FA', 1: 'BAL', 2: 'BOS', 3: 'LAA', 4: 'CHW', 5: 'CLE', 6: 'DET', 7: 'KC',
-  8: 'MIL', 9: 'MIN', 10: 'NYY', 11: 'OAK', 12: 'SEA', 13: 'TEX', 14: 'TOR',
-  15: 'ATL', 16: 'CHC', 17: 'CIN', 18: 'HOU', 19: 'LAD', 20: 'WSH', 21: 'NYM',
-  22: 'PHI', 23: 'PIT', 24: 'STL', 25: 'SD', 26: 'SF', 27: 'COL', 28: 'MIA',
-  29: 'ARI', 30: 'TB',
+// ESPN basketball (shared by NBA + WNBA) slot ids.
+const HOOPS_SLOTS = {
+  0: 'PG', 1: 'SG', 2: 'SF', 3: 'PF', 4: 'C', 5: 'G', 6: 'F', 7: 'SG/SF',
+  8: 'G/F', 9: 'PF/C', 10: 'F/C', 11: 'UTIL', 12: 'BE', 13: 'IR',
 };
+const HOOPS_POS = { 1: 'PG', 2: 'SG', 3: 'SF', 4: 'PF', 5: 'C' };
+
+const SPORTS = {
+  mlb: {
+    game: 'flb', abbrev: 'FLB',
+    slots: MLB_SLOTS, positions: MLB_SLOTS,
+    bench: new Set([16, 17]),
+    slotOrder: [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 5, 11, 12, 14, 15, 13, 18, 19],
+    teams: {
+      0: 'FA', 1: 'BAL', 2: 'BOS', 3: 'LAA', 4: 'CHW', 5: 'CLE', 6: 'DET', 7: 'KC',
+      8: 'MIL', 9: 'MIN', 10: 'NYY', 11: 'OAK', 12: 'SEA', 13: 'TEX', 14: 'TOR',
+      15: 'ATL', 16: 'CHC', 17: 'CIN', 18: 'HOU', 19: 'LAD', 20: 'WSH', 21: 'NYM',
+      22: 'PHI', 23: 'PIT', 24: 'STL', 25: 'SD', 26: 'SF', 27: 'COL', 28: 'MIA', 29: 'ARI', 30: 'TB',
+    },
+  },
+  // WNBA fantasy on ESPN uses the basketball schema. Team-id map is left empty (WNBA
+  // proTeam ids aren't pinned down) — team just shows blank, which is harmless.
+  wnba: { game: 'wfba', abbrev: 'WFBA', slots: HOOPS_SLOTS, positions: HOOPS_POS, bench: new Set([12, 13]), slotOrder: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], teams: {} },
+  // Off-season sports — game codes for future use; no rosters fetched while off-season.
+  nba: { game: 'fba', abbrev: 'FBA', slots: HOOPS_SLOTS, positions: HOOPS_POS, bench: new Set([12, 13]), slotOrder: [], teams: {} },
+  nfl: { game: 'ffl', abbrev: 'FFL', slots: {}, positions: {}, bench: new Set([20, 21]), slotOrder: [], teams: {} },
+  nhl: { game: 'fhl', abbrev: 'FHL', slots: {}, positions: {}, bench: new Set([], []), slotOrder: [], teams: {} },
+};
+const sportCfg = (sport) => SPORTS[sport] || SPORTS.mlb;
+
 const INJURY_LABEL = {
   ACTIVE: '', NORMAL: '', QUESTIONABLE: 'Q', DOUBTFUL: 'D', OUT: 'O',
   DAY_TO_DAY: 'DTD', SUSPENSION: 'SUSP',
   SEVEN_DAY_DL: 'IL', TEN_DAY_DL: 'IL', FIFTEEN_DAY_DL: 'IL', SIXTY_DAY_DL: '60-IL',
 };
 
-const posOf = (id) => POSITION_BY_ID[id] || 'UTIL';
-const slotOf = (id) => SLOT_BY_ID[id] ?? String(id);
-const teamOf = (id) => PROTEAM_BY_ID[id] || '';
+const posOf = (id, cfg) => (cfg.positions || cfg.slots)[id] || 'UTIL';
+const slotOf = (id, cfg) => cfg.slots[id] ?? String(id);
+const teamOf = (id, cfg) => (cfg.teams || {})[id] || '';
 
-// Exposed for the lineup advisor: human label for a slot id, and whether a slot
-// is an active (startable) lineup spot rather than bench/IL.
-export const slotLabel = (id) => slotOf(id);
-export const isActiveSlot = (id) => !BENCH_SLOTS.has(Number(id));
+// Exposed for the lineup advisor (MLB-only today): human label for a slot id, and
+// whether a slot is an active (startable) lineup spot rather than bench/IL.
+export const slotLabel = (id, sport = 'mlb') => slotOf(id, sportCfg(sport));
+export const isActiveSlot = (id, sport = 'mlb') => !sportCfg(sport).bench.has(Number(id));
 
 // --- low-level fetch -------------------------------------------------------------------------
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
@@ -202,7 +219,8 @@ const FAN_PARAM_VARIANTS = [
 // describing what the fan API actually returned (preference count, sport abbrevs +
 // seasons seen, why entries were skipped, any transport error). No cookies or tokens
 // are included — safe to surface to the client to debug "no leagues found".
-export async function discoverFanLeagues(creds) {
+export async function discoverFanLeagues(creds, sport = 'mlb') {
+  const wantAbbrev = sportCfg(sport).abbrev;
   const diag = { ok: false, prefCount: 0, abbrevs: [], seasons: [], types: [], entryKeys: [], responseKeys: [], skipped: { abbrev: 0, ids: 0, noEntry: 0 }, kept: 0, variants: 0, error: null };
   const out = [];
   const seen = new Set();
@@ -235,9 +253,9 @@ export async function discoverFanLeagues(creds) {
       const abbrev = entryAbbrev(e, p);
       addUnique(diag.abbrevs, abbrev || '(none)');
       addUnique(diag.seasons, e.seasonId);
-      // Keep baseball only (other sports share the fan API). Tolerate a missing
+      // Keep the requested sport only (all share the fan API). Tolerate a missing
       // abbrev rather than dropping a league we can't classify.
-      if (abbrev && abbrev !== 'FLB') { diag.skipped.abbrev++; continue; }
+      if (abbrev && abbrev !== wantAbbrev) { diag.skipped.abbrev++; continue; }
 
       const group = (Array.isArray(e.groups) && e.groups[0]) || {};
       const leagueId = String(group.groupId ?? e.groupId ?? e.leagueId ?? '');
@@ -254,16 +272,16 @@ export async function discoverFanLeagues(creds) {
         leagueName: group.groupName || e.name || `League ${leagueId}`,
       });
     }
-    if (out.length) break; // found baseball — no need to try narrower variants
+    if (out.length) break; // found the sport — no need to try narrower variants
   }
   diag.kept = out.length;
   return { leagues: out, diag };
 }
 
 // --- roster fetch (v3 league API) ------------------------------------------------------------
-const V3_BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/flb/seasons';
+const v3Read = (game) => `https://lm-api-reads.fantasy.espn.com/apis/v3/games/${game}/seasons`;
 
-function parseRoster(entries = []) {
+function parseRoster(entries = [], cfg = SPORTS.mlb) {
   const players = entries.map((en) => {
     const ppe = en.playerPoolEntry || {};
     const pl = ppe.player || en.player || {};
@@ -278,12 +296,12 @@ function parseRoster(entries = []) {
     return {
       id: pl.id ?? null,
       name: pl.fullName || 'Unknown',
-      pos: posOf(pl.defaultPositionId),
-      proTeam: teamOf(pl.proTeamId),
-      slot: slotOf(slotId),
+      pos: posOf(pl.defaultPositionId, cfg),
+      proTeam: teamOf(pl.proTeamId, cfg),
+      slot: slotOf(slotId, cfg),
       slotId,
       eligibleSlots: Array.isArray(pl.eligibleSlots) ? pl.eligibleSlots : [],
-      starter: !BENCH_SLOTS.has(slotId),
+      starter: !cfg.bench.has(slotId),
       injury: INJURY_LABEL[pl.injuryStatus] || '',
       injuryStatus: pl.injuryStatus || 'ACTIVE',
       locked,
@@ -292,14 +310,14 @@ function parseRoster(entries = []) {
   // Starters first (in lineup-slot order), then bench/IR.
   players.sort((a, b) => {
     if (a.starter !== b.starter) return a.starter ? -1 : 1;
-    const ai = SLOT_ORDER.indexOf(a.slotId), bi = SLOT_ORDER.indexOf(b.slotId);
+    const ai = cfg.slotOrder.indexOf(a.slotId), bi = cfg.slotOrder.indexOf(b.slotId);
     return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
   });
   return players;
 }
 
 // Shape one league + the user's team into our result object.
-function buildLeagueResult(data, team, { leagueId, seasonId }) {
+function buildLeagueResult(data, team, { leagueId, seasonId, cfg = SPORTS.mlb }) {
   const teams = Array.isArray(data?.teams) ? data.teams : [];
   const name = (t) => `${t.location || ''} ${t.nickname || ''}`.trim() || t.name || t.abbrev || `Team ${t.id}`;
   return {
@@ -324,39 +342,42 @@ function buildLeagueResult(data, team, { leagueId, seasonId }) {
           ties: team.record?.overall?.ties ?? null,
         }
       : null,
-    roster: team ? parseRoster(team.roster?.entries || []) : [],
+    roster: team ? parseRoster(team.roster?.entries || [], cfg) : [],
   };
 }
 
-const leagueUrl = (leagueId, seasonId) => `${V3_BASE}/${seasonId}/segments/0/leagues/${leagueId}`
+const leagueUrl = (leagueId, seasonId, game) => `${v3Read(game)}/${seasonId}/segments/0/leagues/${leagueId}`
   + `?view=mTeam&view=mRoster&view=mSettings`;
 
 // Fetch one league and pull the authoritative league name + the user's team + roster.
-export async function fetchLeagueRoster(creds, { leagueId, seasonId, teamId }) {
-  const data = await espnGet(leagueUrl(leagueId, seasonId), creds);
+export async function fetchLeagueRoster(creds, { leagueId, seasonId, teamId }, sport = 'mlb') {
+  const cfg = sportCfg(sport);
+  const data = await espnGet(leagueUrl(leagueId, seasonId, cfg.game), creds);
   const teams = Array.isArray(data?.teams) ? data.teams : [];
   const team = teams.find((t) => t.id === teamId) || null;
-  return buildLeagueResult(data, team, { leagueId, seasonId });
+  return buildLeagueResult(data, team, { leagueId, seasonId, cfg });
 }
 
 // Manual add: fetch a league by id and find the user's team by SWID ownership (no fan
 // API). Throws { code:'not_a_member' } if this SWID owns no team in the league.
-export async function fetchLeagueByOwner(creds, { leagueId, seasonId }) {
-  const data = await espnGet(leagueUrl(leagueId, seasonId), creds);
+export async function fetchLeagueByOwner(creds, { leagueId, seasonId }, sport = 'mlb') {
+  const cfg = sportCfg(sport);
+  const data = await espnGet(leagueUrl(leagueId, seasonId, cfg.game), creds);
   const teams = Array.isArray(data?.teams) ? data.teams : [];
   const mySwid = normalizeSwid(creds.swid).toUpperCase();
   const owns = (t) => [t.primaryOwner, ...(Array.isArray(t.owners) ? t.owners : [])]
     .filter(Boolean).some((o) => String(o).toUpperCase() === mySwid);
   const team = teams.find(owns) || null;
   if (!team) { const e = new Error('SWID owns no team in this league'); e.code = 'not_a_member'; throw e; }
-  return buildLeagueResult(data, team, { leagueId, seasonId });
+  return buildLeagueResult(data, team, { leagueId, seasonId, cfg });
 }
 
 // Top available free agents / waiver players in a league, sorted by % rostered (a
 // proxy for relevance). Uses ESPN's x-fantasy-filter header. Returns a light list
 // the advisor matches to our MLB values by name. Best-effort — caller tolerates [].
-export async function fetchFreeAgents(creds, { leagueId, seasonId, limit = 50 }) {
-  const url = `${V3_BASE}/${seasonId}/segments/0/leagues/${leagueId}?view=kona_player_info`;
+export async function fetchFreeAgents(creds, { leagueId, seasonId, limit = 50 }, sport = 'mlb') {
+  const cfg = sportCfg(sport);
+  const url = `${v3Read(cfg.game)}/${seasonId}/segments/0/leagues/${leagueId}?view=kona_player_info`;
   const filter = {
     players: {
       filterStatus: { value: ['FREEAGENT', 'WAIVERS'] },
@@ -371,8 +392,8 @@ export async function fetchFreeAgents(creds, { leagueId, seasonId, limit = 50 })
     return {
       id: pl.id ?? null,
       name: pl.fullName || 'Unknown',
-      pos: posOf(pl.defaultPositionId),
-      proTeam: teamOf(pl.proTeamId),
+      pos: posOf(pl.defaultPositionId, cfg),
+      proTeam: teamOf(pl.proTeamId, cfg),
       eligibleSlots: Array.isArray(pl.eligibleSlots) ? pl.eligibleSlots : [],
       percentOwned: pl.ownership?.percentOwned ?? null,
       injury: INJURY_LABEL[pl.injuryStatus] || '',
@@ -547,12 +568,12 @@ async function mapLimit(items, limit, fn) {
 // Top-level: discover the user's FLB leagues, then fetch each league's roster. Caps the
 // number of leagues so one user with dozens can't blow the function budget. A single
 // league's fetch failing degrades to an error note on that league, not the whole call.
-export async function fetchLeaguesWithRosters(creds, { maxLeagues = 12 } = {}) {
-  const { leagues: discovered, diag } = await discoverFanLeagues(creds);
+export async function fetchLeaguesWithRosters(creds, { maxLeagues = 12, sport = 'mlb' } = {}) {
+  const { leagues: discovered, diag } = await discoverFanLeagues(creds, sport);
   const leagues = discovered.slice(0, maxLeagues);
   const results = await mapLimit(leagues, 4, async (lg) => {
     try {
-      return await fetchLeagueRoster(creds, lg);
+      return await fetchLeagueRoster(creds, lg, sport);
     } catch (err) {
       if (err instanceof EspnAuthError) throw err;
       return { leagueId: lg.leagueId, season: lg.seasonId, leagueName: lg.leagueName, team: null, roster: [], error: 'fetch_failed' };
@@ -560,10 +581,10 @@ export async function fetchLeaguesWithRosters(creds, { maxLeagues = 12 } = {}) {
   });
   // Classify an empty result so the UI can react precisely: a fan call that
   // succeeds but returns ZERO entries is the signature of an expired espn_s2
-  // (ESPN serves a 200 guest profile, not a 401). Entries present but none in
-  // baseball means the account simply has no MLB league.
+  // (ESPN serves a 200 guest profile, not a 401). Entries present but none in this
+  // sport means the account simply has no league for it.
   let state = 'ok';
   if (!diag.ok) state = 'fan_error';
-  else if (discovered.length === 0) state = diag.prefCount === 0 ? 'expired' : 'no_baseball';
+  else if (discovered.length === 0) state = diag.prefCount === 0 ? 'expired' : 'no_leagues';
   return { count: discovered.length, truncated: discovered.length > leagues.length, leagues: results, diag, state };
 }

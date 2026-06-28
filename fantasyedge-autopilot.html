@@ -103,6 +103,16 @@
   .locked p { font-size: 13px; color: var(--gray-light); line-height: 1.6; margin: 0 auto 22px; max-width: 460px; }
   .locked button { background: var(--gold); color: #111; border: none; border-radius: 8px; padding: 12px 24px; font-family: inherit; font-weight: 700; font-size: 14px; cursor: pointer; }
   .hidden { display: none !important; }
+  /* Sport selector */
+  .sport-bar { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0; }
+  .sport-btn { background: rgba(255,255,255,0.05); color: var(--gray-light); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 9px 18px; font-family: inherit; font-weight: 700; font-size: 14px; letter-spacing: .5px; cursor: pointer; transition: all .12s; }
+  .sport-btn:hover { background: rgba(255,255,255,0.09); }
+  .sport-btn.active { background: var(--gold); color: #111; border-color: var(--gold); }
+  .sport-btn .soon { font-size: 9px; font-weight: 700; text-transform: uppercase; opacity: .6; margin-left: 5px; vertical-align: middle; }
+  .coming { text-align: center; padding: 40px 20px; }
+  .coming-emoji { font-size: 40px; margin-bottom: 12px; }
+  .coming h3 { font-family: 'Bebas Neue', sans-serif; font-size: 26px; letter-spacing: 1.5px; color: var(--gold); margin-bottom: 10px; }
+  .coming p { max-width: 440px; margin: 0 auto; }
   /* Lineup suggestions */
   .sugg { margin: 0 0 14px; padding: 12px 14px; background: rgba(212,160,23,0.07); border: 1px solid rgba(212,160,23,0.25); border-radius: 10px; }
   .sugg-ok { color: #9bdc9e; font-size: 13px; background: rgba(76,175,80,0.08); border-color: rgba(76,175,80,0.3); }
@@ -161,7 +171,7 @@
 <main class="main">
   <div class="top-header">
     <div class="page-title">LINEUP <span>AUTOPILOT</span></div>
-    <div class="page-subtitle">Connect your ESPN fantasy baseball account for start/sit suggestions, one-tap optimal lineups, and daily autopilot.</div>
+    <div class="page-subtitle">Connect your ESPN account once for start/sit suggestions, one-tap optimal lineups, and daily autopilot. Switch sports anytime — no reconnect needed.</div>
   </div>
 
   <!-- Premium lock (non-premium users) -->
@@ -224,9 +234,11 @@
       <div class="msg" id="leaguesMsg"></div>
     </div>
 
+    <div class="sport-bar" id="sportBar"></div>
+
     <div id="leaguesArea"></div>
 
-    <details class="panel add-league">
+    <details class="panel add-league" id="addLeaguePanel">
       <summary>Missing a league? Add it by ID</summary>
       <p class="hint">If automatic discovery didn't find one of your leagues, paste its League ID. It's in the league's URL on ESPN — <code>fantasy.espn.com/baseball/league?leagueId=<b>123456</b></code>. We match your team automatically from your SWID.</p>
       <div class="row">
@@ -251,6 +263,45 @@
   }
   function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // ---- sport selector ------------------------------------------------------------
+  // One ESPN login covers every sport, so switching is instant (just re-discovers
+  // that sport's leagues with the same cookies). In-season sports load leagues;
+  // off-season sports show a 'Coming {month}' placeholder.
+  const SPORTS = {
+    mlb:  { label: 'MLB',  active: true },
+    wnba: { label: 'WNBA', active: true },
+    nfl:  { label: 'NFL',  active: false, coming: 'September' },
+    nba:  { label: 'NBA',  active: false, coming: 'October' },
+    nhl:  { label: 'NHL',  active: false, coming: 'October' },
+  };
+  let currentSport = localStorage.getItem('fe_autopilot_sport') || 'mlb';
+  if (!SPORTS[currentSport]) currentSport = 'mlb';
+
+  function renderSportBar() {
+    $('sportBar').innerHTML = Object.entries(SPORTS).map(([k, v]) =>
+      `<button class="sport-btn${k === currentSport ? ' active' : ''}" data-sport="${k}">${v.label}${v.active ? '' : '<span class="soon">soon</span>'}</button>`
+    ).join('');
+  }
+
+  function selectSport(sport) {
+    if (!SPORTS[sport]) return;
+    currentSport = sport;
+    localStorage.setItem('fe_autopilot_sport', sport);
+    renderSportBar();
+    setMsg('leaguesMsg', '');
+    show('addLeaguePanel', sport === 'mlb'); // manual add is the MLB discovery fallback
+    const cfg = SPORTS[sport];
+    if (cfg.active) {
+      loadLeagues();
+    } else {
+      $('leaguesArea').innerHTML = `<div class="panel"><div class="coming">
+        <div class="coming-emoji">📅</div>
+        <h3>${escapeHtml(cfg.label)} — Coming ${escapeHtml(cfg.coming)}</h3>
+        <p class="hint">${escapeHtml(cfg.label)} fantasy is in the off-season. We'll switch this on when the season starts in ${escapeHtml(cfg.coming)} — your connected ESPN account already covers it, no reconnect needed.</p>
+      </div></div>`;
+    }
   }
 
   // POST to one of our ESPN endpoints with the Clerk bearer token.
@@ -280,7 +331,8 @@
       show('connectPanel', false);
       show('connectedWrap', true);
       $('connInfo').innerHTML = connInfoHtml(data.swid, data.savedAt);
-      loadLeagues();
+      renderSportBar();
+      selectSport(currentSport); // loads the active sport's leagues, or shows 'Coming {month}'
     } else {
       show('connectedWrap', false);
       show('connectPanel', true);
@@ -396,9 +448,10 @@
 
   // ---- leagues + rosters ---------------------------------------------------------
   async function loadLeagues() {
+    if (SPORTS[currentSport] && !SPORTS[currentSport].active) { selectSport(currentSport); return; } // off-season → 'Coming {month}'
     setMsg('leaguesMsg', '');
     $('leaguesArea').innerHTML = '<div class="loading">Pulling your ESPN leagues and rosters…</div>';
-    const { ok, status, data } = await api('/api/espn', { action: 'leagues' });
+    const { ok, status, data } = await api('/api/espn', { action: 'leagues', sport: currentSport });
     if (!ok) {
       $('leaguesArea').innerHTML = '';
       if (status === 409 && data?.error === 'not_connected') { show('connectedWrap', false); show('connectPanel', true); return; }
@@ -420,9 +473,10 @@
       // Expired espn_s2: ESPN returned a 200 guest profile with no entries. Don't
       // mislead with "no leagues found" — prompt a reconnect.
       if (data && data.state === 'expired') { renderExpired(); return; }
-      const msg = (data && data.state === 'no_baseball')
-        ? 'This ESPN account has no fantasy baseball leagues. Lineup Autopilot currently supports MLB — if your baseball league is on a different ESPN login, reconnect with that account\'s cookies.'
-        : 'No ESPN fantasy baseball leagues found for this account. If you just joined a league, give ESPN a few minutes, then hit Refresh.';
+      const sportLabel = (SPORTS[currentSport] && SPORTS[currentSport].label) || 'fantasy';
+      const msg = (data && data.state === 'no_leagues')
+        ? `This ESPN account has no ${sportLabel} fantasy leagues. If yours is on a different ESPN login, reconnect with that account's cookies.`
+        : `No ESPN ${sportLabel} fantasy leagues found for this account. If you just joined a league, give ESPN a few minutes, then hit Refresh.`;
       $('leaguesArea').innerHTML = `<div class="panel"><div class="empty">${msg}</div>${renderDiag(data && data.diag)}</div>`;
       return;
     }
@@ -517,7 +571,7 @@
       ['entries returned', diag.prefCount],
       ['sports seen', (diag.abbrevs || []).join(', ') || '—'],
       ['seasons seen', (diag.seasons || []).join(', ') || '—'],
-      ['kept (baseball)', diag.kept],
+      ['kept (this sport)', diag.kept],
       ['skipped: other sport / no ids / no entry', `${sk.abbrev || 0} / ${sk.ids || 0} / ${sk.noEntry || 0}`],
       ['first entry fields', (diag.entryKeys || []).join(', ') || '—'],
     ];
@@ -529,8 +583,10 @@
     return `${lg.teamCount}-team league` + (lg.scoringType ? ` · ${escapeHtml(lg.scoringType)}` : '');
   }
 
-  // Per-league controls: one-tap apply + the autopilot toggle.
+  // Per-league controls: one-tap apply + the autopilot toggle. Only MLB has the
+  // suggestion/autopilot engine today; other sports show rosters only.
   function renderControls(lg) {
+    if (currentSport !== 'mlb') return '';
     const teamId = lg.teamId != null ? lg.teamId : (lg.team && lg.team.id);
     if (teamId == null) return '';
     const data = `data-league-id="${escapeHtml(String(lg.leagueId))}" data-season="${escapeHtml(String(lg.season))}" data-team-id="${escapeHtml(String(teamId))}"`;
@@ -669,6 +725,10 @@
   $('disconnectBtn').addEventListener('click', disconnect);
   $('refreshBtn').addEventListener('click', loadLeagues);
   $('addLeagueBtn').addEventListener('click', addLeagueById);
+  $('sportBar').addEventListener('click', (e) => {
+    const btn = e.target.closest('.sport-btn');
+    if (btn) selectSport(btn.dataset.sport);
+  });
   // Delegated: league cards (and the apply button / autopilot toggle inside them)
   // are injected via innerHTML, so listen on the stable container.
   $('leaguesArea').addEventListener('click', (e) => {

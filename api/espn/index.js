@@ -33,7 +33,7 @@ export default async function handler(req, res) {
       case 'status':     return await status(res, userId);
       case 'connect':    return await connect(req, res, userId);
       case 'disconnect': return await disconnect(res, userId);
-      case 'leagues':    return await leagues(res, userId);
+      case 'leagues':    return await leagues(req, res, userId);
       case 'apply':      return await applyLineup(req, res, userId);
       case 'autopilot':  return await autopilotPref(req, res, userId);
       case 'addLeague':  return await addLeague(req, res, userId);
@@ -93,15 +93,20 @@ async function disconnect(res, userId) {
 }
 
 // Pull the user's ESPN fantasy-baseball leagues and current rosters.
-async function leagues(res, userId) {
+// Sports we'll actively discover leagues for (in-season). Others are off-season in the
+// UI and never hit this endpoint.
+const ACTIVE_SPORTS = new Set(['mlb', 'wnba']);
+
+async function leagues(req, res, userId) {
   const creds = await getCreds(redis, userId);
   if (!creds) {
     throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
   }
+  const sport = ACTIVE_SPORTS.has(req.body?.sport) ? req.body.sport : 'mlb';
 
   let result;
   try {
-    result = await fetchLeaguesWithRosters(creds);
+    result = await fetchLeaguesWithRosters(creds, { sport });
   } catch (err) {
     if (err instanceof EspnAuthError) {
       // Cookies expired/revoked since they were saved — tell the UI to reconnect.
@@ -109,48 +114,48 @@ async function leagues(res, userId) {
     }
     throw err;
   }
+  result.sport = sport;
 
-  // Merge in any manually-added leagues (fan-discovery fallback), deduped against
-  // what discovery already found. Best-effort per league.
-  try {
-    const manual = await getManualLeagues(redis, userId);
-    const have = new Set((result.leagues || []).filter((l) => l.teamId != null).map(leagueKeyOf));
-    for (const m of manual) {
-      try {
-        const lg = await fetchLeagueByOwner(creds, { leagueId: m.leagueId, seasonId: Number(m.season) });
-        lg.manual = true;
-        if (!have.has(leagueKeyOf(lg))) { result.leagues = result.leagues || []; result.leagues.push(lg); have.add(leagueKeyOf(lg)); }
-      } catch { /* skip a manual league that fails to load */ }
-    }
-  } catch { /* manual merge is optional */ }
-
-  // Annotate each league with start/sit + IL + waiver suggestions from our MLB
-  // valuations. Best-effort: read the cached dataset directly (no rebuild) so a
-  // cold/missing dataset degrades to "no suggestions" rather than blocking rosters.
-  // Free agents are fetched per league (for waiver suggestions) and tolerate failure.
-  try {
-    const ds = await redis.get(DATASET_KEY);
-    const players = (ds?.players || []).filter((p) => !p.searchOnly);
-    if (players.length) {
-      const idx = buildMlbValueIndex(players);
-      await Promise.all((result.leagues || []).map(async (lg) => {
-        if (!lg || !lg.team || !Array.isArray(lg.roster) || !lg.roster.length) return;
-        let freeAgents = [];
+  // MLB gets the full engine: manual-league fallback, start/sit + IL + waiver
+  // suggestions, and the autopilot toggle state. Other in-season sports (WNBA) show
+  // leagues + rosters only for now — the suggestion engine is MLB-specific.
+  if (sport === 'mlb') {
+    // Merge manually-added leagues (fan-discovery fallback), deduped.
+    try {
+      const manual = await getManualLeagues(redis, userId);
+      const have = new Set((result.leagues || []).filter((l) => l.teamId != null).map(leagueKeyOf));
+      for (const m of manual) {
         try {
-          freeAgents = await fetchFreeAgents(creds, { leagueId: lg.leagueId, seasonId: lg.season, limit: 40 });
-        } catch { /* waiver data is optional */ }
-        lg.suggestions = suggestLineup(lg, idx, 'mlb', { freeAgents });
-      }));
-    }
-  } catch { /* suggestions are optional */ }
+          const lg = await fetchLeagueByOwner(creds, { leagueId: m.leagueId, seasonId: Number(m.season) });
+          lg.manual = true;
+          if (!have.has(leagueKeyOf(lg))) { result.leagues = result.leagues || []; result.leagues.push(lg); have.add(leagueKeyOf(lg)); }
+        } catch { /* skip a manual league that fails to load */ }
+      }
+    } catch { /* manual merge is optional */ }
 
-  // Mark which leagues have autopilot enabled so the UI renders the toggle state.
-  try {
-    const prefs = await getAutopilot(redis, userId);
-    for (const lg of (result.leagues || [])) {
-      if (lg && lg.team) lg.autopilot = !!prefs[leagueKeyOf(lg)];
-    }
-  } catch { /* toggle state is optional */ }
+    try {
+      const ds = await redis.get(DATASET_KEY);
+      const players = (ds?.players || []).filter((p) => !p.searchOnly);
+      if (players.length) {
+        const idx = buildMlbValueIndex(players);
+        await Promise.all((result.leagues || []).map(async (lg) => {
+          if (!lg || !lg.team || !Array.isArray(lg.roster) || !lg.roster.length) return;
+          let freeAgents = [];
+          try {
+            freeAgents = await fetchFreeAgents(creds, { leagueId: lg.leagueId, seasonId: lg.season, limit: 40 });
+          } catch { /* waiver data is optional */ }
+          lg.suggestions = suggestLineup(lg, idx, 'mlb', { freeAgents });
+        }));
+      }
+    } catch { /* suggestions are optional */ }
+
+    try {
+      const prefs = await getAutopilot(redis, userId);
+      for (const lg of (result.leagues || [])) {
+        if (lg && lg.team) lg.autopilot = !!prefs[leagueKeyOf(lg)];
+      }
+    } catch { /* toggle state is optional */ }
+  }
 
   // Surface (non-sensitive) cred shape for debugging "connected but no leagues".
   if (result.diag) result.diag.creds = credsShape(creds);
