@@ -121,9 +121,15 @@ function assignOptimal(roster, openings) {
 
 const meta = (rp) => `${rp.pos}${rp.proTeam ? ' · ' + rp.proTeam : ''}${rp.injury ? ' · ' + rp.injury : ''}`;
 
-// Compute IL + start/sit moves for one league. `sport` selects the IL/IR slot config.
-// Returns { moves, plan, summary }.
-export function suggestLineup(league, idx, sport = 'mlb') {
+// Min z improvement to suggest a waiver add/drop (avoids churning the roster for a
+// marginal upgrade).
+const WAIVER_GAIN = 2.0;
+
+// Compute IL + start/sit + waiver moves for one league. `sport` selects the IL/IR slot
+// config; `freeAgents` (optional) enables waiver-wire suggestions. Returns { moves,
+// plan, summary }. NOTE: waiver/drop suggestions are display-only — never in `plan`
+// (drops are irreversible; the user executes them on ESPN).
+export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [] } = {}) {
   const roster = (league.roster || []).map((rp) => ({ ...rp }));
   const empty = { moves: [], plan: [], summary: { count: 0, ilMoves: 0, injuredStarters: 0, totalGain: 0, optimal: true } };
   if (!roster.length) return empty;
@@ -197,12 +203,47 @@ export function suggestLineup(league, idx, sport = 'mlb') {
     const dest = assigned.has(i) ? slotLabel(assigned.get(i)) : 'bench';
     moves.push({ reason: 'il', il: true, action: 'from_il', in: roster[i].name, inMeta: meta(roster[i]), inHot: roster[i]._v.tag === 'hot', slot: dest, fromLabel: IL.label });
   }
-  // IL-full warnings — never put in the plan (ESPN would reject); user drops on ESPN.
-  for (const i of activateBlocked) {
-    moves.push({ reason: 'il_full', ilFull: true, action: 'cant_activate', name: roster[i].name, nameMeta: meta(roster[i]) });
+  // Droppable bench players (on bench, unlocked, have an id), weakest value first —
+  // shared by forced-drop and waiver suggestions (never auto-executed; drops are
+  // irreversible and require the user to confirm on ESPN).
+  const dropPool = roster.map((_, i) => i)
+    .filter((i) => roster[i].slotId === benchId && !roster[i].locked && roster[i].id != null)
+    .sort((a, b) => roster[a]._v.adjZ - roster[b]._v.adjZ);
+
+  // FORCED DROP: a recovered IL player we can't activate because IL + roster are full.
+  // Name the specific lowest-value bench player to drop (only if worth less than the
+  // player we'd activate). Falls back to the generic IL-full warning if none qualifies.
+  for (const ri of activateBlocked) {
+    const rec = roster[ri];
+    const pos = dropPool.findIndex((di) => roster[di]._v.adjZ < rec._v.adjZ);
+    if (pos >= 0) {
+      const d = roster[dropPool.splice(pos, 1)[0]];
+      moves.push({ reason: 'drop', drop: true, dropName: d.name, dropMeta: meta(d), activate: rec.name, activateMeta: meta(rec), gain: Math.round((rec._v.adjZ - d._v.adjZ) * 10) / 10 });
+    } else {
+      moves.push({ reason: 'il_full', ilFull: true, action: 'cant_activate', name: rec.name, nameMeta: meta(rec) });
+    }
   }
   for (const i of ilBlocked) {
     moves.push({ reason: 'il_full', ilFull: true, action: 'cant_il', name: roster[i].name, nameMeta: meta(roster[i]), slot: IL.label });
+  }
+
+  // PROACTIVE WAIVER: best ranked free agent vs the weakest droppable bench player.
+  if (freeAgents.length && dropPool.length) {
+    const wb = roster[dropPool[0]]; // weakest remaining droppable bench player
+    let best = null;
+    for (const fa of freeAgents) {
+      const rec = idx.get(normName(fa.name));
+      if (!rec || typeof rec.z !== 'number') continue;       // only suggest a free agent we can value (skip minor leaguers)
+      if (!best || rec.z > best.z) best = { name: fa.name, pos: fa.pos, proTeam: fa.proTeam, z: rec.z };
+    }
+    if (best && best.z - wb._v.z >= WAIVER_GAIN) {
+      moves.push({
+        reason: 'waiver', waiver: true,
+        add: best.name, addMeta: `${best.pos}${best.proTeam ? ' · ' + best.proTeam : ''}`,
+        drop: wb.name, dropMeta: meta(wb),
+        gain: Math.round((best.z - wb._v.z) * 10) / 10,
+      });
+    }
   }
 
   const ilHandled = new Set([...toILset, ...activateIdx]);
@@ -237,29 +278,18 @@ export function suggestLineup(league, idx, sport = 'mlb') {
   }
 
   const ilMoves = toILset.size + activateIdx.size;
-  const ilFull = activateBlocked.length + ilBlocked.length;
+  const ilFull = moves.filter((m) => m.ilFull).length;
+  const waiverMoves = moves.filter((m) => m.waiver || m.drop).length;
   const injuredStarters = roster.filter((rp) => rp.starter && (INJURY_PENALTY[rp.injury] ?? 0) >= INJURY_PENALTY.O).length;
-  const totalGain = Math.round(moves.reduce((s, m) => s + (m.gain > 0 ? m.gain : 0), 0) * 10) / 10;
-  // Keep all IL moves + warnings (they're ordered first); cap the start/sit list.
-  const warnings = moves.filter((m) => m.il || m.ilFull);
-  const lineupMoves = moves.filter((m) => !m.il && !m.ilFull).slice(0, 6);
+  // Projected value gain reflects the LINEUP changes only (not waiver/drop roster moves).
+  const isLineup = (m) => !m.il && !m.ilFull && !m.waiver && !m.drop;
+  const totalGain = Math.round(moves.filter(isLineup).reduce((s, m) => s + (m.gain > 0 ? m.gain : 0), 0) * 10) / 10;
+  // Keep all special moves (IL / warnings / waiver / drop); cap only the start/sit list.
+  const special = moves.filter((m) => !isLineup(m));
+  const lineupMoves = moves.filter(isLineup).slice(0, 6);
   return {
-    moves: [...warnings, ...lineupMoves],
+    moves: [...special, ...lineupMoves],
     plan,
-    summary: { count: moves.length, ilMoves, ilFull, injuredStarters, totalGain, optimal: moves.length === 0 },
+    summary: { count: moves.length, ilMoves, ilFull, waiverMoves, injuredStarters, totalGain, optimal: moves.length === 0 },
   };
-}
-
-// Annotate each league in a fetchLeaguesWithRosters result with `.suggestions`,
-// using the MLB dataset players. Best-effort: a league with no roster is left as-is.
-export function attachSuggestions(result, mlbPlayers) {
-  const idx = buildMlbValueIndex(mlbPlayers);
-  if (!idx.size) return result;
-  for (const lg of (result.leagues || [])) {
-    if (lg && lg.team && Array.isArray(lg.roster) && lg.roster.length) {
-      lg.suggestions = suggestLineup(lg, idx);
-    }
-  }
-  result.suggestionsReady = true;
-  return result;
 }

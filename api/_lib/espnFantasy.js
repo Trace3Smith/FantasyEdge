@@ -147,13 +147,13 @@ function cookieHeader(creds) {
 // RFC-3986-valid form the fan API expects (the same encoding Python's requests sends).
 // Do NOT send literal braces: they're illegal URI chars and ESPN's Tomcat layer 400s
 // them with an HTML error page.
-async function espnGet(url, creds) {
+async function espnGet(url, creds, { headers = {} } = {}) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 12000);
   let res;
   try {
     res = await fetch(url, {
-      headers: { Cookie: cookieHeader(creds), 'User-Agent': UA, Accept: 'application/json' },
+      headers: { Cookie: cookieHeader(creds), 'User-Agent': UA, Accept: 'application/json', ...headers },
       signal: ctrl.signal,
     });
   } finally {
@@ -350,6 +350,34 @@ export async function fetchLeagueByOwner(creds, { leagueId, seasonId }) {
   const team = teams.find(owns) || null;
   if (!team) { const e = new Error('SWID owns no team in this league'); e.code = 'not_a_member'; throw e; }
   return buildLeagueResult(data, team, { leagueId, seasonId });
+}
+
+// Top available free agents / waiver players in a league, sorted by % rostered (a
+// proxy for relevance). Uses ESPN's x-fantasy-filter header. Returns a light list
+// the advisor matches to our MLB values by name. Best-effort — caller tolerates [].
+export async function fetchFreeAgents(creds, { leagueId, seasonId, limit = 50 }) {
+  const url = `${V3_BASE}/${seasonId}/segments/0/leagues/${leagueId}?view=kona_player_info`;
+  const filter = {
+    players: {
+      filterStatus: { value: ['FREEAGENT', 'WAIVERS'] },
+      limit,
+      sortPercOwned: { sortAsc: false, sortPriority: 1 },
+    },
+  };
+  const data = await espnGet(url, creds, { headers: { 'x-fantasy-filter': JSON.stringify(filter) } });
+  const players = Array.isArray(data?.players) ? data.players : [];
+  return players.map((pw) => {
+    const pl = pw.player || pw || {};
+    return {
+      id: pl.id ?? null,
+      name: pl.fullName || 'Unknown',
+      pos: posOf(pl.defaultPositionId),
+      proTeam: teamOf(pl.proTeamId),
+      eligibleSlots: Array.isArray(pl.eligibleSlots) ? pl.eligibleSlots : [],
+      percentOwned: pl.ownership?.percentOwned ?? null,
+      injury: INJURY_LABEL[pl.injuryStatus] || '',
+    };
+  }).filter((p) => p.name !== 'Unknown');
 }
 
 // --- lineup write (v3 transactions) ----------------------------------------------------------

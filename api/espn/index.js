@@ -13,12 +13,12 @@ import { requirePremium, sendError, HttpError } from '../_lib/auth.js';
 import { redis, DATASET_KEY } from '../_lib/kv.js';
 import {
   normalizeS2, normalizeSwid, isValidSwid, saveCreds, getCreds, deleteCreds,
-  fetchFanLeagues, fetchLeaguesWithRosters, fetchLeagueRoster, fetchLeagueByOwner, setLineup,
+  fetchFanLeagues, fetchLeaguesWithRosters, fetchLeagueRoster, fetchLeagueByOwner, fetchFreeAgents, setLineup,
   getAutopilot, setAutopilotLeague, leagueKeyOf,
   getManualLeagues, addManualLeague, removeManualLeague,
   maskSwid, credsShape, EspnAuthError,
 } from '../_lib/espnFantasy.js';
-import { attachSuggestions, buildMlbValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
+import { buildMlbValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
 
 // connect + leagues make several ESPN network calls; raise above the 10s Hobby default.
 export const maxDuration = 30;
@@ -124,13 +124,24 @@ async function leagues(res, userId) {
     }
   } catch { /* manual merge is optional */ }
 
-  // Annotate each league with start/sit suggestions from our MLB valuations.
-  // Best-effort: read the cached dataset directly (no rebuild) so a cold/missing
-  // dataset degrades to "no suggestions" rather than blocking the roster view.
+  // Annotate each league with start/sit + IL + waiver suggestions from our MLB
+  // valuations. Best-effort: read the cached dataset directly (no rebuild) so a
+  // cold/missing dataset degrades to "no suggestions" rather than blocking rosters.
+  // Free agents are fetched per league (for waiver suggestions) and tolerate failure.
   try {
     const ds = await redis.get(DATASET_KEY);
     const players = (ds?.players || []).filter((p) => !p.searchOnly);
-    if (players.length) attachSuggestions(result, players);
+    if (players.length) {
+      const idx = buildMlbValueIndex(players);
+      await Promise.all((result.leagues || []).map(async (lg) => {
+        if (!lg || !lg.team || !Array.isArray(lg.roster) || !lg.roster.length) return;
+        let freeAgents = [];
+        try {
+          freeAgents = await fetchFreeAgents(creds, { leagueId: lg.leagueId, seasonId: lg.season, limit: 40 });
+        } catch { /* waiver data is optional */ }
+        lg.suggestions = suggestLineup(lg, idx, 'mlb', { freeAgents });
+      }));
+    }
   } catch { /* suggestions are optional */ }
 
   // Mark which leagues have autopilot enabled so the UI renders the toggle state.
