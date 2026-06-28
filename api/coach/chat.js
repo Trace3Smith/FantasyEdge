@@ -90,6 +90,16 @@ export default async function handler(req, res) {
         + 'favor it over training knowledge and don\'t recite it back verbatim:\n' + draftContext.slice(0, MAX_CONTEXT);
     }
 
+    // The user's actual ESPN team, sent when the Coach is embedded in a Team Manager
+    // league card. You already KNOW their roster, record, league type, and scoring —
+    // never ask them to describe their team; just use this and answer.
+    const teamContext = typeof req.body?.teamContext === 'string' ? req.body.teamContext.trim() : '';
+    if (teamContext) {
+      system += '\n\nTHE USER\'S TEAM (live from their ESPN league) — you already know this roster and these '
+        + 'settings, so don\'t ask them to list their team; ground every answer in it and don\'t recite it back '
+        + 'verbatim:\n' + teamContext.slice(0, MAX_CONTEXT);
+    }
+
     const r = await fetch(ANTHROPIC_URL, {
       method: 'POST',
       headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
