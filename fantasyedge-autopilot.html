@@ -175,6 +175,7 @@
     <li><a href="fantasyedge-draft.html"><span class="icon">📋</span> Offline Draft</a></li>
     <li><a href="fantasyedge-draft.html?mode=mock"><span class="icon">🎯</span> Mock Draft</a></li>
     <li><a href="fantasyedge-autopilot.html" class="active"><span class="icon">🎛️</span> Team Manager</a></li>
+    <li><a href="fantasyedge-trade-center.html"><span class="icon">🤝</span> Trade Center</a></li>
     <li><a href="fantasyedge-trending.html"><span class="icon">🔥</span> Trending Players</a></li>
     <li><a href="fantasyedge-brackets.html"><span class="icon">🏆</span> Brackets &amp; Bowls</a></li>
   </ul>
@@ -578,95 +579,10 @@
         <thead><tr><th style="width:64px">Slot</th><th>Player</th><th style="width:110px">Pos · Team</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      ${renderCoach(lg)}
     </div>`;
   }
 
-  // Embedded AI Coach for one team. It's sent the team's roster/record/league/scoring
-  // as context, so it already knows the team — the user just asks.
-  function renderCoach(lg) {
-    const lk = lkOf(lg);
-    if (!lk) return '';
-    const safe = lk.replace(/[^a-zA-Z0-9]/g, '-');
-    return `<div class="coach" data-lk="${escapeHtml(lk)}">
-      <button class="coach-toggle">💬 AI Coach — ask about ${escapeHtml((lg.team && lg.team.name) || 'this team')}</button>
-      <div class="coach-body hidden">
-        <div class="coach-msgs" id="cm-${safe}"><div class="coach-hello">I've got ${escapeHtml((lg.team && lg.team.name) || 'your team')}'s roster, record, and league settings — ask me anything. Trades, start/sit, waivers, who to drop…</div></div>
-        <div class="coach-chips">
-          <button class="coach-chip">Who should I start this week?</button>
-          <button class="coach-chip">Any waiver pickups worth a claim?</button>
-          <button class="coach-chip">Who's my weakest spot?</button>
-        </div>
-        <div class="coach-row">
-          <input class="coach-input txt" placeholder="Ask about a trade, start/sit, waiver…" autocomplete="off">
-          <button class="btn btn-gold coach-send">Send</button>
-        </div>
-      </div>
-    </div>`;
-  }
-
-  // Compact, factual context string so the Coach already knows this team.
-  function buildTeamContext(lg) {
-    const t = lg.team || {};
-    const rec = (t.wins != null) ? ` (${t.wins}-${t.losses}${t.ties ? '-' + t.ties : ''})` : '';
-    const sportLabel = (SPORTS[currentSport] && SPORTS[currentSport].label) || currentSport;
-    const lines = [
-      `Sport: ${sportLabel} (ESPN fantasy).`,
-      `Team: ${t.name || 'My Team'}${rec} in "${lg.leagueName || 'league'}".`,
-      `League: ${lg.teamCount ? lg.teamCount + '-team' : ''}${lg.scoringType ? ' ' + lg.scoringType : ''} league.`.replace(/\s+/g, ' ').trim(),
-    ];
-    const ros = lg.roster || [];
-    const fmt = (p) => `${p.name}${p.pos ? ' (' + p.pos + ')' : ''}${p.proTeam ? ' ' + p.proTeam : ''}${p.injury ? ' [' + p.injury + ']' : ''}`;
-    const starters = ros.filter((p) => p.starter).map((p) => `${p.slot} ${fmt(p)}`);
-    const bench = ros.filter((p) => !p.starter).map(fmt);
-    if (starters.length) lines.push('Starting lineup: ' + starters.join('; '));
-    if (bench.length) lines.push('Bench/Reserve: ' + bench.join('; '));
-    const s = lg.suggestions;
-    if (s && s.moves && s.moves.length) {
-      const ms = s.moves.slice(0, 8).map((m) => m.waiver ? `waiver drop ${m.drop} add ${m.add}`
-        : m.drop ? `drop ${m.dropName} to activate ${m.activate}`
-        : m.il ? (m.action === 'to_il' ? `IL ${m.out}` : `activate ${m.in} from IL`)
-        : m.ilFull ? `IL full re ${m.name}` : m.in ? `start ${m.in}${m.out ? ' over ' + m.out : ''}` : '').filter(Boolean);
-      if (ms.length) lines.push('FantasyEdge already recommends: ' + ms.join('; ') + '.');
-    }
-    return lines.join('\n');
-  }
-
-  function coachMsgsEl(lk) { return document.getElementById('cm-' + lk.replace(/[^a-zA-Z0-9]/g, '-')); }
-
-  function renderCoachMsgs(lk) {
-    const el = coachMsgsEl(lk);
-    if (!el) return;
-    const st = coachState[lk] || { messages: [] };
-    el.innerHTML = st.messages.map((m) =>
-      `<div class="cmsg ${m.role}">${escapeHtml(m.content).replace(/\n/g, '<br>')}</div>`
-    ).join('') + (st.busy ? '<div class="cmsg assistant typing">Coach is thinking…</div>' : '');
-    el.scrollTop = el.scrollHeight;
-  }
-
-  async function coachSend(coachEl, presetText) {
-    const lk = coachEl.getAttribute('data-lk');
-    const lg = leaguesByKey[lk];
-    if (!lg) return;
-    const input = coachEl.querySelector('.coach-input');
-    const text = (presetText != null ? presetText : input.value).trim();
-    if (!text) return;
-    const st = coachState[lk] || (coachState[lk] = { messages: [], busy: false });
-    if (st.busy) return;
-    input.value = '';
-    st.messages.push({ role: 'user', content: text });
-    st.busy = true;
-    renderCoachMsgs(lk);
-    const { ok, status, data } = await api('/api/coach/chat', { messages: st.messages, teamContext: buildTeamContext(lg) });
-    st.busy = false;
-    if (ok && data && data.reply) {
-      st.messages.push({ role: 'assistant', content: data.reply });
-    } else {
-      const m = status === 403 ? 'The AI Coach is a Premium feature.' : (data && data.error) || 'The Coach had trouble — try again.';
-      st.messages.push({ role: 'assistant', content: m });
-    }
-    renderCoachMsgs(lk);
-  }
+  // (AI Coach moved out of league cards into the dedicated Trade Center page.)
 
   // Temporary debugging aid: show what the ESPN fan API actually returned when no
   // baseball leagues come back, so we can tell whether the call failed, returned
@@ -848,24 +764,6 @@
   $('leaguesArea').addEventListener('click', (e) => {
     const applyBtn = e.target.closest('.apply-btn');
     if (applyBtn) { applyLineupClick(applyBtn); return; }
-    const toggle = e.target.closest('.coach-toggle');
-    if (toggle) {
-      const body = toggle.parentElement.querySelector('.coach-body');
-      const opening = body.classList.contains('hidden');
-      body.classList.toggle('hidden');
-      if (opening) { const inp = body.querySelector('.coach-input'); if (inp) setTimeout(() => inp.focus(), 30); }
-      return;
-    }
-    const chip = e.target.closest('.coach-chip');
-    if (chip) { coachSend(chip.closest('.coach'), chip.textContent); return; }
-    const send = e.target.closest('.coach-send');
-    if (send) { coachSend(send.closest('.coach')); return; }
-  });
-  $('leaguesArea').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && e.target.classList.contains('coach-input')) {
-      e.preventDefault();
-      coachSend(e.target.closest('.coach'));
-    }
   });
   $('leaguesArea').addEventListener('change', (e) => {
     if (e.target.classList.contains('ap-toggle')) toggleAutopilot(e.target);

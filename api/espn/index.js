@@ -10,18 +10,43 @@
 //   action: 'disconnect' -> delete stored cookies; { connected: false }
 //   action: 'leagues'    -> { leagues: [...] } with rosters
 import { requirePremium, sendError, HttpError } from '../_lib/auth.js';
-import { redis, DATASET_KEY } from '../_lib/kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY } from '../_lib/kv.js';
 import {
   normalizeS2, normalizeSwid, isValidSwid, saveCreds, getCreds, deleteCreds,
-  fetchFanLeagues, fetchLeaguesWithRosters, fetchLeagueRoster, fetchLeagueByOwner, fetchFreeAgents, setLineup,
+  fetchFanLeagues, fetchLeaguesWithRosters, fetchLeagueRoster, fetchLeagueByOwner, fetchLeagueAllTeams, fetchFreeAgents, setLineup,
   getAutopilot, setAutopilotLeague, leagueKeyOf,
   getManualLeagues, addManualLeague, removeManualLeague,
   maskSwid, credsShape, EspnAuthError,
 } from '../_lib/espnFantasy.js';
 import { buildMlbValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
+import { normName } from '../_lib/golf.js';
 
-// connect + leagues make several ESPN network calls; raise above the 10s Hobby default.
-export const maxDuration = 30;
+// connect/leagues make several ESPN calls; trade actions also call Claude (10-20s).
+// Raise above the 10s Hobby default (Hobby caps at 60s).
+export const maxDuration = 60;
+
+// Sport → cached ranked-player dataset (for trade value grounding).
+const DATASET_BY_SPORT = { mlb: DATASET_KEY, nba: NBA_DATASET_KEY, wnba: WNBA_DATASET_KEY, nhl: NHL_DATASET_KEY, nfl: NFL_DATASET_KEY };
+const TRADE_SPORTS = new Set(['mlb', 'wnba', 'nfl', 'nba', 'nhl']);
+
+// name → value (zTotal for roto sports, score/points for NFL). Best-effort; missing
+// dataset → empty map (Claude then reasons without our ratings).
+async function valueIndexFor(sport) {
+  const key = DATASET_BY_SPORT[sport] || DATASET_KEY;
+  const idx = new Map();
+  try {
+    const ds = await redis.get(key);
+    for (const p of (ds?.players || [])) {
+      if (p.searchOnly) continue;
+      const v = typeof p.zTotal === 'number' ? p.zTotal : (typeof p.score === 'number' ? p.score : null);
+      if (v == null || !p.name) continue;
+      const k = normName(p.name);
+      const prev = idx.get(k);
+      if (prev == null || v > prev) idx.set(k, v);
+    }
+  } catch { /* no dataset — degrade to no ratings */ }
+  return idx;
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -38,6 +63,8 @@ export default async function handler(req, res) {
       case 'autopilot':  return await autopilotPref(req, res, userId);
       case 'addLeague':  return await addLeague(req, res, userId);
       case 'removeLeague': return await removeLeague(req, res, userId);
+      case 'tradeScan':  return await tradeScan(req, res, userId);
+      case 'tradeAdvise': return await tradeAdvise(req, res, userId);
       default:
         return res.status(400).json({ error: 'unknown_action' });
     }
@@ -93,16 +120,14 @@ async function disconnect(res, userId) {
 }
 
 // Pull the user's ESPN fantasy-baseball leagues and current rosters.
-// Sports we'll actively discover leagues for (in-season). Others are off-season in the
-// UI and never hit this endpoint.
-const ACTIVE_SPORTS = new Set(['mlb', 'wnba']);
-
 async function leagues(req, res, userId) {
   const creds = await getCreds(redis, userId);
   if (!creds) {
     throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
   }
-  const sport = ACTIVE_SPORTS.has(req.body?.sport) ? req.body.sport : 'mlb';
+  // Discover any of the 5 sports (Team Manager only sends in-season ones; Trade Center
+  // may request any). The full suggestion/autopilot engine still runs for MLB only.
+  const sport = TRADE_SPORTS.has(req.body?.sport) ? req.body.sport : 'mlb';
 
   let result;
   try {
@@ -244,4 +269,126 @@ async function removeLeague(req, res, userId) {
   const season = Number(req.body?.season) || new Date().getFullYear();
   const list = await removeManualLeague(redis, userId, { leagueId, season });
   return res.json({ removed: true, count: list.length });
+}
+
+// ===== Trade Center =========================================================================
+const SPORT_LABEL = { mlb: 'MLB', wnba: 'WNBA', nfl: 'NFL', nba: 'NBA', nhl: 'NHL' };
+const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
+const TRADE_MODEL = 'claude-opus-4-8';
+
+// One Claude call. Returns the assistant text, or throws HttpError on config/upstream issues.
+async function askClaude(system, messages, maxTokens = 1500) {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) throw new HttpError(503, 'AI is unavailable right now', { error: 'ai_unavailable' });
+  const r = await fetch(ANTHROPIC_URL, {
+    method: 'POST',
+    headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: TRADE_MODEL, max_tokens: maxTokens, system, messages }),
+  });
+  if (!r.ok) {
+    console.error('[trade] anthropic', r.status, await r.text().catch(() => ''));
+    throw new HttpError(502, 'The trade analyst had trouble — try again', { error: 'ai_error' });
+  }
+  const j = await r.json();
+  return (j?.content?.find((b) => b.type === 'text')?.text || '').trim();
+}
+
+// Pull the full league + attach our value rating to each player; build the grounding
+// text Claude sees (your team first, then every opponent). Returns { ctx, info }.
+async function buildTradeContext(creds, { sport, leagueId, season }) {
+  let league;
+  try {
+    league = await fetchLeagueAllTeams(creds, { leagueId: String(leagueId), seasonId: Number(season) }, sport);
+  } catch (err) {
+    if (err instanceof EspnAuthError) throw new HttpError(409, 'ESPN cookies expired', { error: 'espn_auth', reconnect: true });
+    throw new HttpError(502, 'Could not load that league from ESPN', { error: 'league_failed', detail: String(err.message || err) });
+  }
+  const idx = await valueIndexFor(sport);
+  const val = (name) => { const v = idx.get(normName(name)); return v == null ? '' : ` val ${Math.round(v * 10) / 10}`; };
+  const rosterLines = (roster) => (roster || []).slice(0, 30)
+    .map((p) => `  - ${p.name}${p.pos ? ' (' + p.pos + ')' : ''}${p.injury ? ' [' + p.injury + ']' : ''}${val(p.name)}`).join('\n');
+
+  const me = league.teams.find((t) => t.id === league.userTeamId) || league.teams.find((t) => t.mine);
+  const others = league.teams.filter((t) => t !== me);
+  const parts = [
+    `LEAGUE: "${league.leagueName}" — ${league.teamCount}-team ${league.scoringType || ''} ${SPORT_LABEL[sport] || sport} league.`,
+    'Value rating = our model\'s player value (higher = better; same scale within this sport). Blank = depth/unranked.',
+    `\nYOUR TEAM: ${me ? me.name : 'You'}${me && me.record ? ' (' + me.record + ')' : ''}\n${me ? rosterLines(me.roster) : ''}`,
+    '\nOTHER TEAMS:',
+  ];
+  for (const t of others) parts.push(`[${t.name}${t.record ? ' ' + t.record : ''}]\n${rosterLines(t.roster)}`);
+  // Bound the prompt (a 12-team league fits comfortably; clamp pathological cases).
+  const ctx = parts.join('\n').slice(0, 14000);
+  return { ctx, info: { leagueName: league.leagueName, teamCount: league.teamCount, scoringType: league.scoringType, myTeam: me ? me.name : null } };
+}
+
+// Best-effort JSON extraction from a model reply (handles ```json fences / stray prose).
+function extractJson(text) {
+  if (!text) return null;
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const body = fenced ? fenced[1] : text;
+  const s = body.indexOf('{'); const e = body.lastIndexOf('}');
+  if (s < 0 || e <= s) return null;
+  try { return JSON.parse(body.slice(s, e + 1)); } catch { return null; }
+}
+
+// TRADE SCANNER — propose 2-3 mutually-beneficial trades for one league.
+async function tradeScan(req, res, userId) {
+  const creds = await getCreds(redis, userId);
+  if (!creds) throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
+  const sport = TRADE_SPORTS.has(req.body?.sport) ? req.body.sport : 'mlb';
+  const { leagueId, season } = req.body || {};
+  if (!leagueId || !season) throw new HttpError(400, 'Missing league', { error: 'missing_league' });
+
+  const { ctx, info } = await buildTradeContext(creds, { sport, leagueId, season });
+  const system = `You are FantasyEdge's Trade Scanner for ${SPORT_LABEL[sport] || sport} fantasy. Using the rosters and our value ratings below, find 2-3 REALISTIC trades that genuinely improve BOTH the user's team and a partner team. A good trade sends from the user's surplus (a position of depth) to fill a partner's need, and returns a player who fills the user's need from that partner's surplus. Only propose trades that are roughly fair and that the other manager would plausibly consider — no fleecing.
+
+Return STRICT JSON only (no prose, no markdown fences): {"proposals":[{"partnerTeam": "<team name>", "youGet": ["<player>", ...], "youGive": ["<player>", ...], "rationale": "<one or two sentences: why it helps both sides>", "fairness": <integer 0-100, 50 = perfectly even, higher = better for the user>}]}. If no sensible trade exists, return {"proposals":[]}.
+
+${ctx}`;
+  const text = await askClaude(system, [{ role: 'user', content: 'Scan my league and propose the best trades for my team.' }], 1500);
+  const parsed = extractJson(text);
+  const proposals = Array.isArray(parsed?.proposals) ? parsed.proposals.slice(0, 4) : [];
+  return res.json({ proposals, info, raw: proposals.length ? undefined : text });
+}
+
+// TRADE EVALUATOR / COUNTER GENERATOR / WALK-AWAY — one grounded chat. The system
+// prompt makes Claude evaluate an offer, generate ranked counters, and call out
+// lowballs / circular negotiations and suggest better partners.
+async function tradeAdvise(req, res, userId) {
+  const creds = await getCreds(redis, userId);
+  if (!creds) throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
+  const sport = TRADE_SPORTS.has(req.body?.sport) ? req.body.sport : 'mlb';
+  const { leagueId, season } = req.body || {};
+  if (!leagueId || !season) throw new HttpError(400, 'Missing league', { error: 'missing_league' });
+
+  const messages = sanitizeChat(req.body?.messages);
+  if (!messages.length) throw new HttpError(400, 'Describe the trade first', { error: 'empty' });
+
+  const { ctx } = await buildTradeContext(creds, { sport, leagueId, season });
+  const system = `You are FantasyEdge's Trade Negotiation Advisor for ${SPORT_LABEL[sport] || sport} fantasy. You already know the user's roster and every other team's roster (with our value ratings) — never ask them to list their team. Be decisive and concise.
+
+When the user pastes/describes an INCOMING OFFER: open with a one-word verdict — ACCEPT, REJECT, or COUNTER — then 1-2 sentences why, grounded in value + roster fit.
+COUNTERS: if it's close, propose a fair counter. If they want options, give 2-3 counter variations RANKED by how likely the other manager accepts (most likely first), each one line.
+WALK AWAY: if they describe back-and-forth going in circles, or the other side lowballing, say so plainly and tell them to move on — then name 1-2 better trade partners in this league and a quick angle for each.
+Don't invent this week's injuries/news beyond what's given; reason from value, role, and roster fit. No markdown headers — just talk.
+
+${ctx}`;
+  const reply = await askClaude(system, messages, 1200);
+  if (!reply) throw new HttpError(502, 'The analyst came up empty — rephrase', { error: 'ai_empty' });
+  return res.json({ reply });
+}
+
+// Keep valid user/assistant turns, clamp length/count, start on a user turn.
+function sanitizeChat(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const m of raw) {
+    const role = m && (m.role === 'user' || m.role === 'assistant') ? m.role : null;
+    const content = typeof m?.content === 'string' ? m.content.trim() : '';
+    if (role && content) out.push({ role, content: content.slice(0, 4000) });
+  }
+  const trimmed = out.slice(-16);
+  while (trimmed.length && trimmed[0].role !== 'user') trimmed.shift();
+  return trimmed;
 }

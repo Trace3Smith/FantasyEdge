@@ -358,6 +358,31 @@ export async function fetchLeagueRoster(creds, { leagueId, seasonId, teamId }, s
   return buildLeagueResult(data, team, { leagueId, seasonId, cfg });
 }
 
+// Fetch EVERY team + roster in a league (for the Trade Center). Marks which team is
+// the user's (by SWID ownership). One v3 call returns all rosters.
+export async function fetchLeagueAllTeams(creds, { leagueId, seasonId }, sport = 'mlb') {
+  const cfg = sportCfg(sport);
+  const data = await espnGet(leagueUrl(leagueId, seasonId, cfg.game), creds);
+  const teams = Array.isArray(data?.teams) ? data.teams : [];
+  const mySwid = normalizeSwid(creds.swid).toUpperCase();
+  const owns = (t) => [t.primaryOwner, ...(Array.isArray(t.owners) ? t.owners : [])]
+    .filter(Boolean).some((o) => String(o).toUpperCase() === mySwid);
+  const name = (t) => `${t.location || ''} ${t.nickname || ''}`.trim() || t.name || t.abbrev || `Team ${t.id}`;
+  const rec = (t) => (t.record?.overall && t.record.overall.wins != null)
+    ? `${t.record.overall.wins}-${t.record.overall.losses}${t.record.overall.ties ? '-' + t.record.overall.ties : ''}` : '';
+  const parsed = teams.map((t) => ({
+    id: t.id, name: name(t), abbrev: t.abbrev || '', mine: owns(t), record: rec(t),
+    roster: parseRoster(t.roster?.entries || [], cfg),
+  }));
+  const me = parsed.find((t) => t.mine) || null;
+  return {
+    leagueId, season: seasonId,
+    leagueName: data?.settings?.name || `League ${leagueId}`,
+    scoringType: data?.settings?.scoringSettings?.scoringType || null,
+    teamCount: parsed.length, userTeamId: me ? me.id : null, teams: parsed,
+  };
+}
+
 // Manual add: fetch a league by id and find the user's team by SWID ownership (no fan
 // API). Throws { code:'not_a_member' } if this SWID owns no team in the league.
 export async function fetchLeagueByOwner(creds, { leagueId, seasonId }, sport = 'mlb') {

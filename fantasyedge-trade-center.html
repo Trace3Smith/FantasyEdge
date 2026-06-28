@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FantasyEdge — Trade Center</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --gold: #D4A017; --gold-light: #F0C040; --black: #080808; --dark: #111111;
+    --dark2: #1A1A1A; --dark3: #222222; --dark4: #2A2A2A; --white: #F5F5F0;
+    --gray: #888888; --gray-light: #AAAAAA; --green: #4CAF50; --red: #F44336; --orange: #FF9800;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--dark); color: var(--white); font-family: 'Barlow', sans-serif; display: flex; min-height: 100vh; }
+  .sidebar { width: 200px; min-width: 200px; background: var(--black); border-right: 1px solid rgba(212,160,23,0.15); display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; overflow-y: auto; }
+  .sidebar-logo { padding: 24px 20px 20px; border-bottom: 1px solid rgba(212,160,23,0.15); font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 3px; color: var(--white); }
+  .sidebar-logo span { color: var(--gold); }
+  .sidebar-section-label { padding: 18px 20px 6px; font-size: 10px; font-weight: 600; letter-spacing: 2px; color: var(--gray); text-transform: uppercase; }
+  .sidebar-nav { list-style: none; padding: 0 8px; }
+  .sidebar-nav li a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 6px; color: var(--gray-light); text-decoration: none; font-size: 13px; font-weight: 500; transition: all 0.15s; }
+  .sidebar-nav li a:hover { background: var(--dark3); color: var(--white); }
+  .sidebar-nav li a.active { background: rgba(212,160,23,0.12); color: var(--gold); }
+  .sidebar-nav li a .icon { font-size: 15px; width: 18px; text-align: center; }
+  .upgrade-box { margin: auto 14px 18px; padding: 16px; background: linear-gradient(160deg, rgba(212,160,23,0.15), rgba(212,160,23,0.03)); border: 1px solid rgba(212,160,23,0.25); border-radius: 10px; }
+  .upgrade-box p { font-size: 12px; color: var(--gray-light); line-height: 1.5; margin-bottom: 12px; }
+  .upgrade-btn { display: block; text-align: center; padding: 9px; background: var(--gold); color: #111; font-weight: 700; font-size: 13px; border-radius: 6px; text-decoration: none; }
+
+  .main { margin-left: 200px; flex: 1; padding: 28px 34px 60px; max-width: 1080px; }
+  .top-header { margin-bottom: 22px; }
+  .page-title { font-family: 'Bebas Neue', sans-serif; font-size: 32px; letter-spacing: 2px; }
+  .page-title span { color: var(--gold); }
+  .page-subtitle { color: var(--gray); font-size: 13px; margin-top: 2px; }
+
+  .panel { background: var(--dark2); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 22px; margin-bottom: 20px; }
+  .panel h2 { font-size: 18px; margin-bottom: 4px; }
+  .panel h3 { font-size: 15px; margin-bottom: 4px; }
+  .panel .hint { color: var(--gray); font-size: 13px; line-height: 1.55; margin-bottom: 14px; }
+  .btn { padding: 11px 20px; border-radius: 8px; border: none; cursor: pointer; font-family: inherit; font-weight: 700; font-size: 14px; }
+  .btn-gold { background: var(--gold); color: #111; }
+  .btn-gold:hover:not(:disabled) { background: var(--gold-light); }
+  .btn-ghost { background: transparent; border: 1px solid rgba(255,255,255,0.2); color: var(--gray-light); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  input.txt, textarea.txt, select.txt { width: 100%; background: var(--dark3); color: var(--white); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 10px 12px; font-family: inherit; font-size: 13px; }
+  input.txt:focus, textarea.txt:focus, select.txt:focus { border-color: rgba(212,160,23,0.55); outline: none; }
+  textarea.txt { resize: vertical; min-height: 60px; }
+  .msg { font-size: 13px; margin-top: 12px; padding: 10px 14px; border-radius: 8px; display: none; }
+  .msg.show { display: block; }
+  .msg.err { background: rgba(244,67,54,0.12); border: 1px solid rgba(244,67,54,0.4); color: #ffb4ad; }
+  .msg.ok { background: rgba(76,175,80,0.12); border: 1px solid rgba(76,175,80,0.4); color: #b6e3b8; }
+  .hidden { display: none !important; }
+  .lock-emoji { font-size: 44px; margin-bottom: 12px; }
+  .locked, .needconnect { text-align: center; padding: 44px 20px; }
+  .locked h2, .needconnect h2 { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 2px; color: var(--gold); margin-bottom: 10px; }
+  .locked p, .needconnect p { font-size: 13px; color: var(--gray-light); line-height: 1.6; margin: 0 auto 22px; max-width: 460px; }
+  .locked button, .needconnect a.btn { display: inline-block; text-decoration: none; }
+
+  /* sport + league pickers */
+  .sport-bar { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
+  .sport-btn { background: rgba(255,255,255,0.05); color: var(--gray-light); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 9px 18px; font-family: inherit; font-weight: 700; font-size: 14px; letter-spacing: .5px; cursor: pointer; }
+  .sport-btn:hover { background: rgba(255,255,255,0.09); }
+  .sport-btn.active { background: var(--gold); color: #111; border-color: var(--gold); }
+  .picker-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .picker-row select.txt { max-width: 420px; }
+
+  /* scanner proposals */
+  .props { display: flex; flex-direction: column; gap: 12px; }
+  .prop { background: var(--dark3); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 14px 16px; }
+  .prop-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+  .prop-partner { font-weight: 700; font-size: 14px; }
+  .fair { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--gray-light); }
+  .fair-bar { width: 90px; height: 7px; border-radius: 6px; background: rgba(255,255,255,0.1); overflow: hidden; }
+  .fair-fill { height: 100%; }
+  .prop-legs { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+  .leg { flex: 1; min-width: 200px; }
+  .leg .lbl { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray); margin-bottom: 3px; }
+  .leg.get .lbl { color: #9bdc9e; }
+  .leg .players { font-size: 14px; font-weight: 600; }
+  .prop-why { font-size: 13px; color: var(--gray-light); line-height: 1.5; }
+
+  /* chat (evaluator / counter / walk-away) */
+  .chat-msgs { max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; margin-bottom: 12px; }
+  .cmsg { max-width: 88%; padding: 10px 13px; border-radius: 10px; font-size: 13px; line-height: 1.55; }
+  .cmsg.user { align-self: flex-end; background: var(--gold); color: #111; border-bottom-right-radius: 3px; }
+  .cmsg.assistant { align-self: flex-start; background: var(--dark3); color: var(--white); border-bottom-left-radius: 3px; }
+  .cmsg.typing { color: var(--gray); font-style: italic; }
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
+  .chip { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--gray-light); border-radius: 14px; padding: 6px 12px; font-size: 12px; font-family: inherit; cursor: pointer; }
+  .chip:hover { background: rgba(212,160,23,0.12); color: var(--gold-light); border-color: rgba(212,160,23,0.4); }
+  .chat-row { display: flex; gap: 8px; align-items: flex-end; }
+  .loading { color: var(--gray); font-size: 13px; padding: 10px 0; }
+  .empty { color: var(--gray); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">FANTASY<span>EDGE</span></div>
+  <div class="sidebar-section-label">Main</div>
+  <ul class="sidebar-nav">
+    <li><a href="fantasyedge.html"><span class="icon">🏠</span> Home</a></li>
+    <li><a href="fantasyedge-rankings.html"><span class="icon">📊</span> Rankings</a></li>
+    <li><a href="fantasyedge-analyzer.html"><span class="icon">🔍</span> Roster Analyzer</a></li>
+    <li><a href="fantasyedge-draft.html"><span class="icon">📋</span> Offline Draft</a></li>
+    <li><a href="fantasyedge-draft.html?mode=mock"><span class="icon">🎯</span> Mock Draft</a></li>
+    <li><a href="fantasyedge-autopilot.html"><span class="icon">🎛️</span> Team Manager</a></li>
+    <li><a href="fantasyedge-trade-center.html" class="active"><span class="icon">🤝</span> Trade Center</a></li>
+    <li><a href="fantasyedge-trending.html"><span class="icon">🔥</span> Trending Players</a></li>
+    <li><a href="fantasyedge-brackets.html"><span class="icon">🏆</span> Brackets &amp; Bowls</a></li>
+  </ul>
+  <div class="upgrade-box">
+    <p>Find win-win trades, evaluate offers, and counter like a shark.</p>
+    <a href="#" class="upgrade-btn" id="upsell2">Get Pro — $9.99/mo</a>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="top-header">
+    <div class="page-title">TRADE <span>CENTER</span></div>
+    <div class="page-subtitle">Scan your leagues for win-win trades, evaluate any offer, generate ranked counters, and know when to walk away — grounded in every team's roster and our player values.</div>
+  </div>
+
+  <!-- Premium lock -->
+  <div class="panel locked hidden" id="locked">
+    <div class="lock-emoji">🤝</div>
+    <h2>Trade Center is a Premium feature</h2>
+    <p>Find mutually-beneficial trades across all your ESPN leagues, get instant accept/reject/counter calls on any offer, and detect lowballs — for MLB, WNBA, NFL, NBA, and NHL.</p>
+    <button class="btn btn-gold" id="upsell">Go Premium</button>
+  </div>
+
+  <!-- Signed-out -->
+  <div class="panel hidden" id="signedOut">
+    <h2>Sign in to use the Trade Center</h2>
+    <p class="hint">The Trade Center uses your linked ESPN account to read every team's roster.</p>
+    <button class="btn btn-gold" id="signInBtn">Sign in</button>
+  </div>
+
+  <!-- Not connected -->
+  <div class="panel needconnect hidden" id="needConnect">
+    <div class="lock-emoji">🔌</div>
+    <h2>Connect your ESPN account first</h2>
+    <p>The Trade Center reads your leagues from your linked ESPN account. Connect it once on Team Manager (same cookies cover every sport) and come right back.</p>
+    <a href="fantasyedge-autopilot.html" class="btn btn-gold">Go to Team Manager →</a>
+  </div>
+
+  <!-- Tools (connected) -->
+  <div id="tools" class="hidden">
+    <div class="sport-bar" id="sportBar"></div>
+    <div class="panel">
+      <div class="picker-row">
+        <select class="txt" id="leagueSelect"><option>Loading leagues…</option></select>
+        <span class="hint" id="leagueHint" style="margin:0"></span>
+      </div>
+    </div>
+
+    <!-- Scanner -->
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <div><h2>🔎 Trade Scanner</h2><p class="hint" style="margin:0">Finds 2-3 win-win trades — who to target, what you give, what you get, and a fairness score.</p></div>
+        <button class="btn btn-gold" id="scanBtn">Find trades</button>
+      </div>
+      <div id="scanArea" style="margin-top:14px"></div>
+    </div>
+
+    <!-- Evaluator / Counter / Walk-away -->
+    <div class="panel">
+      <h2>⚖️ Trade Evaluator</h2>
+      <p class="hint">Paste or describe an incoming offer and I'll call it — accept, reject, or counter — and show what a fair counter looks like. Ask for ranked counters, or whether you're being lowballed.</p>
+      <div class="chat-msgs" id="chatMsgs"><div class="empty" id="chatHello">Pick a league above, then paste an offer like "They offer me X for my Y and Z" — or tap a prompt below.</div></div>
+      <div class="chips" id="chatChips">
+        <button class="chip">Evaluate this offer: </button>
+        <button class="chip">Give me 2-3 counter offers, ranked</button>
+        <button class="chip">Am I getting lowballed here?</button>
+        <button class="chip">Who are my best trade partners?</button>
+      </div>
+      <div class="chat-row">
+        <textarea class="txt" id="chatInput" rows="2" placeholder="Paste the offer or ask about a negotiation…"></textarea>
+        <button class="btn btn-gold" id="chatSend">Send</button>
+      </div>
+      <div class="msg" id="chatMsg"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const isPremium = () => !!(window.FE && window.FE.isPremium && window.FE.isPremium());
+  const isSignedIn = () => !!(window.FE && window.FE.isSignedIn && window.FE.isSignedIn());
+  function show(id, on) { $(id).classList.toggle('hidden', !on); }
+  function setMsg(id, text, kind) { const el = $(id); el.textContent = text || ''; el.className = 'msg' + (text ? ' show ' + (kind || 'err') : ''); }
+  function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  async function api(path, body) { if (!window.FE || !window.FE.apiPost) return { ok: false, status: 0, data: null }; return window.FE.apiPost(path, body || {}); }
+
+  // All 5 sports are trade-eligible. Off-season ones may have no current leagues; that's fine.
+  const SPORTS = { mlb: 'MLB', wnba: 'WNBA', nfl: 'NFL', nba: 'NBA', nhl: 'NHL' };
+  let currentSport = localStorage.getItem('fe_trade_sport') || 'mlb';
+  if (!SPORTS[currentSport]) currentSport = 'mlb';
+  let leagues = [];        // [{leagueId, season, leagueName, teamName}]
+  let chatMessages = [];   // [{role, content}] for the evaluator
+  let chatBusy = false;
+
+  // ---- gating -------------------------------------------------------------------
+  let loadedOnce = false;
+  async function applyGate() {
+    const signedIn = isSignedIn(), premium = isPremium();
+    show('locked', signedIn && !premium);
+    show('signedOut', !signedIn);
+    if (!signedIn || !premium) { show('needConnect', false); show('tools', false); return; }
+    if (!loadedOnce) { loadedOnce = true; await checkConnection(); }
+  }
+
+  async function checkConnection() {
+    const { ok, status, data } = await api('/api/espn', { action: 'status' });
+    if (status === 401) { show('signedOut', true); show('tools', false); show('needConnect', false); return; }
+    if (ok && data && data.connected) {
+      show('needConnect', false); show('tools', true);
+      renderSportBar(); selectSport(currentSport);
+    } else {
+      show('needConnect', true); show('tools', false);
+    }
+  }
+
+  // ---- sport + league pickers ---------------------------------------------------
+  function renderSportBar() {
+    $('sportBar').innerHTML = Object.entries(SPORTS).map(([k, v]) =>
+      `<button class="sport-btn${k === currentSport ? ' active' : ''}" data-sport="${k}">${v}</button>`).join('');
+  }
+  function selectSport(sport) {
+    if (!SPORTS[sport]) return;
+    currentSport = sport; localStorage.setItem('fe_trade_sport', sport);
+    renderSportBar();
+    resetTools();
+    loadLeaguesList();
+  }
+  function resetTools() {
+    leagues = []; chatMessages = [];
+    $('leagueSelect').innerHTML = '<option>Loading leagues…</option>';
+    $('leagueHint').textContent = '';
+    $('scanArea').innerHTML = '';
+    $('chatMsgs').innerHTML = '<div class="empty" id="chatHello">Pick a league above, then paste an offer — or tap a prompt below.</div>';
+    setMsg('chatMsg', '');
+  }
+  async function loadLeaguesList() {
+    const { ok, status, data } = await api('/api/espn', { action: 'leagues', sport: currentSport });
+    if (!ok) {
+      if (status === 409 && data && data.error === 'espn_auth') { show('tools', false); show('needConnect', true); return; }
+      $('leagueSelect').innerHTML = '<option>Could not load leagues</option>';
+      return;
+    }
+    leagues = ((data && data.leagues) || []).filter((l) => l.leagueId && l.season).map((l) => ({
+      leagueId: l.leagueId, season: l.season, leagueName: l.leagueName || ('League ' + l.leagueId),
+      teamName: (l.team && l.team.name) || '',
+    }));
+    if (!leagues.length) {
+      $('leagueSelect').innerHTML = `<option>No ${SPORTS[currentSport]} leagues found</option>`;
+      $('leagueHint').textContent = SPORTS[currentSport] + ' may be off-season, or your leagues are on a different ESPN login.';
+      return;
+    }
+    $('leagueSelect').innerHTML = leagues.map((l, i) =>
+      `<option value="${i}">${escapeHtml(l.leagueName)}${l.teamName ? ' — ' + escapeHtml(l.teamName) : ''}</option>`).join('');
+    $('leagueHint').textContent = leagues.length + (leagues.length === 1 ? ' league' : ' leagues');
+  }
+  function currentLeague() { const i = Number($('leagueSelect').value); return leagues[i] || null; }
+
+  // ---- trade scanner ------------------------------------------------------------
+  async function runScan() {
+    const lg = currentLeague();
+    if (!lg) { setMsg('chatMsg', 'Pick a league first.', 'err'); return; }
+    $('scanBtn').disabled = true; const old = $('scanBtn').textContent; $('scanBtn').textContent = 'Scanning…';
+    $('scanArea').innerHTML = '<div class="loading">Analyzing every roster for win-win trades… (this takes ~15s)</div>';
+    const { ok, status, data } = await api('/api/espn', { action: 'tradeScan', sport: currentSport, leagueId: lg.leagueId, season: lg.season });
+    $('scanBtn').disabled = false; $('scanBtn').textContent = old;
+    if (!ok) {
+      const m = (data && data.error === 'espn_auth') ? 'ESPN cookies expired — reconnect on Team Manager.'
+        : (data && (data.detail || data.error)) || 'Could not scan this league.';
+      $('scanArea').innerHTML = `<div class="empty">${escapeHtml(m)}</div>`;
+      return;
+    }
+    renderProposals(data);
+  }
+  function fairColor(f) { return f >= 55 ? 'var(--green)' : f >= 45 ? 'var(--gold)' : 'var(--red)'; }
+  function renderProposals(data) {
+    const props = (data && data.proposals) || [];
+    if (!props.length) {
+      $('scanArea').innerHTML = `<div class="empty">No clean win-win trades stood out right now${data && data.raw ? ' — ' + escapeHtml(String(data.raw).slice(0, 240)) : '. Your roster may be balanced, or partners don\'t line up. Try the Evaluator for a specific idea.'}</div>`;
+      return;
+    }
+    $('scanArea').innerHTML = '<div class="props">' + props.map((p) => {
+      const f = Math.max(0, Math.min(100, Number(p.fairness) || 50));
+      const get = (p.youGet || []).map(escapeHtml).join(', ') || '—';
+      const give = (p.youGive || []).map(escapeHtml).join(', ') || '—';
+      return `<div class="prop">
+        <div class="prop-head">
+          <div class="prop-partner">🤝 Trade with ${escapeHtml(p.partnerTeam || 'a team')}</div>
+          <div class="fair"><span>Fairness ${f}</span><div class="fair-bar"><div class="fair-fill" style="width:${f}%;background:${fairColor(f)}"></div></div></div>
+        </div>
+        <div class="prop-legs">
+          <div class="leg get"><div class="lbl">You get</div><div class="players">${get}</div></div>
+          <div class="leg give"><div class="lbl">You give</div><div class="players">${give}</div></div>
+        </div>
+        <div class="prop-why">${escapeHtml(p.rationale || '')}</div>
+      </div>`;
+    }).join('') + '</div>';
+  }
+
+  // ---- evaluator / counter / walk-away chat -------------------------------------
+  function renderChat() {
+    const el = $('chatMsgs');
+    if (!chatMessages.length && !chatBusy) {
+      el.innerHTML = '<div class="empty">Paste an offer or tap a prompt — I already know every roster in this league.</div>';
+      return;
+    }
+    el.innerHTML = chatMessages.map((m) => `<div class="cmsg ${m.role}">${escapeHtml(m.content).replace(/\n/g, '<br>')}</div>`).join('')
+      + (chatBusy ? '<div class="cmsg assistant typing">Analyzing the trade…</div>' : '');
+    el.scrollTop = el.scrollHeight;
+  }
+  async function sendChat(text) {
+    const lg = currentLeague();
+    if (!lg) { setMsg('chatMsg', 'Pick a league first.', 'err'); return; }
+    const t = (text != null ? text : $('chatInput').value).trim();
+    if (!t || chatBusy) return;
+    setMsg('chatMsg', '');
+    $('chatInput').value = '';
+    chatMessages.push({ role: 'user', content: t });
+    chatBusy = true; renderChat();
+    const { ok, status, data } = await api('/api/espn', { action: 'tradeAdvise', sport: currentSport, leagueId: lg.leagueId, season: lg.season, messages: chatMessages });
+    chatBusy = false;
+    if (ok && data && data.reply) {
+      chatMessages.push({ role: 'assistant', content: data.reply });
+    } else {
+      const m = (data && data.error === 'espn_auth') ? 'ESPN cookies expired — reconnect on Team Manager.'
+        : (data && (data.detail || data.error)) || 'The analyst had trouble — try again.';
+      chatMessages.push({ role: 'assistant', content: m });
+    }
+    renderChat();
+  }
+
+  // ---- wiring -------------------------------------------------------------------
+  $('sportBar').addEventListener('click', (e) => { const b = e.target.closest('.sport-btn'); if (b) selectSport(b.dataset.sport); });
+  $('leagueSelect').addEventListener('change', () => { $('scanArea').innerHTML = ''; chatMessages = []; renderChat(); });
+  $('scanBtn').addEventListener('click', runScan);
+  $('chatSend').addEventListener('click', () => sendChat());
+  $('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
+  $('chatChips').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip'); if (!chip) return;
+    const txt = chip.textContent.trim();
+    if (txt.endsWith(': ')) { $('chatInput').value = txt; $('chatInput').focus(); } // prompt to fill in
+    else sendChat(txt);
+  });
+  $('signInBtn').addEventListener('click', () => window.FE && window.FE.openSignIn && window.FE.openSignIn());
+  $('upsell').addEventListener('click', () => window.FE && window.FE.openPricing && window.FE.openPricing());
+  $('upsell2').addEventListener('click', (e) => { e.preventDefault(); window.FE && window.FE.openPricing && window.FE.openPricing(); });
+
+  document.addEventListener('fe-auth-ready', () => { loadedOnce = false; applyGate(); });
+  if (window.FE) applyGate();
+</script>
+<script type="module" src="/auth.js"></script>
+</body>
+</html>
