@@ -30,6 +30,15 @@ const IL_CONFIG = {
 // Injury labels (see INJURY_LABEL) that qualify a player for an IL/IR slot.
 const IL_ELIGIBLE = new Set(['O', 'IL', '60-IL']);
 
+// IL roster moves should land before the day's games start. Once it's past noon ET
+// the slate is effectively underway, so a live apply suppresses IL moves (they'd risk
+// locked players / waste the move) and defers them to tomorrow. The daily cron runs at
+// 13:00 UTC (≈9am ET) — comfortably inside the window — so it still does IL moves.
+export function isIlWindowClosed(now = new Date()) {
+  const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false }).format(now)) % 24;
+  return hour >= 12;
+}
+
 // Roster spots that aren't IL (active slots + bench) — used to cap activations so we
 // don't overfill the roster and get the whole transaction rejected.
 function nonIlCapacity(slotCounts, ilSlotId) {
@@ -129,7 +138,7 @@ const WAIVER_GAIN = 2.0;
 // config; `freeAgents` (optional) enables waiver-wire suggestions. Returns { moves,
 // plan, summary }. NOTE: waiver/drop suggestions are display-only — never in `plan`
 // (drops are irreversible; the user executes them on ESPN).
-export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [] } = {}) {
+export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilWindowClosed } = {}) {
   const roster = (league.roster || []).map((rp) => ({ ...rp }));
   const empty = { moves: [], plan: [], summary: { count: 0, ilMoves: 0, injuredStarters: 0, totalGain: 0, optimal: true } };
   if (!roster.length) return empty;
@@ -146,6 +155,11 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [] } = 
   const R = recoveredIdx.length, I = injuredIdx.length;
   const nonRecoveredIL = roster.filter((rp) => onIL(rp) && rp.injury).length;
 
+  // Past noon ET the slate is underway — defer IL roster moves to tomorrow (the cron
+  // does them pre-games). We still optimize the active lineup; only IL moves wait.
+  const ilClosed = ilWindowClosed ?? isIlWindowClosed();
+  const ilDeferred = ilClosed && (R > 0 || I > 0);
+
   const ilCapacity = Number(league.slotCounts?.[ilSlotId]) || 0;
   const openIL = Math.max(0, ilCapacity - R - nonRecoveredIL);                                 // empty IL slots
   const roomNonIL = Math.max(0, nonIlCapacity(league.slotCounts, ilSlotId) - roster.filter((rp) => !onIL(rp)).length);
@@ -159,12 +173,12 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [] } = 
   const nIL = swaps + Math.min(I - swaps, openIL);
 
   const recByVal = [...recoveredIdx].sort((a, b) => roster[b]._v.adjZ - roster[a]._v.adjZ);
-  const activateIdx = new Set(recByVal.slice(0, nActivate));
-  const activateBlocked = recByVal.slice(nActivate);                                           // can't activate (IL/roster full)
+  const activateIdx = new Set(ilDeferred ? [] : recByVal.slice(0, nActivate));
+  const activateBlocked = ilDeferred ? [] : recByVal.slice(nActivate);                          // can't activate (IL/roster full)
 
   const injByPriority = [...injuredIdx].sort((a, b) => (roster[a].starter === roster[b].starter ? 0 : roster[a].starter ? -1 : 1));
-  const toILset = new Set(injByPriority.slice(0, nIL));
-  const ilBlocked = injByPriority.slice(nIL);                                                  // can't IL (IL full)
+  const toILset = new Set(ilDeferred ? [] : injByPriority.slice(0, nIL));
+  const ilBlocked = ilDeferred ? [] : injByPriority.slice(nIL);                                 // can't IL (IL full)
 
   // --- optimize the active lineup on the post-IL roster --------------------------
   const work = roster.map((rp, i) => {
@@ -196,6 +210,9 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [] } = 
 
   // --- display moves: IL moves first, then start/sit ----------------------------
   const moves = [];
+  if (ilDeferred) {
+    moves.push({ reason: 'il_deferred', ilDeferred: true, label: IL.label });
+  }
   for (let i = 0; i < roster.length; i++) {
     if (toILset.has(i)) moves.push({ reason: 'il', il: true, action: 'to_il', out: roster[i].name, outMeta: meta(roster[i]), slot: IL.label });
   }
@@ -282,7 +299,7 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [] } = 
   const waiverMoves = moves.filter((m) => m.waiver || m.drop).length;
   const injuredStarters = roster.filter((rp) => rp.starter && (INJURY_PENALTY[rp.injury] ?? 0) >= INJURY_PENALTY.O).length;
   // Projected value gain reflects the LINEUP changes only (not waiver/drop roster moves).
-  const isLineup = (m) => !m.il && !m.ilFull && !m.waiver && !m.drop;
+  const isLineup = (m) => !m.il && !m.ilFull && !m.waiver && !m.drop && !m.ilDeferred;
   const totalGain = Math.round(moves.filter(isLineup).reduce((s, m) => s + (m.gain > 0 ? m.gain : 0), 0) * 10) / 10;
   // Keep all special moves (IL / warnings / waiver / drop); cap only the start/sit list.
   const special = moves.filter((m) => !isLineup(m));

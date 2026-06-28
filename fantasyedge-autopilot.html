@@ -602,6 +602,10 @@
       + (s.summary && s.summary.injuredStarters ? ` · ${s.summary.injuredStarters} injured starter${s.summary.injuredStarters > 1 ? 's' : ''}` : '')
       + (s.summary && s.summary.totalGain > 0 ? ` · +${s.summary.totalGain} proj. value` : '') + '</div>';
     const items = s.moves.map((m) => {
+      // IL moves deferred — games are underway; they'll apply tomorrow (cron, pre-games).
+      if (m.ilDeferred) {
+        return `<li><span class="sugg-tag il">${escapeHtml(m.label || 'IL')}</span> ${escapeHtml(m.label || 'IL')} moves will apply tomorrow — games are in progress.</li>`;
+      }
       // Waiver add/drop — suggestion only, never auto-executed (drops are irreversible).
       if (m.waiver) {
         const tag = '<span class="sugg-tag waiver">WAIVER</span>';

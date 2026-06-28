@@ -417,50 +417,66 @@ async function postLineupTxn(creds, { leagueId, seasonId, teamId, scoringPeriodI
   return { ok: res.ok, status: res.status, body: txt };
 }
 
-// Pull the player names ESPN names as locked out of a 409 body, e.g.
-// "...could not be completed, Spencer Horwitz is locked." → ["Spencer Horwitz"].
-function parseLockedNames(body) {
+// Pull player names out of a 409 body for a given reason phrase, e.g.
+//   "Spencer Horwitz is locked"            (reason /is\s+locked/)
+//   "Spencer Horwitz is already in the BE"  (reason /is\s+already\s+in/)
+function parse409Names(body, reasonRe) {
   const out = [];
-  const re = /([A-Za-z][A-Za-z.'\- ]*?)\s+is\s+locked/gi;
+  const re = new RegExp(`([A-Za-z][A-Za-z.'\\- ]*?)\\s+${reasonRe}`, 'gi');
   let m;
-  while ((m = re.exec(String(body || '')))) { const n = m[1].trim(); if (n) out.push(n); }
+  while ((m = re.exec(String(body || '')))) {
+    // Strip a leading conjunction the greedy match may have grabbed ("and Mike Trout").
+    const n = m[1].trim().replace(/^(and|or|,)\s+/i, '').trim();
+    if (n) out.push(n);
+  }
   return out;
 }
+const idsForNames = (names, roster) => {
+  const set = new Set();
+  for (const nm of names) {
+    const p = roster.find((rp) => normName(rp.name) === normName(nm));
+    if (p && p.id != null) set.add(p.id);
+  }
+  return set;
+};
 
 // Apply a lineup change to ESPN: a single ROSTER transaction whose items each move
 // one player from its current slot to a target slot (active slot, or 16=BE to bench).
 // `items` = [{ playerId, fromLineupSlotId, toLineupSlotId }]. No-op for an empty list.
-// Throws EspnAuthError on 401/403. Safety net: ESPN rejects the WHOLE transaction
-// (409) if any player is locked (game started). When it names a locked player, drop
-// that player's move and retry — so the rest of the optimal lineup still applies.
-// Pass { roster } so names in the 409 can be mapped back to playerIds.
+// Throws EspnAuthError on 401/403. Safety net for ESPN's all-or-nothing 409s:
+//   • "X is locked" (game started)        → drop X and retry (the rest still applies).
+//   • "X is already in the BE slot" (etc.) → that move is redundant; drop it as a
+//     no-op (X is already where we want them) and retry the rest.
+// Pass { roster } so the names in the 409 can be mapped back to playerIds.
 export async function setLineup(creds, ids, items = [], { roster = [] } = {}) {
   if (!items.length) return { applied: 0, skippedLocked: [] };
   const skippedLocked = [];
+  let alreadySet = 0;
   let attempt = items.slice();
 
-  for (let tries = 0; tries < 4 && attempt.length; tries++) {
+  for (let tries = 0; tries < 6 && attempt.length; tries++) {
     const r = await postLineupTxn(creds, ids, attempt);
-    if (r.ok) return { applied: attempt.length, skippedLocked };
+    if (r.ok) return { applied: attempt.length, skippedLocked, alreadySet };
     if (r.status === 401 || r.status === 403) throw new EspnAuthError();
 
-    if (r.status === 409 && /locked/i.test(r.body)) {
-      const names = parseLockedNames(r.body);
-      const lockedIds = new Set();
-      for (const nm of names) {
-        const p = roster.find((rp) => normName(rp.name) === normName(nm));
-        if (p && p.id != null) lockedIds.add(p.id);
-      }
-      const next = attempt.filter((it) => !lockedIds.has(it.playerId));
-      if (lockedIds.size && next.length < attempt.length) {
-        skippedLocked.push(...names);
+    if (r.status === 409) {
+      const lockedNames = /locked/i.test(r.body) ? parse409Names(r.body, 'is\\s+locked') : [];
+      const alreadyNames = /already\s+in/i.test(r.body) ? parse409Names(r.body, 'is\\s+already\\s+in') : [];
+      const lockedIds = idsForNames(lockedNames, roster);
+      const alreadyIds = idsForNames(alreadyNames, roster);
+      const dropIds = new Set([...lockedIds, ...alreadyIds]);
+      const next = attempt.filter((it) => !dropIds.has(it.playerId));
+      if (dropIds.size && next.length < attempt.length) {
+        skippedLocked.push(...lockedNames);
+        alreadySet += alreadyIds.size;
         attempt = next;
-        continue; // retry without the locked player(s)
+        continue; // retry without the locked / already-correct player(s)
       }
     }
     throw new Error(`ESPN lineup write HTTP ${r.status}${r.body ? ': ' + r.body.slice(0, 180) : ''}`);
   }
-  return { applied: attempt.length, skippedLocked };
+  // Everything left was redundant (already correct) — a successful no-op.
+  return { applied: attempt.length, skippedLocked, alreadySet };
 }
 
 // --- manually-added leagues (Redis, per Clerk user) ------------------------------------------
