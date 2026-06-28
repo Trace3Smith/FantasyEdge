@@ -19,6 +19,25 @@ const FLOOR_Z = -5;   // value for a player we don't rank
 const BE_SLOT = 16;   // bench
 const IL_SLOT = 17;   // injured list
 
+// Injured-reserve slot is sport-specific (MLB 'IL' slot 17; NFL 'IR' slot 21;
+// NBA 'IL'/'IR'; NHL 'IR'). Only MLB is wired up today — add a row to extend.
+const IL_CONFIG = {
+  mlb: { slotId: 17, benchId: 16, label: 'IL' },
+  // nfl: { slotId: 21, benchId: 20, label: 'IR' },
+  // nhl: { slotId: ?,  benchId: ?,  label: 'IR' },
+  // nba: { slotId: ?,  benchId: ?,  label: 'IL' },
+};
+// Injury labels (see INJURY_LABEL) that qualify a player for an IL/IR slot.
+const IL_ELIGIBLE = new Set(['O', 'IL', '60-IL']);
+
+// Roster spots that aren't IL (active slots + bench) — used to cap activations so we
+// don't overfill the roster and get the whole transaction rejected.
+function nonIlCapacity(slotCounts, ilSlotId) {
+  let cap = 0;
+  for (const [sid, cnt] of Object.entries(slotCounts || {})) if (Number(sid) !== ilSlotId) cap += Number(cnt) || 0;
+  return cap;
+}
+
 // Index our MLB dataset by normalized name → { z, pos, tag, rank }. On duplicate
 // names, keep the higher-valued record.
 export function buildMlbValueIndex(players = []) {
@@ -102,31 +121,89 @@ function assignOptimal(roster, openings) {
 
 const meta = (rp) => `${rp.pos}${rp.proTeam ? ' · ' + rp.proTeam : ''}${rp.injury ? ' · ' + rp.injury : ''}`;
 
-// Compute start/sit moves for one league. Returns { moves, summary } or { moves:[],
-// summary:null, reason } when there's nothing to evaluate.
-export function suggestLineup(league, idx) {
+// Compute IL + start/sit moves for one league. `sport` selects the IL/IR slot config.
+// Returns { moves, plan, summary }.
+export function suggestLineup(league, idx, sport = 'mlb') {
   const roster = (league.roster || []).map((rp) => ({ ...rp }));
-  if (!roster.length) return { moves: [], summary: null, reason: 'no_roster' };
+  const empty = { moves: [], plan: [], summary: { count: 0, ilMoves: 0, injuredStarters: 0, totalGain: 0, optimal: true } };
+  if (!roster.length) return empty;
   for (const rp of roster) rp._v = valueOf(rp, idx);
 
-  const openings = activeOpenings(league.slotCounts, roster);
-  const assigned = assignOptimal(roster, openings);
-  const optimal = new Set(assigned.keys());
+  const IL = IL_CONFIG[sport] || IL_CONFIG.mlb;
+  const ilSlotId = IL.slotId, benchId = IL.benchId;
+  const onIL = (rp) => rp.slotId === ilSlotId;
 
-  // Bench-but-should-start (best first); starting-but-should-sit forms the pool we
-  // draw the displaced player from.
-  const idxList = roster.map((rp, i) => i);
-  const shouldStart = idxList.filter((i) => optimal.has(i) && !roster[i].starter)
-    .sort((a, b) => roster[b]._v.adjZ - roster[a]._v.adjZ);
-  // Only ever recommend benching a ranked, unlocked starter (never an unranked one).
-  const sitPool = idxList.filter((i) => !optimal.has(i) && roster[i].starter && roster[i]._v.known && !roster[i].locked);
+  // --- IL management ------------------------------------------------------------
+  // Activate IL players who've recovered (injury cleared); move OUT/IL-status active
+  // players onto open IL slots (starters first, to free their active spot).
+  const activateIdx = new Set();
+  roster.forEach((rp, i) => { if (onIL(rp) && !rp.injury) activateIdx.add(i); });
 
+  const ilCapacity = Number(league.slotCounts?.[ilSlotId]) || 0;
+  const stayingIL = roster.filter((rp, i) => onIL(rp) && !activateIdx.has(i)).length;
+  let availableIL = ilCapacity - stayingIL;
+
+  const toILset = new Set();
+  roster.map((rp, i) => ({ rp, i }))
+    .filter(({ rp }) => !onIL(rp) && IL_ELIGIBLE.has(rp.injury))
+    .sort((a, b) => (a.rp.starter === b.rp.starter ? 0 : a.rp.starter ? -1 : 1))
+    .forEach(({ i }) => { if (availableIL > 0) { toILset.add(i); availableIL--; } });
+
+  // Cap activations by non-IL roster room (IL-ing someone frees a spot); activate the
+  // highest-value recovered players first. Avoids overfilling → whole-txn rejection.
+  let room = nonIlCapacity(league.slotCounts, ilSlotId) - roster.filter((rp) => !onIL(rp)).length + toILset.size;
+  for (const i of [...activateIdx].sort((a, b) => roster[b]._v.adjZ - roster[a]._v.adjZ)) {
+    if (room > 0) room--; else activateIdx.delete(i);
+  }
+
+  // --- optimize the active lineup on the post-IL roster --------------------------
+  const work = roster.map((rp, i) => {
+    if (toILset.has(i)) return { ...rp, slotId: ilSlotId, starter: false };   // → IL (inactive)
+    if (activateIdx.has(i)) return { ...rp, slotId: benchId, starter: false }; // → bench (available)
+    return rp;
+  });
+  const assigned = assignOptimal(work, activeOpenings(league.slotCounts, work));
+
+  const finalSlot = (i) => {
+    const rp = roster[i];
+    if (toILset.has(i)) return ilSlotId;
+    if (activateIdx.has(i)) return assigned.has(i) ? assigned.get(i) : benchId;
+    if (onIL(rp)) return ilSlotId;                    // staying on IL — untouched
+    if (rp.locked || !rp._v.known) return rp.slotId;  // immovable
+    return assigned.has(i) ? assigned.get(i) : benchId;
+  };
+
+  // --- executable plan ----------------------------------------------------------
+  const plan = [];
+  for (let i = 0; i < roster.length; i++) {
+    const rp = roster[i];
+    if (rp.id == null) continue;
+    const target = finalSlot(i);
+    if (target !== rp.slotId) {
+      plan.push({ playerId: rp.id, name: rp.name, fromLineupSlotId: rp.slotId, toLineupSlotId: target, il: toILset.has(i) || activateIdx.has(i) });
+    }
+  }
+
+  // --- display moves: IL moves first, then start/sit ----------------------------
   const moves = [];
+  for (let i = 0; i < roster.length; i++) {
+    if (toILset.has(i)) moves.push({ reason: 'il', il: true, action: 'to_il', out: roster[i].name, outMeta: meta(roster[i]), slot: IL.label });
+  }
+  for (const i of activateIdx) {
+    const dest = assigned.has(i) ? slotLabel(assigned.get(i)) : 'bench';
+    moves.push({ reason: 'il', il: true, action: 'from_il', in: roster[i].name, inMeta: meta(roster[i]), inHot: roster[i]._v.tag === 'hot', slot: dest, fromLabel: IL.label });
+  }
+
+  const ilHandled = new Set([...toILset, ...activateIdx]);
+  const optimal = new Set(assigned.keys());
+  const idxList = roster.map((_, i) => i);
+  const shouldStart = idxList.filter((i) => optimal.has(i) && !work[i].starter && !ilHandled.has(i))
+    .sort((a, b) => roster[b]._v.adjZ - roster[a]._v.adjZ);
+  const sitPool = idxList.filter((i) => !optimal.has(i) && work[i].starter && roster[i]._v.known && !roster[i].locked && !ilHandled.has(i));
+
   for (const inIdx of shouldStart) {
     const inP = roster[inIdx];
     const slotId = assigned.get(inIdx);
-    // Pair with the weakest currently-starting player who is ELIGIBLE for the slot
-    // this player will take, so "start X over Y at SLOT" is positionally sensible.
     let outPos = -1, outVal = Infinity;
     for (let j = 0; j < sitPool.length; j++) {
       const oi = sitPool[j];
@@ -143,33 +220,18 @@ export function suggestLineup(league, idx) {
     moves.push({
       in: inP.name, inMeta: meta(inP), inHot: inP._v.tag === 'hot',
       out: outP ? outP.name : null, outMeta: outP ? meta(outP) : '',
-      slot: slotLabel(slotId),
-      gain: Math.round(delta * 10) / 10,
+      slot: slotLabel(slotId), gain: Math.round(delta * 10) / 10,
       reason: injuryDriven ? 'injury' : (outP ? 'value' : 'empty_slot'),
     });
   }
 
-  // Executable plan: the from→to slot move for every player whose slot should
-  // change. Bench = 16; players currently on the IL (17) are never touched, and a
-  // player without an ESPN id can't be moved.
-  const plan = [];
-  for (let i = 0; i < roster.length; i++) {
-    const rp = roster[i];
-    // Never move a locked player (ESPN 409s the txn), an IL player, an unranked
-    // (minor-league / no-MLB-value) player, or one without an id.
-    if (rp.locked || rp.slotId === IL_SLOT || rp.id == null || !rp._v.known) continue;
-    const target = assigned.has(i) ? assigned.get(i) : BE_SLOT;
-    if (target !== rp.slotId) {
-      plan.push({ playerId: rp.id, name: rp.name, fromLineupSlotId: rp.slotId, toLineupSlotId: target });
-    }
-  }
-
+  const ilMoves = toILset.size + activateIdx.size;
   const injuredStarters = roster.filter((rp) => rp.starter && (INJURY_PENALTY[rp.injury] ?? 0) >= INJURY_PENALTY.O).length;
   const totalGain = Math.round(moves.reduce((s, m) => s + (m.gain > 0 ? m.gain : 0), 0) * 10) / 10;
   return {
-    moves: moves.slice(0, 6),
+    moves: moves.slice(0, 8),
     plan,
-    summary: { count: moves.length, injuredStarters, totalGain, optimal: moves.length === 0 },
+    summary: { count: moves.length, ilMoves, injuredStarters, totalGain, optimal: moves.length === 0 },
   };
 }
 
