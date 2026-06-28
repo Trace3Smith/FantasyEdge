@@ -64,25 +64,27 @@ const eligibleFor = (rp, slotId) => {
 
 // Greedy optimal assignment: fill the most-constrained slots first (fewest eligible
 // players), each with the best-value player still available. Returns Map<rosterIdx,
-// slotId>. Locked players (game started) are IMMOVABLE: a locked starter is pinned to
-// its current slot (that opening is consumed), and locked players are never assigned
-// elsewhere — so the resulting plan never tries to move one (ESPN 409s the whole txn).
+// slotId>. Two kinds of players are IMMOVABLE and get pinned to the slot they already
+// hold (consuming that opening): LOCKED players (game started — ESPN 409s the whole
+// txn) and UNRANKED players (minor leaguers / no MLB value — we won't bench them on a
+// guess). Only ranked, unlocked, non-IL players are assigned INTO open slots, so we
+// never recommend starting a minor leaguer.
 function assignOptimal(roster, openings) {
-  const movable = (i) => !roster[i].locked && roster[i].slotId !== IL_SLOT;
+  const assignable = (i) => !roster[i].locked && roster[i].slotId !== IL_SLOT && roster[i]._v.known;
   const assigned = new Map();
   const used = new Set();
 
-  // Pin locked starters to the active slot they already hold; consume that opening.
+  // Pin a starter we won't move (locked, or unranked) to its current active slot.
   const remaining = [...openings];
   for (let i = 0; i < roster.length; i++) {
     const rp = roster[i];
-    if (rp.locked && rp.starter) {
+    if (rp.starter && (rp.locked || !rp._v.known)) {
       const at = remaining.indexOf(rp.slotId);
       if (at >= 0) { remaining.splice(at, 1); assigned.set(i, rp.slotId); used.add(i); }
     }
   }
 
-  const candCount = (slotId) => roster.reduce((n, rp, i) => n + (movable(i) && eligibleFor(rp, slotId) ? 1 : 0), 0);
+  const candCount = (slotId) => roster.reduce((n, rp, i) => n + (assignable(i) && eligibleFor(rp, slotId) ? 1 : 0), 0);
   const orderedSlots = remaining
     .map((slotId) => ({ slotId, scarcity: candCount(slotId) }))
     .sort((a, b) => a.scarcity - b.scarcity);
@@ -90,7 +92,7 @@ function assignOptimal(roster, openings) {
   for (const { slotId } of orderedSlots) {
     let bestIdx = -1, bestVal = -Infinity;
     for (let i = 0; i < roster.length; i++) {
-      if (used.has(i) || !movable(i) || !eligibleFor(roster[i], slotId)) continue;
+      if (used.has(i) || !assignable(i) || !eligibleFor(roster[i], slotId)) continue;
       if (roster[i]._v.adjZ > bestVal) { bestVal = roster[i]._v.adjZ; bestIdx = i; }
     }
     if (bestIdx >= 0) { assigned.set(bestIdx, slotId); used.add(bestIdx); }
@@ -116,7 +118,8 @@ export function suggestLineup(league, idx) {
   const idxList = roster.map((rp, i) => i);
   const shouldStart = idxList.filter((i) => optimal.has(i) && !roster[i].starter)
     .sort((a, b) => roster[b]._v.adjZ - roster[a]._v.adjZ);
-  const sitPool = idxList.filter((i) => !optimal.has(i) && roster[i].starter);
+  // Only ever recommend benching a ranked, unlocked starter (never an unranked one).
+  const sitPool = idxList.filter((i) => !optimal.has(i) && roster[i].starter && roster[i]._v.known && !roster[i].locked);
 
   const moves = [];
   for (const inIdx of shouldStart) {
@@ -152,8 +155,9 @@ export function suggestLineup(league, idx) {
   const plan = [];
   for (let i = 0; i < roster.length; i++) {
     const rp = roster[i];
-    // Never move a locked player (ESPN 409s the txn), an IL player, or one w/o an id.
-    if (rp.locked || rp.slotId === IL_SLOT || rp.id == null) continue;
+    // Never move a locked player (ESPN 409s the txn), an IL player, an unranked
+    // (minor-league / no-MLB-value) player, or one without an id.
+    if (rp.locked || rp.slotId === IL_SLOT || rp.id == null || !rp._v.known) continue;
     const target = assigned.has(i) ? assigned.get(i) : BE_SLOT;
     if (target !== rp.slotId) {
       plan.push({ playerId: rp.id, name: rp.name, fromLineupSlotId: rp.slotId, toLineupSlotId: target });
