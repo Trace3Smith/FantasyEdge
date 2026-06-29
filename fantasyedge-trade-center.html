@@ -91,6 +91,10 @@
   .stand-cell { font-size: 12px; padding: 3px 8px; border-radius: 6px; background: rgba(255,255,255,0.06); color: var(--gray-light); }
   .stand-cell.losing { background: rgba(244,67,54,0.16); color: #f3a1a1; }
   .stand-cell b { color: var(--white); }
+  .outliers .ow-row { font-size: 12.5px; color: var(--gray-light); padding: 5px 0; line-height: 1.4; }
+  .ow-tag { display: inline-block; font-size: 10px; font-weight: 800; letter-spacing: .04em; padding: 1px 6px; border-radius: 5px; margin-right: 6px; vertical-align: middle; }
+  .ow-watch .ow-tag { background: rgba(253,186,116,0.18); color: #fdba74; }
+  .ow-sustained .ow-tag { background: rgba(244,67,54,0.18); color: #f3a1a1; }
   .pos-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
   .pos-cell { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 10px; }
   .pos-cell.weak { background: rgba(244,67,54,0.12); border-color: rgba(244,67,54,0.3); }
@@ -334,10 +338,23 @@
       + `<div class="pos-grid">${positions.map(cell).join('')}</div><div class="hint" style="margin:8px 0 0">${note}</div></div>`;
   }
 
+  // Cold-start / sustained-slump notes on the user's roster (from the blended model).
+  function renderOutliers(outliers) {
+    if (!outliers || !outliers.length) return '';
+    return `<div class="standings outliers"><div class="stand-title">🩺 Value watch</div>`
+      + outliers.map((o) => {
+          const cls = o.status === 'sustained' ? 'ow-sustained' : 'ow-watch';
+          const tag = o.status === 'sustained' ? 'SUSTAINED' : 'OUTLIER?';
+          return `<div class="ow-row ${cls}"><span class="ow-tag">${tag}</span> ${escapeHtml(o.note)}</div>`;
+        }).join('')
+      + `<div class="hint" style="margin:8px 0 0">The model softens a cold start (don't sell low) but treats a 60+ game slump as real value.</div></div>`;
+  }
+
   function renderProposals(data) {
     const props = (data && data.proposals) || [];
-    const headHtml = data && data.isRoto ? renderStandings(data.standings)
-      : (data && data.isNfl ? renderNflPositions(data.positions, data.ppr) : '');
+    const headHtml = (data && data.isRoto ? renderStandings(data.standings)
+      : (data && data.isNfl ? renderNflPositions(data.positions, data.ppr) : ''))
+      + (data ? renderOutliers(data.outliers) : '');
     if (!props.length) {
       $('scanArea').innerHTML = headHtml + `<div class="empty">No clean win-win trades stood out right now${data && data.raw ? ' — ' + escapeHtml(String(data.raw).slice(0, 240)) : '. Your roster may be balanced, or partners don\'t line up. Try the Evaluator for a specific idea.'}</div>`;
       return;

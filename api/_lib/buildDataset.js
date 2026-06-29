@@ -11,6 +11,8 @@
 //   the default ranked list). Phase 2 prospects will append more searchOnly
 //   records here.
 
+import { enrichBlendedValue } from './blendValuation.js';
+
 const API = 'https://statsapi.mlb.com/api/v1';
 const HEADERS = { 'User-Agent': 'Mozilla/5.0' };
 
@@ -313,6 +315,17 @@ export async function buildDataset({ season = new Date().getFullYear() } = {}) {
   // roto z block + zTotal so the draft board can value them on the same scale as hitters.
   scorePitchers(pitchers);
 
+  // Blend current-season z against a multi-year baseline (sample-size aware, with
+  // cold-start outlier protection) → rec.blendVal / valParts / outlier. Additive and
+  // failure-tolerant: if the prior-season fetch fails we keep pure current-season
+  // value (consumers fall back to zTotal). _h/_p must still be present here.
+  let blendInfo = null;
+  try {
+    blendInfo = await enrichBlendedValue([...qualHitters, ...pitchers], { season, teamGames });
+  } catch (err) {
+    blendInfo = { ok: false, error: err.message };
+  }
+
   qualHitters.forEach(decorate);
   pitchers.forEach(decorate);
 
@@ -348,6 +361,7 @@ export async function buildDataset({ season = new Date().getFullYear() } = {}) {
       subThresholdHitters: subHitters.length,
       searchOnly: searchOnly.length,
       total: players.length,
+      blend: blendInfo,
     },
   };
 }

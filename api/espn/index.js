@@ -47,13 +47,17 @@ async function playerDataFor(sport) {
     const ds = await redis.get(key);
     for (const p of (ds?.players || [])) {
       if (p.searchOnly || !p.name) continue;
-      // Roto value = zTotal; NFL (points) carries fpPpr/fpStd instead. Keep a sortable
-      // value for the index (PPR points for NFL) plus the raw point fields for weighting.
-      const v = typeof p.zTotal === 'number' ? p.zTotal
-        : (typeof p.fpPpr === 'number' ? p.fpPpr : (typeof p.score === 'number' ? p.score : null));
+      // Roto value = blended model value (blendVal) when present, else current-season
+      // zTotal; NFL (points) carries fpPpr/fpStd instead. Keep a sortable value for the
+      // index (PPR points for NFL) plus the raw point fields for weighting. Category
+      // z (p.z) stays current-season — standings reflect where you actually stand now.
+      const v = typeof p.blendVal === 'number' ? p.blendVal
+        : (typeof p.zTotal === 'number' ? p.zTotal
+        : (typeof p.fpPpr === 'number' ? p.fpPpr : (typeof p.score === 'number' ? p.score : null)));
       const rec = {
         value: v, cats: Array.isArray(p.cats) ? p.cats : [], z: (p.z && typeof p.z === 'object') ? p.z : null,
         pos: p.pos || '', fpPpr: typeof p.fpPpr === 'number' ? p.fpPpr : null, fpStd: typeof p.fpStd === 'number' ? p.fpStd : null,
+        outlier: (p.outlier && p.outlier.note) ? p.outlier : null,
       };
       const k = normName(p.name);
       const prev = idx.get(k);
@@ -441,7 +445,8 @@ async function buildTradeContext(creds, { sport, leagueId, season }) {
     }
     const val = r && r.value != null ? ` val ${Math.round(r.value * 10) / 10}` : '';
     const cats = r && r.cats && r.cats.length ? ` · ${r.cats.join(',')}` : '';
-    return `  - ${p.name}${p.pos ? ' (' + p.pos + ')' : ''}${p.injury ? ' [' + p.injury + ']' : ''}${val}${cats}`;
+    const flag = r && r.outlier ? (r.outlier.status === 'sustained' ? ' ⚠SUSTAINED-DOWN' : ' ⚠OUTLIER-WATCH') : '';
+    return `  - ${p.name}${p.pos ? ' (' + p.pos + ')' : ''}${p.injury ? ' [' + p.injury + ']' : ''}${val}${cats}${flag}`;
   };
   const rosterLines = (roster) => (roster || []).slice(0, 30).map(line).join('\n');
   const others = league.teams.filter((t) => t !== me);
@@ -460,10 +465,24 @@ async function buildTradeContext(creds, { sport, leagueId, season }) {
       + '\nTarget your WEAK/THIN positions; sell from STRONG/deep ones.';
   }
 
+  // Cold-start / sustained-slump notes on the USER's roster (blended model output) —
+  // surfaced to the AI and returned to the UI ("monitor before trading" guidance).
+  const outliers = [];
+  if (!isNfl && me) {
+    for (const p of (me.roster || [])) {
+      const r = idx.get(normName(p.name));
+      if (r && r.outlier && r.outlier.note) outliers.push({ name: p.name, status: r.outlier.status, note: r.outlier.note });
+    }
+  }
+  const flagLegend = (!isNfl && outliers.length)
+    ? '\nVALUE FLAGS: ⚠OUTLIER-WATCH = current line is well below career norms but the sample is small — a possible outlier; do NOT sell low, and be wary of buying a partner\'s outlier-watch player at full price. ⚠SUSTAINED-DOWN = the down year has lasted 60+ games — treat it as their real current value.'
+    : '';
+
   const parts = [
     `LEAGUE: "${league.leagueName}" — ${league.teamCount}-team ${SPORT_LABEL[sport] || sport} league. ${fmtHint}`,
     isNfl ? 'Numbers after each player = projected fantasy points (this league\'s scoring). Blank = unranked/depth.'
-      : 'Value rating = our model\'s player value (higher = better, same scale within this sport). Blank = depth/unranked.',
+      : 'Value rating = our blended model value (current season + multi-year baseline, sample-size weighted; higher = better, same scale within this sport). Blank = depth/unranked.',
+    flagLegend,
     analysisLine,
     `\nYOUR TEAM: ${me ? me.name : 'You'}${me && me.record ? ' (' + me.record + ')' : ''}\n${me ? rosterLines(me.roster) : ''}`,
     '\nOTHER TEAMS:',
@@ -471,7 +490,7 @@ async function buildTradeContext(creds, { sport, leagueId, season }) {
   for (const t of others) parts.push(`[${t.name}${t.record ? ' ' + t.record : ''}]\n${rosterLines(t.roster)}`);
   const ctx = parts.join('\n').slice(0, 16000);
   return {
-    ctx, idx, standings, positions, isRoto, isNfl, ppr: league.ppr,
+    ctx, idx, standings, positions, isRoto, isNfl, ppr: league.ppr, outliers,
     info: { leagueName: league.leagueName, teamCount: league.teamCount, scoringType: league.scoringType, myTeam: me ? me.name : null },
   };
 }
@@ -494,7 +513,7 @@ async function tradeScan(req, res, userId) {
   const { leagueId, season } = req.body || {};
   if (!leagueId || !season) throw new HttpError(400, 'Missing league', { error: 'missing_league' });
 
-  const { ctx, idx, standings, positions, isRoto, isNfl, ppr, info } = await buildTradeContext(creds, { sport, leagueId, season });
+  const { ctx, idx, standings, positions, isRoto, isNfl, ppr, info, outliers } = await buildTradeContext(creds, { sport, leagueId, season });
   const rules = isRoto
     ? `\nCATEGORY RULES (roto league — follow strictly):
 - Improve the user's team across CATEGORIES on balance, not just raw value.
@@ -524,6 +543,7 @@ ${ctx}`;
     proposals, isRoto, isNfl, ppr, info,
     standings: standings ? standings.standings : null,
     positions: positions ? positions.positions : null,
+    outliers: outliers && outliers.length ? outliers : null,
     raw: proposals.length ? undefined : text,
   });
 }

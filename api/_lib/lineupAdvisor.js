@@ -52,11 +52,15 @@ function nonIlCapacity(slotCounts, ilSlotId) {
 export function buildMlbValueIndex(players = []) {
   const idx = new Map();
   for (const p of players) {
-    if (typeof p.zTotal !== 'number') continue;
+    // Prefer the blended model value (current-season z + multi-year baseline, with
+    // cold-start outlier protection) so a slow start doesn't bench a known star;
+    // fall back to pure current-season zTotal when the blend is unavailable.
+    const z = typeof p.blendVal === 'number' ? p.blendVal : p.zTotal;
+    if (typeof z !== 'number') continue;
     const key = normName(p.name);
     if (!key) continue;
     const prev = idx.get(key);
-    if (!prev || p.zTotal > prev.z) idx.set(key, { z: p.zTotal, pos: p.pos, tag: p.tag || null, rank: p.rank ?? null });
+    if (!prev || z > prev.z) idx.set(key, { z, pos: p.pos, tag: p.tag || null, rank: p.rank ?? null });
   }
   return idx;
 }
