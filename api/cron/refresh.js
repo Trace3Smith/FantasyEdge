@@ -35,8 +35,14 @@ const SECONDARY = [
 export const maxDuration = 60;
 
 export default async function handler(req, res) {
+  // Auth: the Bearer secret is the primary gate. Also accept Vercel's internal
+  // cron header (set on scheduled invocations) so the dashboard "Run" button works
+  // without the secret. NOTE: x-vercel-cron is a plain header (not cryptographically
+  // verified), so the Bearer secret remains the real protection.
   const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.authorization !== `Bearer ${secret}`) {
+  const authHeader = req.headers.authorization;
+  const vercelCron = req.headers['x-vercel-cron'];
+  if (secret && authHeader !== `Bearer ${secret}` && !vercelCron) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
