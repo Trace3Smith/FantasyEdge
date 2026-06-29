@@ -45,6 +45,9 @@ const OUTLIER_DROP = 0.30;
 // cups of coffee that would add z-score noise).
 const MIN_PRIOR_PA = 150;
 const MIN_PRIOR_IP = 40;
+// Minimum sample for a production rate to be trustworthy (outlier detection). Below
+// this the rate is too noisy to compare, so we skip the flag rather than guess.
+const MIN_RATE_IP = 20;
 // Extra baseline weight shifted off the current leg while a player is outlier-
 // protected (cold start, not yet sustained).
 const OUTLIER_SHIFT = 0.18;
@@ -68,7 +71,7 @@ function parseIp(s) {
 // A per-opportunity fantasy-ish rate so partial seasons compare fairly to full
 // ones. Weighted toward the counting cats the user reasons about (HR/SB), which is
 // exactly where slumps show up first (Judge's power, Tatís's HR).
-function hitterProdRate(h) {
+export function hitterProdRate(h) {
   const pa = num(h.plateAppearances ?? h.pa);
   if (pa < 1) return null;
   const hr = num(h.homeRuns ?? h.hr), r = num(h.runs ?? h.r);
@@ -76,13 +79,20 @@ function hitterProdRate(h) {
   // power + run production + speed, lifted by on-base; scaled ×100 for readability.
   return ((4 * hr + r + rbi + 2 * sb) / pa + obp) * 100;
 }
-function pitcherProdRate(p) {
+export function pitcherProdRate(p) {
   const ip = parseIp(p.inningsPitched ?? p.ip);
-  if (ip < 1) return null;
-  const k = num(p.strikeOuts ?? p.k), w = num(p.wins ?? p.w), sv = num(p.saves ?? p.sv);
-  const era = num(p.era);
-  // strikeouts + wins/saves per inning, lifted by run prevention (inverse ERA).
-  return ((k + 5 * (w + sv)) / ip + (era > 0 ? 4.5 / era : 0)) * 10;
+  if (ip < MIN_RATE_IP) return null; // too few innings to judge — skip the flag
+  const k = num(p.strikeOuts ?? p.k);
+  const era = num(p.era), whip = num(p.whip);
+  // Stable, LINEAR skill components only: strikeout rate + run/baserunner prevention
+  // vs a weak baseline. Wins/saves are deliberately dropped (team & bullpen-role
+  // context, very high variance), and run prevention is linear — the old 1/ERA form
+  // exploded for lucky low-ERA samples and false-flagged ~half the pitching pool as
+  // "below career norms" on normal regression.
+  const k9 = (k / ip) * 9;
+  const runPrev = Math.max(0, 6.0 - (era > 0 ? era : 6.0));        // ER prevented vs a 6.00 ERA
+  const whipPrev = Math.max(0, 1.60 - (whip > 0 ? whip : 1.60)) * 5; // baserunners prevented vs 1.60 WHIP
+  return k9 + runPrev + whipPrev;
 }
 
 // --- per-season z-scoring (mirrors buildDataset's marginal-rate approach) --------
@@ -258,10 +268,12 @@ export async function enrichBlendedValue(records, { season, teamGames }) {
     for (const [id, z] of hZ) { if (!histZ.has(id)) histZ.set(id, []); histZ.get(id).push(z); }
     for (const [id, z] of pZ) { if (!histZ.has(id)) histZ.set(id, []); histZ.get(id).push(z); }
     for (const s of hit) {
+      if (num(s.stat?.plateAppearances) < MIN_PRIOR_PA) continue; // baseline from real samples only
       const r = hitterProdRate(s.stat || {});
       if (s.player?.id && r != null) { if (!histProd.has(s.player.id)) histProd.set(s.player.id, []); histProd.get(s.player.id).push(r); }
     }
     for (const s of pit) {
+      if (parseIp(s.stat?.inningsPitched) < MIN_PRIOR_IP) continue; // baseline from real samples only
       const r = pitcherProdRate(s.stat || {});
       if (s.player?.id && r != null) { if (!histProd.has(s.player.id)) histProd.set(s.player.id, []); histProd.get(s.player.id).push(r); }
     }
