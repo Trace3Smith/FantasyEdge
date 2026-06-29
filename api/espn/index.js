@@ -47,8 +47,14 @@ async function playerDataFor(sport) {
     const ds = await redis.get(key);
     for (const p of (ds?.players || [])) {
       if (p.searchOnly || !p.name) continue;
-      const v = typeof p.zTotal === 'number' ? p.zTotal : (typeof p.score === 'number' ? p.score : null);
-      const rec = { value: v, cats: Array.isArray(p.cats) ? p.cats : [], z: (p.z && typeof p.z === 'object') ? p.z : null, pos: p.pos || '' };
+      // Roto value = zTotal; NFL (points) carries fpPpr/fpStd instead. Keep a sortable
+      // value for the index (PPR points for NFL) plus the raw point fields for weighting.
+      const v = typeof p.zTotal === 'number' ? p.zTotal
+        : (typeof p.fpPpr === 'number' ? p.fpPpr : (typeof p.score === 'number' ? p.score : null));
+      const rec = {
+        value: v, cats: Array.isArray(p.cats) ? p.cats : [], z: (p.z && typeof p.z === 'object') ? p.z : null,
+        pos: p.pos || '', fpPpr: typeof p.fpPpr === 'number' ? p.fpPpr : null, fpStd: typeof p.fpStd === 'number' ? p.fpStd : null,
+      };
       const k = normName(p.name);
       const prev = idx.get(k);
       if (!prev || (v != null && (prev.value == null || v > prev.value))) idx.set(k, rec);
@@ -97,6 +103,71 @@ function decorateProposals(proposals, idx, standings) {
     const lost = giveCats.filter((c) => !getCats.includes(c));
     return { ...p, youGetCats: getCats, youGiveCats: giveCats, catGained: gained, catLost: lost, hurtsLosing: lost.filter((c) => losing.has(c)) };
   }).filter((p) => p.catLost.length <= p.catGained.length || (Number(p.fairness) || 50) >= 65);
+}
+
+// ----- NFL (points) analysis ----------------------------------------------------------------
+const NFL_POS = ['QB', 'RB', 'WR', 'TE', 'K', 'DST'];      // skill positions analyzed for need
+const NFL_START = { QB: 1, RB: 2, WR: 2, TE: 1, K: 1, DST: 1 }; // typical starters (FLEX adds RB/WR/TE depth)
+const ANALYZE_POS = ['QB', 'RB', 'WR', 'TE'];
+
+// A player's projected points under the league's scoring (full PPR / half PPR / standard).
+function nflPoints(rec, ppr) {
+  if (!rec) return null;
+  const full = rec.fpPpr, std = rec.fpStd;
+  if (full == null && std == null) return rec.value != null ? rec.value : null;
+  if (ppr === 'standard') return std != null ? std : full;
+  if (ppr === 'half') return (full != null && std != null) ? (full + std) / 2 : (full != null ? full : std);
+  return full != null ? full : std; // full PPR (default)
+}
+
+// Per-position need + depth for the user vs the league. For each position: the user's
+// starter-strength (sum of their top-N projected points), the league average for that
+// position, weak/strong status, and roster depth (startable bodies).
+function computeNflPositions(teams, userTeamId, idx, ppr) {
+  if (userTeamId == null) return null;
+  const teamPosPts = (t) => {
+    const byPos = {};
+    for (const pl of (t.roster || [])) {
+      const rec = idx.get(normName(pl.name));
+      const pos = (rec && rec.pos) || pl.pos || '';
+      const pts = nflPoints(rec, ppr);
+      if (!NFL_POS.includes(pos) || pts == null) continue;
+      (byPos[pos] = byPos[pos] || []).push(pts);
+    }
+    for (const k in byPos) byPos[k].sort((a, b) => b - a);
+    return byPos;
+  };
+  const all = teams.map((t) => ({ id: t.id, byPos: teamPosPts(t) }));
+  const me = all.find((t) => t.id === userTeamId);
+  if (!me) return null;
+  const starterSum = (byPos, pos) => (byPos[pos] || []).slice(0, NFL_START[pos] || 1).reduce((a, b) => a + b, 0);
+
+  const positions = ANALYZE_POS.map((pos) => {
+    const mine = Math.round(starterSum(me.byPos, pos) * 10) / 10;
+    const leagueVals = all.map((t) => starterSum(t.byPos, pos));
+    const avg = Math.round((leagueVals.reduce((a, b) => a + b, 0) / (leagueVals.length || 1)) * 10) / 10;
+    const depth = (me.byPos[pos] || []).length;
+    const need = NFL_START[pos] || 1;
+    const status = mine < avg * 0.9 ? 'weak' : mine > avg * 1.1 ? 'strong' : 'ok';
+    return { pos, points: mine, leagueAvg: avg, status, depth, need, thin: depth <= need };
+  });
+  return { ppr, positions };
+}
+
+// Decorate NFL proposals with net projected-points and per-position impact, and flag
+// trades that thin a position below its starters. Drop clearly point-negative,
+// non-fair trades; keep ones that improve points or address a weak/thin position.
+function decorateNflProposals(proposals, idx, ppr, positions) {
+  const weak = new Set((positions?.positions || []).filter((p) => p.status === 'weak' || p.thin).map((p) => p.pos));
+  const sumPts = (names) => (names || []).reduce((s, nm) => { const v = nflPoints(idx.get(normName(nm)), ppr); return s + (v || 0); }, 0);
+  const posList = (names) => (names || []).map((nm) => { const r = idx.get(normName(nm)); return (r && r.pos) || ''; }).filter(Boolean);
+  return proposals.map((p) => {
+    const net = Math.round((sumPts(p.youGet) - sumPts(p.youGive)) * 10) / 10;
+    const getPos = posList(p.youGet), givePos = posList(p.youGive);
+    const helps = getPos.filter((x) => weak.has(x));
+    const thins = givePos.filter((x) => !getPos.includes(x) && weak.has(x));
+    return { ...p, netPoints: net, getPos, givePos, helpsWeak: [...new Set(helps)], thinsPos: [...new Set(thins)] };
+  }).filter((p) => p.netPoints > -8 || (Number(p.fairness) || 50) >= 58 || p.helpsWeak.length);
 }
 
 export default async function handler(req, res) {
@@ -357,11 +428,17 @@ async function buildTradeContext(creds, { sport, leagueId, season }) {
   }
   const idx = await playerDataFor(sport);
   const isRoto = !!CATS_BY_SPORT[sport];
+  const isNfl = sport === 'nfl';
   const me = league.teams.find((t) => t.id === league.userTeamId) || league.teams.find((t) => t.mine);
-  const standings = computeStandings(league.teams, league.userTeamId, sport, idx);
+  const standings = isRoto ? computeStandings(league.teams, league.userTeamId, sport, idx) : null;
+  const positions = isNfl ? computeNflPositions(league.teams, league.userTeamId, idx, league.ppr) : null;
 
   const line = (p) => {
     const r = idx.get(normName(p.name));
+    if (isNfl) {
+      const pts = nflPoints(r, league.ppr);
+      return `  - ${p.name}${p.pos ? ' (' + p.pos + ')' : ''}${p.injury ? ' [' + p.injury + ']' : ''}${pts != null ? ' ' + Math.round(pts) + ' pts' : ''}`;
+    }
     const val = r && r.value != null ? ` val ${Math.round(r.value * 10) / 10}` : '';
     const cats = r && r.cats && r.cats.length ? ` · ${r.cats.join(',')}` : '';
     return `  - ${p.name}${p.pos ? ' (' + p.pos + ')' : ''}${p.injury ? ' [' + p.injury + ']' : ''}${val}${cats}`;
@@ -371,23 +448,30 @@ async function buildTradeContext(creds, { sport, leagueId, season }) {
 
   const fmtHint = isRoto
     ? `This is a ROTO category league. Categories: ${CATS_BY_SPORT[sport].map(([, l]) => l).join(', ')}. Each player line lists the categories they're strong in (after the "·").`
-    : `This is a POINTS (head-to-head) league — ${league.ppr} scoring. Weight pass-catchers (WR/TE and pass-catching RB) per ${league.ppr}; value = our projected fantasy points.`;
-  const standLine = standings
-    ? '\nYOUR CATEGORY STANDINGS (rank of ' + standings.n + ', 1 = best). LOSING = bottom half — protect/improve these:\n'
-      + standings.standings.map((s) => `${s.label} ${s.rank}${s.losing ? ' (LOSING)' : ''}`).join(' · ')
-    : '';
+    : `This is a POINTS (head-to-head) league — ${league.ppr} scoring. Player numbers are projected fantasy points under ${league.ppr} (receptions ${league.ppr === 'standard' ? 'NOT counted' : league.ppr === 'half' ? 'worth 0.5' : 'worth 1.0'} — weight pass-catchers accordingly).`;
+
+  let analysisLine = '';
+  if (standings) {
+    analysisLine = '\nYOUR CATEGORY STANDINGS (rank of ' + standings.n + ', 1 = best). LOSING = bottom half — protect/improve these:\n'
+      + standings.standings.map((s) => `${s.label} ${s.rank}${s.losing ? ' (LOSING)' : ''}`).join(' · ');
+  } else if (positions) {
+    analysisLine = '\nYOUR POSITIONAL NEED (' + league.ppr + ' — your top-starters projected pts vs league avg; depth = startable bodies):\n'
+      + positions.positions.map((p) => `${p.pos}: ${p.points} vs avg ${p.leagueAvg} (${p.status.toUpperCase()}), depth ${p.depth}${p.thin ? ' THIN' : ''}`).join(' · ')
+      + '\nTarget your WEAK/THIN positions; sell from STRONG/deep ones.';
+  }
 
   const parts = [
     `LEAGUE: "${league.leagueName}" — ${league.teamCount}-team ${SPORT_LABEL[sport] || sport} league. ${fmtHint}`,
-    'Value rating = our model\'s player value (higher = better, same scale within this sport). Blank = depth/unranked.',
-    standLine,
+    isNfl ? 'Numbers after each player = projected fantasy points (this league\'s scoring). Blank = unranked/depth.'
+      : 'Value rating = our model\'s player value (higher = better, same scale within this sport). Blank = depth/unranked.',
+    analysisLine,
     `\nYOUR TEAM: ${me ? me.name : 'You'}${me && me.record ? ' (' + me.record + ')' : ''}\n${me ? rosterLines(me.roster) : ''}`,
     '\nOTHER TEAMS:',
   ];
   for (const t of others) parts.push(`[${t.name}${t.record ? ' ' + t.record : ''}]\n${rosterLines(t.roster)}`);
   const ctx = parts.join('\n').slice(0, 16000);
   return {
-    ctx, idx, standings, isRoto, ppr: league.ppr,
+    ctx, idx, standings, positions, isRoto, isNfl, ppr: league.ppr,
     info: { leagueName: league.leagueName, teamCount: league.teamCount, scoringType: league.scoringType, myTeam: me ? me.name : null },
   };
 }
@@ -410,26 +494,38 @@ async function tradeScan(req, res, userId) {
   const { leagueId, season } = req.body || {};
   if (!leagueId || !season) throw new HttpError(400, 'Missing league', { error: 'missing_league' });
 
-  const { ctx, idx, standings, isRoto } = await buildTradeContext(creds, { sport, leagueId, season });
-  const catRules = isRoto
-    ? `\nCATEGORY RULES (this is a roto league — follow strictly):
-- A trade must improve the user's team across CATEGORIES on balance, not just raw value.
+  const { ctx, idx, standings, positions, isRoto, isNfl, ppr, info } = await buildTradeContext(creds, { sport, leagueId, season });
+  const rules = isRoto
+    ? `\nCATEGORY RULES (roto league — follow strictly):
+- Improve the user's team across CATEGORIES on balance, not just raw value.
 - NEVER propose a trade that hurts MORE categories than it helps, unless the value gain is overwhelming.
-- Especially avoid weakening any category marked (LOSING) in the standings above — those are the user's priority.
-- In each rationale, name the categories the user GAINS and the ones they give up.`
-    : `\nThis is a points league — weigh the scoring format (PPR weight noted above) and roster fit; favor value the user can actually start.`;
-  const system = `You are FantasyEdge's Trade Scanner for ${SPORT_LABEL[sport] || sport} fantasy. Using the rosters, value ratings, and category strengths below, find 2-3 REALISTIC trades that genuinely improve BOTH the user's team and a partner team. A good trade sends from the user's surplus to fill a partner's need and returns a player who fills the user's need. Only propose roughly-fair trades the other manager would plausibly consider — no fleecing.
-${catRules}
+- Especially avoid weakening any category marked (LOSING) above.
+- In each rationale, name the categories the user GAINS vs gives up.`
+    : isNfl
+      ? `\nFOOTBALL RULES (${ppr} points league — follow strictly):
+- Trade to fix the user's WEAK/THIN positions (see positional need above); sell from STRONG/deep positions.
+- A trade should not lose meaningful projected POINTS unless it fixes a real positional need or upgrades a starter.
+- Weight pass-catchers by the scoring (${ppr}); never leave the user below the required starters at any position.
+- In each rationale, name which position it upgrades and the rough net points.`
+      : `\nWeigh roster fit and value the user can actually start.`;
+  const system = `You are FantasyEdge's Trade Scanner for ${SPORT_LABEL[sport] || sport} fantasy. Using the rosters and the ${isNfl ? 'projected points + positional need' : 'value ratings and category strengths'} below, find 2-3 REALISTIC trades that genuinely improve BOTH the user's team and a partner team. Send from the user's surplus to fill a partner's need and return a player who fills the user's need. Only propose roughly-fair trades the other manager would plausibly consider — no fleecing.
+${rules}
 
-Return STRICT JSON only (no prose, no markdown fences): {"proposals":[{"partnerTeam":"<team name>","youGet":["<player>",...],"youGive":["<player>",...],"rationale":"<1-2 sentences incl. which categories you gain vs give up>","fairness":<integer 0-100, 50 = even, higher = better for user>}]}. If no sensible trade exists, return {"proposals":[]}.
+Return STRICT JSON only (no prose, no markdown fences): {"proposals":[{"partnerTeam":"<team name>","youGet":["<player>",...],"youGive":["<player>",...],"rationale":"<1-2 sentences: what it fixes + ${isNfl ? 'net points / position upgraded' : 'categories gained vs given up'}>","fairness":<integer 0-100, 50 = even, higher = better for user>}]}. If no sensible trade exists, return {"proposals":[]}.
 
 ${ctx}`;
   const text = await askClaude(system, [{ role: 'user', content: 'Scan my league and propose the best trades for my team.' }], 1500);
   const parsed = extractJson(text);
   let proposals = Array.isArray(parsed?.proposals) ? parsed.proposals.slice(0, 5) : [];
-  // Decorate with accurate categories + drop trades that hurt more cats than they help.
-  proposals = decorateProposals(proposals, idx, standings).slice(0, 4);
-  return res.json({ proposals, standings: standings ? standings.standings : null, isRoto, info, raw: proposals.length ? undefined : text });
+  proposals = isNfl
+    ? decorateNflProposals(proposals, idx, ppr, positions).slice(0, 4)
+    : decorateProposals(proposals, idx, standings).slice(0, 4);
+  return res.json({
+    proposals, isRoto, isNfl, ppr, info,
+    standings: standings ? standings.standings : null,
+    positions: positions ? positions.positions : null,
+    raw: proposals.length ? undefined : text,
+  });
 }
 
 // TRADE EVALUATOR / COUNTER GENERATOR / WALK-AWAY — one grounded chat. The system
@@ -445,14 +541,16 @@ async function tradeAdvise(req, res, userId) {
   const messages = sanitizeChat(req.body?.messages);
   if (!messages.length) throw new HttpError(400, 'Describe the trade first', { error: 'empty' });
 
-  const { ctx, isRoto } = await buildTradeContext(creds, { sport, leagueId, season });
+  const { ctx, isRoto, isNfl, ppr } = await buildTradeContext(creds, { sport, leagueId, season });
   const catRule = isRoto
     ? 'This is a ROTO category league. Always evaluate trades by CATEGORY impact: which categories the user gains vs gives up. Flag any trade that weakens a category marked (LOSING) in the standings, and never endorse one that hurts more categories than it helps unless the value gain is overwhelming.'
-    : 'This is a points (H2H) league — weigh the noted PPR scoring and startable roster fit.';
-  const system = `You are FantasyEdge's Trade Negotiation Advisor for ${SPORT_LABEL[sport] || sport} fantasy. You already know the user's roster and every other team's roster (with value ratings and category strengths) — never ask them to list their team. Be decisive and concise.
+    : isNfl
+      ? `This is a ${ppr} POINTS league. Evaluate by projected POINTS (weight pass-catchers per ${ppr}) and POSITIONAL need/depth: prioritize fixing weak/thin positions, don't drop a starter below the required count, and call out the rough net points of any deal.`
+      : 'This is a points (H2H) league — weigh the noted scoring and startable roster fit.';
+  const system = `You are FantasyEdge's Trade Negotiation Advisor for ${SPORT_LABEL[sport] || sport} fantasy. You already know the user's roster and every other team's roster (with ${isNfl ? 'projected points and positional need' : 'value ratings and category strengths'}) — never ask them to list their team. Be decisive and concise.
 ${catRule}
 
-When the user pastes/describes an INCOMING OFFER: open with a one-word verdict — ACCEPT, REJECT, or COUNTER — then 1-2 sentences why, grounded in value, category impact, and roster fit.
+When the user pastes/describes an INCOMING OFFER: open with a one-word verdict — ACCEPT, REJECT, or COUNTER — then 1-2 sentences why, grounded in ${isNfl ? 'projected points, positional need, and roster fit' : 'value, category impact, and roster fit'}.
 COUNTERS: if it's close, propose a fair counter. If they want options, give 2-3 counter variations RANKED by how likely the other manager accepts (most likely first), each one line.
 WALK AWAY: if they describe back-and-forth going in circles, or the other side lowballing, say so plainly and tell them to move on — then name 1-2 better trade partners in this league and a quick angle for each.
 Don't invent this week's injuries/news beyond what's given; reason from value, role, category fit, and roster fit. No markdown headers — just talk.
