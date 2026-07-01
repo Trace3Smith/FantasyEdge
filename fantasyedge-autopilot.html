@@ -161,25 +161,12 @@
   .add-league summary { cursor: pointer; font-weight: 600; color: var(--gold); font-size: 14px; }
   .add-league .row { margin-top: 12px; gap: 10px; align-items: center; }
   .add-league .hint { margin-top: 10px; }
-  /* League Settings (custom scoring weights) */
-  .league-settings { margin: 0 0 14px; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; background: rgba(255,255,255,0.02); }
-  .league-settings > summary { cursor: pointer; font-weight: 600; color: var(--gold-light); font-size: 13px; padding: 10px 14px; list-style: none; user-select: none; }
-  .league-settings > summary::-webkit-details-marker { display: none; }
-  .league-settings > summary::before { content: '▸'; display: inline-block; margin-right: 8px; transition: transform .12s; opacity: .7; }
-  .league-settings[open] > summary::before { transform: rotate(90deg); }
-  .ws-badge { display: inline-block; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 2px 6px; border-radius: 10px; background: rgba(45,212,191,0.18); color: #5eead4; margin-left: 6px; vertical-align: middle; }
-  .ws-body { padding: 0 14px 14px; }
-  .ws-note { font-size: 12px; color: var(--gray); line-height: 1.5; margin-bottom: 12px; }
-  .ws-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; margin-bottom: 14px; }
-  .ws-field { display: flex; flex-direction: column; gap: 4px; }
-  .ws-field span { font-size: 11px; font-weight: 700; letter-spacing: .5px; color: var(--gray-light); }
-  .ws-input { width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.12); border-radius: 7px; color: var(--white); font-family: inherit; font-size: 14px; padding: 7px 8px; }
-  .ws-input:focus { outline: none; border-color: var(--gold); }
-  .ws-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .ws-actions .btn { padding: 8px 16px; font-size: 13px; }
-  .ws-msg { font-size: 12px; }
-  .ws-msg.ok { color: #9bdc9e; }
-  .ws-msg.err { color: #f3a1a1; }
+  /* Detected scoring (auto-read from ESPN league settings) */
+  .lc-scoring { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; font-size: 12.5px; color: var(--gray-light); }
+  .lc-scoring-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 2px 7px; border-radius: 12px; background: rgba(96,165,250,0.16); color: #93c5fd; }
+  .lc-scoring b { color: var(--white); }
+  .lc-scoring-cats { color: var(--gray); }
+  .lc-scoring-src { color: var(--gray); opacity: .7; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -316,37 +303,6 @@
   if (!SPORTS[currentSport]) currentSport = 'mlb';
   let leaguesByKey = {};       // leagueKey -> league object (for the embedded AI Coach)
   const coachState = {};       // leagueKey -> { messages: [{role,content}], busy }
-
-  // ---- League Settings (custom scoring weights, per league id, per sport) ---------
-  // Persisted in localStorage; sent to the server with the leagues/apply requests so
-  // the optimizer values players under the user's own scoring. MLB weights the roto
-  // category z-scores; WNBA weights the H2H Points box cats + an estimated DD bonus.
-  const SETTINGS_KEY = 'fe_league_settings';
-  const WEIGHT_FIELDS = {
-    wnba: [['pts', 'PTS'], ['reb', 'REB'], ['ast', 'AST'], ['stl', 'STL'], ['blk', 'BLK'], ['tpm', '3PM'], ['dd', 'DD']],
-    mlb: [['r', 'R'], ['hr', 'HR'], ['rbi', 'RBI'], ['sb', 'SB'], ['avg', 'BA'], ['obp', 'OBP'], ['w', 'W'], ['sv', 'SV'], ['k', 'K'], ['era', 'ERA'], ['whip', 'WHIP']],
-  };
-  const WEIGHT_DEFAULTS = {
-    wnba: { pts: 1, reb: 1, ast: 1, stl: 1.5, blk: 1.5, tpm: 1, dd: 2 },
-    mlb: { r: 1, hr: 1, rbi: 1, sb: 1, avg: 1, obp: 1, w: 1, sv: 1, k: 1, era: 1, whip: 1 },
-  };
-  function loadAllSettings() { try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch { return {}; } }
-  function saveAllSettings(s) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch { /* quota — ignore */ } }
-  function getLeagueWeights(leagueId, sport) { const s = loadAllSettings(); return (s[leagueId] && s[leagueId][sport]) || null; }
-  function setLeagueWeights(leagueId, sport, weights) {
-    const s = loadAllSettings(); s[leagueId] = s[leagueId] || {}; s[leagueId][sport] = weights; saveAllSettings(s);
-  }
-  function clearLeagueWeights(leagueId, sport) {
-    const s = loadAllSettings();
-    if (s[leagueId]) { delete s[leagueId][sport]; if (!Object.keys(s[leagueId]).length) delete s[leagueId]; saveAllSettings(s); }
-  }
-  // Map { [leagueId]: weights } for every league customized on this sport — sent with
-  // the leagues request so the server recomputes suggestions under each league's weights.
-  function weightsMapForSport(sport) {
-    const s = loadAllSettings(); const out = {};
-    for (const [lid, bySport] of Object.entries(s)) if (bySport && bySport[sport]) out[lid] = bySport[sport];
-    return out;
-  }
 
   function renderSportBar() {
     $('sportBar').innerHTML = Object.entries(SPORTS).map(([k, v]) =>
@@ -520,7 +476,7 @@
     if (SPORTS[currentSport] && !SPORTS[currentSport].active) { selectSport(currentSport); return; } // off-season → 'Coming {month}'
     setMsg('leaguesMsg', '');
     $('leaguesArea').innerHTML = '<div class="loading">Pulling your ESPN leagues and rosters…</div>';
-    const { ok, status, data } = await api('/api/espn', { action: 'leagues', sport: currentSport, weights: weightsMapForSport(currentSport) });
+    const { ok, status, data } = await api('/api/espn', { action: 'leagues', sport: currentSport });
     if (!ok) {
       $('leaguesArea').innerHTML = '';
       if (status === 409 && data?.error === 'not_connected') { show('connectedWrap', false); show('connectPanel', true); return; }
@@ -623,9 +579,9 @@
         </div>
         ${rec ? `<div class="lc-record">${rec}</div>` : ''}
       </div>
+      ${renderScoring(lg)}
       ${renderSuggestions(lg.suggestions)}
       ${renderControls(lg)}
-      ${renderSettings(lg)}
       <table class="roster">
         <thead><tr><th style="width:64px">Slot</th><th>Player</th><th style="width:110px">Pos · Team</th></tr></thead>
         <tbody>${rows}</tbody>
@@ -691,7 +647,7 @@
     if (!confirm('Apply the suggested optimal lineup to this ESPN league now? This changes your starting lineup on ESPN.')) return;
     btn.disabled = true; const old = btn.textContent; btn.textContent = 'Applying…';
     msg.textContent = '';
-    const { ok, data } = await api('/api/espn', { action: 'apply', sport: currentSport, leagueId, season: Number(season), teamId: Number(teamId), weights: getLeagueWeights(String(leagueId), currentSport) || undefined });
+    const { ok, data } = await api('/api/espn', { action: 'apply', sport: currentSport, leagueId, season: Number(season), teamId: Number(teamId) });
     btn.disabled = false; btn.textContent = old;
     if (ok) {
       const locked = (data.skippedLocked && data.skippedLocked.length) ? ` (skipped ${data.skippedLocked.length} locked: ${data.skippedLocked.join(', ')})` : '';
@@ -725,52 +681,27 @@
     }
   }
 
-  // League Settings panel: custom scoring weights per league (localStorage). MLB
-  // weights the roto category z; WNBA weights the H2H Points cats + estimated DD.
-  function renderSettings(lg) {
+  // Detected scoring — auto-read from each league's ESPN settings (no manual entry).
+  // Shows the format and, for points leagues, the exact per-stat weights we're using.
+  function renderScoring(lg) {
     if (!ENGINE_SPORTS[currentSport]) return '';
-    const leagueId = String(lg.leagueId);
-    const fields = WEIGHT_FIELDS[currentSport] || [];
-    const saved = getLeagueWeights(leagueId, currentSport);
-    const cur = { ...WEIGHT_DEFAULTS[currentSport], ...(saved || {}) };
-    const custom = !!saved;
-    const inputs = fields.map(([k, label]) =>
-      `<label class="ws-field"><span>${label}</span><input type="number" step="0.5" class="ws-input" data-cat="${escapeHtml(k)}" value="${escapeHtml(String(cur[k]))}"></label>`
-    ).join('');
-    const note = currentSport === 'wnba'
-      ? 'H2H Points — player value = Σ (per-game stat × weight). DD is an estimated double-doubles/game bonus (from season averages).'
-      : 'Roto — player value = Σ (category z-score × weight). A higher weight makes that category count for more; default 1 reproduces the standard roto value.';
-    return `<details class="league-settings" data-league-id="${escapeHtml(leagueId)}">
-      <summary>⚙️ League Settings${custom ? ' <span class="ws-badge">custom</span>' : ''}</summary>
-      <div class="ws-body">
-        <div class="ws-note">${note}</div>
-        <div class="ws-grid">${inputs}</div>
-        <div class="ws-actions">
-          <button class="btn btn-gold ws-save" data-league-id="${escapeHtml(leagueId)}">Save &amp; recompute</button>
-          <button class="btn btn-ghost ws-reset" data-league-id="${escapeHtml(leagueId)}">Reset to default</button>
-          <span class="ws-msg"></span>
-        </div>
-      </div>
-    </details>`;
-  }
-
-  async function saveSettingsClick(btn) {
-    const leagueId = btn.dataset.leagueId;
-    const details = btn.closest('.league-settings');
-    const msg = details.querySelector('.ws-msg');
-    const weights = {};
-    details.querySelectorAll('.ws-input').forEach((inp) => {
-      const v = parseFloat(inp.value);
-      weights[inp.dataset.cat] = Number.isFinite(v) ? v : 0;
-    });
-    setLeagueWeights(leagueId, currentSport, weights);
-    msg.textContent = '✓ Saved — recomputing…'; msg.className = 'ws-msg ok';
-    await loadLeagues(); // re-fetch so every card's suggestions reflect the new weights
-  }
-
-  function resetSettingsClick(btn) {
-    clearLeagueWeights(btn.dataset.leagueId, currentSport);
-    loadLeagues();
+    const sc = lg.scoring;
+    if (!sc || !sc.label) return '';
+    let detail = '';
+    if (sc.format === 'points' && sc.weights && Object.keys(sc.weights).length) {
+      const parts = Object.entries(sc.weights)
+        .map(([k, v]) => `${(k === 'tpm' ? '3PM' : k).toUpperCase()} ${v}`);
+      detail = `<span class="lc-scoring-cats">${escapeHtml(parts.join(' · '))}</span>`;
+    } else if (sc.cats && sc.cats.length) {
+      const labels = sc.cats.map((k) => (k === 'tpm' ? '3PM' : k).toUpperCase());
+      detail = `<span class="lc-scoring-cats">${escapeHtml(labels.join(' · '))}</span>`;
+    }
+    return `<div class="lc-scoring">
+      <span class="lc-scoring-tag">Scoring</span>
+      <b>${escapeHtml(sc.label)}</b>
+      ${detail}
+      <span class="lc-scoring-src" title="Read automatically from your ESPN league settings">· auto-detected</span>
+    </div>`;
   }
 
   // Start/sit suggestions for one league (computed server-side from our values).
@@ -865,10 +796,6 @@
   $('leaguesArea').addEventListener('click', (e) => {
     const applyBtn = e.target.closest('.apply-btn');
     if (applyBtn) { applyLineupClick(applyBtn); return; }
-    const wsSave = e.target.closest('.ws-save');
-    if (wsSave) { saveSettingsClick(wsSave); return; }
-    const wsReset = e.target.closest('.ws-reset');
-    if (wsReset) { resetSettingsClick(wsReset); return; }
   });
   $('leaguesArea').addEventListener('change', (e) => {
     if (e.target.classList.contains('ap-toggle')) toggleAutopilot(e.target);

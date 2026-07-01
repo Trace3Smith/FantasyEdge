@@ -329,7 +329,11 @@ function buildLeagueResult(data, team, { leagueId, seasonId, cfg = SPORTS.mlb })
     leagueName: data?.settings?.name || `League ${leagueId}`,
     teamCount: teams.length,
     scoringType: data?.settings?.scoringSettings?.scoringType || null,
-    // Active lineup shape: { slotId: count }. Drives optimal-assignment slot openings.
+    // Raw ESPN scoring settings (from view=mSettings) so the optimizer can value
+    // players under this league's actual scoring. Translated by api/_lib/espnScoring.js.
+    scoringRaw: data?.settings?.scoringSettings || null,
+    // Active lineup shape: { slotId: count }. Drives optimal-assignment slot openings
+    // (the league's roster rules — how many of each position start, plus bench/IL).
     slotCounts: data?.settings?.rosterSettings?.lineupSlotCounts || {},
     team: team
       ? {

@@ -19,6 +19,7 @@ import {
   maskSwid, credsShape, EspnAuthError,
 } from '../_lib/espnFantasy.js';
 import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
+import { parseScoringSettings, scoringKey } from '../_lib/espnScoring.js';
 import { normName } from '../_lib/golf.js';
 
 // connect/leagues make several ESPN calls; trade actions also call Claude (10-20s).
@@ -294,10 +295,8 @@ async function leagues(req, res, userId) {
       const ds = await redis.get(DATASET_BY_SPORT[sport]);
       const players = (ds?.players || []).filter((p) => !p.searchOnly);
       if (players.length) {
-        // Per-league custom scoring weights (sent from the client's League Settings,
-        // persisted in localStorage): { [leagueId]: { ...catWeights } }. Leagues on
-        // defaults share one cached index; only customized leagues build their own.
-        const weightsMap = (req.body?.weights && typeof req.body.weights === 'object') ? req.body.weights : {};
+        // Leagues on default scoring share one cached index; each detected custom
+        // weighting builds its own (keyed by weight signature).
         const idxCache = new Map();
         const indexFor = (w) => {
           const sig = w ? JSON.stringify(w) : 'default';
@@ -306,12 +305,19 @@ async function leagues(req, res, userId) {
         };
         await Promise.all((result.leagues || []).map(async (lg) => {
           if (!lg || !lg.team || !Array.isArray(lg.roster) || !lg.roster.length) return;
+          // Detect this league's scoring from ESPN, persist it in KV alongside the
+          // roster, and value players under it. Falls back to the sport default when
+          // the scoring can't be confidently translated.
+          const scoring = parseScoringSettings(lg.scoringRaw, sport);
+          if (scoring) {
+            lg.scoring = scoring;
+            redis.set(scoringKey(sport, lg.season, lg.leagueId), scoring).catch(() => {});
+          }
           let freeAgents = [];
           try {
             freeAgents = await fetchFreeAgents(creds, { leagueId: lg.leagueId, seasonId: lg.season, limit: 40 }, sport);
           } catch { /* waiver data is optional */ }
-          const w = weightsMap[lg.leagueId] || weightsMap[String(lg.leagueId)] || null;
-          lg.suggestions = suggestLineup(lg, indexFor(w), sport, { freeAgents });
+          lg.suggestions = suggestLineup(lg, indexFor(scoring?.weights || null), sport, { freeAgents });
         }));
       }
     } catch { /* suggestions are optional */ }
@@ -323,6 +329,10 @@ async function leagues(req, res, userId) {
       }
     } catch { /* toggle state is optional */ }
   }
+
+  // Don't ship ESPN's raw scoring blob to the client (we've already translated the
+  // parts we use into lg.scoring); keep the payload lean.
+  for (const lg of (result.leagues || [])) if (lg) delete lg.scoringRaw;
 
   // Surface (non-sensitive) cred shape for debugging "connected but no leagues".
   if (result.diag) result.diag.creds = credsShape(creds);
@@ -338,15 +348,13 @@ async function applyLineup(req, res, userId) {
 
   const { leagueId, season, teamId } = req.body || {};
   const sport = ENGINE_SPORTS.has(req.body?.sport) ? req.body.sport : 'mlb';
-  // This league's custom scoring weights (from the client's League Settings), if any.
-  const weights = (req.body?.weights && typeof req.body.weights === 'object') ? req.body.weights : null;
   if (!leagueId || !season || teamId == null) {
     throw new HttpError(400, 'Missing league', { error: 'missing_league' });
   }
 
   // Never trust a client-sent plan: re-fetch the roster and recompute the optimal
-  // lineup server-side from this sport's cached valuations (under the league's weights)
-  // before posting it.
+  // lineup server-side, valuing players under the league's own ESPN scoring, before
+  // posting it.
   let league, players;
   try {
     [league, players] = await Promise.all([
@@ -359,7 +367,9 @@ async function applyLineup(req, res, userId) {
   }
   if (!players.length) throw new HttpError(503, 'Player values unavailable', { error: 'no_dataset' });
 
-  const sugg = suggestLineup(league, buildValueIndex(players, sport, weights), sport);
+  const scoring = parseScoringSettings(league.scoringRaw, sport);
+  if (scoring) redis.set(scoringKey(sport, season, leagueId), scoring).catch(() => {});
+  const sugg = suggestLineup(league, buildValueIndex(players, sport, scoring?.weights || null), sport);
   if (!sugg.plan.length) return res.json({ applied: 0, moves: [], message: 'Lineup already optimal' });
 
   let result;

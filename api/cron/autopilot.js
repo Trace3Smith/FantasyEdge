@@ -14,6 +14,7 @@ import {
   fetchLeagueRoster, setLineup, autopilotSportOf, EspnAuthError,
 } from '../_lib/espnFantasy.js';
 import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
+import { parseScoringSettings } from '../_lib/espnScoring.js';
 
 export const maxDuration = 60;
 
@@ -27,20 +28,27 @@ export default async function handler(req, res) {
 
   const summary = { users: 0, leagues: 0, applied: 0, optimal: 0, expired: 0, errors: 0, noData: 0 };
   try {
-    // Lazily build + cache each sport's value index (a dataset may be missing off-season
-    // or unbuilt). Cached across users so we hit Redis once per sport per run.
-    const idxCache = {};
-    async function indexFor(sport) {
-      if (sport in idxCache) return idxCache[sport];
+    // Lazily load + cache each sport's dataset players (a dataset may be missing
+    // off-season or unbuilt). Cached across users so we hit Redis once per sport per run.
+    const playersCache = {};
+    async function playersFor(sport) {
+      if (sport in playersCache) return playersCache[sport];
       const key = DATASET_BY_SPORT[sport];
-      let idx = null;
+      let players = null;
       if (key) {
         const ds = await redis.get(key);
-        const players = (ds?.players || []).filter((p) => !p.searchOnly);
-        if (players.length) idx = buildValueIndex(players, sport);
+        const p = (ds?.players || []).filter((x) => !x.searchOnly);
+        if (p.length) players = p;
       }
-      idxCache[sport] = idx;
-      return idx;
+      playersCache[sport] = players;
+      return players;
+    }
+    // Value index per (sport, scoring-weights) — leagues on the same scoring share one.
+    const idxCache = new Map();
+    function indexFor(sport, players, weights) {
+      const sig = `${sport}|${weights ? JSON.stringify(weights) : 'default'}`;
+      if (!idxCache.has(sig)) idxCache.set(sig, buildValueIndex(players, sport, weights));
+      return idxCache.get(sig);
     }
 
     const users = await listAutopilotUsers(redis);
@@ -54,10 +62,12 @@ export default async function handler(req, res) {
         const sport = autopilotSportOf(prefVal);
         summary.leagues++;
         try {
-          const idx = await indexFor(sport);
-          if (!idx) { summary.noData++; continue; } // no dataset for this sport right now
+          const players = await playersFor(sport);
+          if (!players) { summary.noData++; continue; } // no dataset for this sport right now
           const league = await fetchLeagueRoster(creds, { leagueId, seasonId: Number(season), teamId: Number(teamId) }, sport);
-          const sugg = suggestLineup(league, idx, sport);
+          // Value players under this league's own ESPN scoring (auto-detected).
+          const scoring = parseScoringSettings(league.scoringRaw, sport);
+          const sugg = suggestLineup(league, indexFor(sport, players, scoring?.weights || null), sport);
           if (!sugg.plan.length) { summary.optimal++; continue; }
           await setLineup(creds, {
             leagueId, seasonId: Number(season), teamId: Number(teamId), scoringPeriodId: league.scoringPeriodId,
