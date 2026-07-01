@@ -138,8 +138,20 @@ const sportCfg = (sport) => SPORTS[sport] || SPORTS.mlb;
 const INJURY_LABEL = {
   ACTIVE: '', NORMAL: '', QUESTIONABLE: 'Q', DOUBTFUL: 'D', OUT: 'O',
   DAY_TO_DAY: 'DTD', SUSPENSION: 'SUSP',
+  // A player sitting in an IL/IR slot reports INJURY_RESERVE (basketball) rather than
+  // OUT — must map it, or IR occupants look uninjured and can't be surfaced as
+  // drop-from-IR candidates (they'd be misread as "recovered").
+  INJURY_RESERVE: 'IL',
   SEVEN_DAY_DL: 'IL', TEN_DAY_DL: 'IL', FIFTEEN_DAY_DL: 'IL', SIXTY_DAY_DL: '60-IL',
 };
+// Statuses that mean the player is available (not injured). Everything else — including
+// any status we don't explicitly know — is treated as injured (defaults to OUT), so an
+// unmapped IR/injury code can never masquerade as healthy.
+const HEALTHY_STATUS = new Set(['ACTIVE', 'NORMAL', 'PROBABLE']);
+function injuryLabelOf(status) {
+  if (!status || HEALTHY_STATUS.has(status)) return '';
+  return status in INJURY_LABEL ? INJURY_LABEL[status] : 'O';
+}
 
 const posOf = (id, cfg) => (cfg.positions || cfg.slots)[id] || 'UTIL';
 const slotOf = (id, cfg) => cfg.slots[id] ?? String(id);
@@ -302,7 +314,7 @@ function parseRoster(entries = [], cfg = SPORTS.mlb) {
       slotId,
       eligibleSlots: Array.isArray(pl.eligibleSlots) ? pl.eligibleSlots : [],
       starter: !cfg.bench.has(slotId),
-      injury: INJURY_LABEL[pl.injuryStatus] || '',
+      injury: injuryLabelOf(pl.injuryStatus),
       injuryStatus: pl.injuryStatus || 'ACTIVE',
       locked,
     };
@@ -431,7 +443,7 @@ export async function fetchFreeAgents(creds, { leagueId, seasonId, limit = 50 },
       proTeam: teamOf(pl.proTeamId, cfg),
       eligibleSlots: Array.isArray(pl.eligibleSlots) ? pl.eligibleSlots : [],
       percentOwned: pl.ownership?.percentOwned ?? null,
-      injury: INJURY_LABEL[pl.injuryStatus] || '',
+      injury: injuryLabelOf(pl.injuryStatus),
     };
   }).filter((p) => p.name !== 'Unknown');
 }
