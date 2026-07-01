@@ -63,6 +63,11 @@ async function getJson(url) {
 
 function parseIp(s) {
   if (s == null) return 0;
+  // A number here is ALREADY-converted innings (e.g. rec._p.ip from buildDataset,
+  // which parsed "75.1" → 75.333). Re-splitting its float string ("75.33333…")
+  // would read the fraction as 33-billion-and-change outs and blow IP up ~2.5×,
+  // collapsing K/9 and false-flagging elite pitchers. So treat numbers as final.
+  if (typeof s === 'number') return Number.isFinite(s) ? s : 0;
   const [whole, frac] = String(s).split('.');
   return (parseInt(whole) || 0) + (frac ? parseInt(frac) / 3 : 0);
 }
