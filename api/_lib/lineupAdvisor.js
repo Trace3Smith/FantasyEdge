@@ -30,7 +30,6 @@ const SPORT_CFG = {
     waiverGain: 2.0, // min value gain (z) to surface a waiver add/drop
     floor: -5,       // value for a player we don't rank
     deferIl: true,   // MLB games run all day → defer IL moves once the slate's underway
-    defaultIlCap: 1, // assumed IL capacity when lineupSlotCounts omits the IL slot
   },
   wnba: {
     il: { slotId: 13, benchId: 12, label: 'IR' },
@@ -43,7 +42,6 @@ const SPORT_CFG = {
     waiverGain: 5,   // ~5 fantasy pts/game to justify a waiver churn
     floor: 10,       // replacement-level fantasy output for an unranked body
     deferIl: false,  // WNBA sets daily; IR moves can go anytime before lock
-    defaultIlCap: 1, // assumed IR capacity when lineupSlotCounts omits the IR slot
   },
 };
 const cfgFor = (sport) => SPORT_CFG[sport] || SPORT_CFG.mlb;
@@ -158,12 +156,15 @@ function valueOf(rp, idx, cfg) {
 
 // Expand the league's { slotId: count } into a flat list of active slot openings.
 // Falls back to the slots currently filled by starters if settings are missing.
-function activeOpenings(slotCounts, roster, sport) {
+function activeOpenings(slotCounts, roster, sport, benchId, ilSlotId) {
   const openings = [];
   const entries = Object.entries(slotCounts || {});
   if (entries.length) {
     for (const [slotId, count] of entries) {
       const id = Number(slotId);
+      // Exclude the bench and the (possibly auto-detected) IL/IR slot so we never treat
+      // a reserve slot as a startable opening, then defer to the sport's active-slot set.
+      if (id === benchId || id === ilSlotId) continue;
       if (isActiveSlot(id, sport)) for (let i = 0; i < count; i++) openings.push(id);
     }
   }
@@ -229,7 +230,21 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
   for (const rp of roster) rp._v = valueOf(rp, idx, cfg);
 
   const IL = cfg.il;
-  const ilSlotId = IL.slotId, benchId = IL.benchId;
+  const benchId = IL.benchId;
+  // Detect the league's REAL IL/IR slot id. The sport default (13 for WNBA) is wrong
+  // for some leagues — writing an injured player to a slot the league doesn't have
+  // returns ESPN 409 "Lineup slot does not exist" (TRAN_ROSTER_SLOT). Use the default
+  // only when the league actually has it; otherwise fall back to the reserve slot that
+  // sits ABOVE the bench in lineupSlotCounts (the IL/IR is the non-active reserve slot).
+  const slotIds = new Set(Object.keys(league.slotCounts || {}).map(Number));
+  let ilSlotId = IL.slotId;
+  if (!slotIds.has(ilSlotId)) {
+    const reserve = [...slotIds].filter((s) => s > benchId).sort((a, b) => a - b);
+    if (reserve.length) ilSlotId = reserve[0];
+  }
+  // Whether the league actually has this IL/IR slot. If not, we never generate IL moves
+  // (no capacity, nothing added to the executable plan) so Apply can't 409 on it.
+  const ilSlotExists = slotIds.has(ilSlotId);
   const onIL = (rp) => rp.slotId === ilSlotId;
 
   // --- IL/IR management ---------------------------------------------------------
@@ -245,17 +260,10 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
   const ilClosed = cfg.deferIl ? (ilWindowClosed ?? isIlWindowClosed()) : false;
   const ilDeferred = ilClosed && (R > 0 || I > 0);
 
-  // IL/IR capacity from the league's lineupSlotCounts. Some ESPN payloads (seen on WNBA)
-  // OMIT the IL/IR slot from lineupSlotCounts, which made an empty-but-real IR read as
-  // capacity 0 — so the engine wrongly reported "IR FULL" and never suggested moving an
-  // injured starter in. When the slot key is ABSENT (vs an explicit 0), fall back to the
-  // sport's default capacity, floored by however many players are already on the IL so we
-  // never under-count. An explicit 0 is respected (the league truly has no IL slot).
+  // IL/IR capacity comes straight from the league's real IL/IR slot count. If the
+  // league has no such slot, capacity is 0 (no IL moves) — we never invent one.
   const onIlCount = R + nonRecoveredIL;
-  const rawIlCap = league.slotCounts?.[ilSlotId];
-  const ilCapacity = rawIlCap != null
-    ? (Number(rawIlCap) || 0)
-    : Math.max(cfg.defaultIlCap || 0, onIlCount);
+  const ilCapacity = ilSlotExists ? (Number(league.slotCounts[ilSlotId]) || 0) : 0;
   const openIL = Math.max(0, ilCapacity - onIlCount);                                          // empty IL slots
   const roomNonIL = Math.max(0, nonIlCapacity(league.slotCounts, ilSlotId) - roster.filter((rp) => !onIL(rp)).length);
 
@@ -281,7 +289,7 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
     if (activateIdx.has(i)) return { ...rp, slotId: benchId, starter: false }; // → bench (available)
     return rp;
   });
-  const assigned = assignOptimal(work, activeOpenings(league.slotCounts, work, sport), ilSlotId);
+  const assigned = assignOptimal(work, activeOpenings(league.slotCounts, work, sport, benchId, ilSlotId), ilSlotId);
 
   const finalSlot = (i) => {
     const rp = roster[i];
@@ -442,8 +450,10 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
     plan,
     summary: {
       count: moves.length, ilMoves, ilFull, waiverMoves, injuredStarters, totalGain, optimal: moves.length === 0,
-      // IL/IR diagnostics (for verifying capacity detection against a live league).
-      il: { slot: ilSlotId, cap: ilCapacity, open: openIL, onIl: onIlCount, injured: I, capSource: rawIlCap != null ? 'reported' : 'default' },
+      // IL/IR diagnostics (for verifying slot detection against a live league): the
+      // resolved IL/IR slot, whether the league actually has it, capacity/openings, and
+      // every lineup-slot id the league reports (so the real IR id is visible).
+      il: { slot: ilSlotId, exists: ilSlotExists, cap: ilCapacity, open: openIL, onIl: onIlCount, injured: I, slots: [...slotIds].sort((a, b) => a - b) },
     },
   };
 }
