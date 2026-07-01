@@ -324,15 +324,17 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
     }
   }
   // FORCED IL/IR DROP: injured starters that can't reach the IL/IR because it's full of
-  // OTHER injured players. Drop the weakest injured player currently ON the IL (worth
-  // less than the injured starter) to free a slot, then stash the injured starter there
-  // — freeing their active roster spot for a healthy replacement. Both players are
-  // injured, so we compare RAW value (`z`, not injury-penalized `adjZ`) — otherwise the
-  // penalties dominate and mask who's actually the more valuable asset to keep. Rescue
-  // the most valuable injured starters first. Display-only, like every drop.
+  // OTHER injured players. Value EVERY player currently on the IL under the league's
+  // scoring (their `_v.z`), rank them, and take the WEAKEST. If it's worth less than the
+  // injured starter, recommend dropping that specific player (by name + value) to open a
+  // slot and stash the injured starter there (freeing their active roster spot). If the
+  // weakest IL player is worth MORE, still NAME it and show the value comparison so the
+  // user can decide. Compare RAW value (`z`, not injury-penalized `adjZ`) since both are
+  // injured. Rescue the most valuable injured starters first. Display-only (irreversible).
   const ilOccupantPool = roster.map((_, i) => i)
     .filter((i) => onIL(roster[i]) && roster[i].injury && !roster[i].locked && roster[i].id != null)
     .sort((a, b) => roster[a]._v.z - roster[b]._v.z); // weakest raw value first
+  const r1 = (x) => Math.round(x * 10) / 10;
   const ilBlockedByVal = [...ilBlocked].sort((a, b) => roster[b]._v.z - roster[a]._v.z);
   for (const bi of ilBlockedByVal) {
     const inj = roster[bi];
@@ -341,12 +343,26 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
       const d = roster[ilOccupantPool.splice(pos, 1)[0]];
       moves.push({
         reason: 'drop', drop: true, fromIl: true, slot: IL.label,
-        dropName: d.name, dropMeta: meta(d), stash: inj.name, stashMeta: meta(inj),
-        gain: Math.round((inj._v.z - d._v.z) * 10) / 10,
+        dropName: d.name, dropMeta: meta(d), dropVal: r1(d._v.z), dropKnown: d._v.known,
+        stash: inj.name, stashMeta: meta(inj), stashVal: r1(inj._v.z), stashKnown: inj._v.known,
+        gain: r1(inj._v.z - d._v.z),
+      });
+      continue;
+    }
+    // No IL player is worth less than this (the most valuable remaining) injured starter
+    // — so none is for the weaker ones either. NAME the weakest IL player + show the
+    // value comparison so the user can make the call, then stop.
+    if (ilOccupantPool.length) {
+      const w = roster[ilOccupantPool[0]];
+      moves.push({
+        reason: 'il_full', ilFull: true, action: 'cant_il_compare', slot: IL.label,
+        name: inj.name, nameMeta: meta(inj), stashVal: r1(inj._v.z), stashKnown: inj._v.known,
+        weakestName: w.name, weakestMeta: meta(w), weakestVal: r1(w._v.z), weakestKnown: w._v.known,
       });
     } else {
       moves.push({ reason: 'il_full', ilFull: true, action: 'cant_il', name: inj.name, nameMeta: meta(inj), slot: IL.label });
     }
+    break;
   }
 
   // PROACTIVE WAIVER: best ranked free agent vs the weakest droppable bench player.

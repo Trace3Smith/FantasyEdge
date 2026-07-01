@@ -704,6 +704,13 @@
     </div>`;
   }
 
+  // Format a player value with the sport's unit (WNBA = fantasy pts/game; MLB = roto value).
+  function fmtVal(v, known) {
+    if (v == null || known === false) return 'unranked';
+    const n = Math.round(v * 10) / 10;
+    return currentSport === 'wnba' ? `${n} pts/game` : `${n} value`;
+  }
+
   // Start/sit suggestions for one league (computed server-side from our values).
   function renderSuggestions(s) {
     if (!s) return ''; // dataset unavailable / no engine for this sport — show nothing
@@ -733,10 +740,10 @@
       if (m.drop) {
         const tag = '<span class="sugg-tag drop">DROP</span>';
         const slot = escapeHtml(m.slot || 'IL');
-        // Drop-from-IL: cut the weakest injured player ON the IL to open a slot, then
-        // stash a more valuable injured starter there (frees an active roster spot).
+        // Drop-from-IL: cut the weakest (lowest-value) injured player ON the IL to open
+        // a slot for a more valuable injured starter (frees an active roster spot).
         if (m.fromIl) {
-          return `<li>${tag} Drop <b>${escapeHtml(m.dropName)}</b> <span class="sugg-meta">${escapeHtml(m.dropMeta)}</span> from ${slot} to open a slot, then move injured ${escapeHtml(m.stash)} <span class="sugg-meta">${escapeHtml(m.stashMeta)}</span> to ${slot} <span class="sugg-meta">(frees a roster spot · keeps +${m.gain} value · irreversible — do this on ESPN)</span></li>`;
+          return `<li>${tag} Drop <b>${escapeHtml(m.dropName)}</b> from ${slot} (lowest value: ${escapeHtml(fmtVal(m.dropVal, m.dropKnown))}) to open a slot for <b>${escapeHtml(m.stash)}</b> (${escapeHtml(fmtVal(m.stashVal, m.stashKnown))}) <span class="sugg-meta">(frees a roster spot · irreversible — do this on ESPN)</span></li>`;
         }
         // Drop a bench player to make room to activate a recovered IL player.
         return `<li>${tag} Drop <b>${escapeHtml(m.dropName)}</b> <span class="sugg-meta">${escapeHtml(m.dropMeta)}</span> to activate ${escapeHtml(m.activate)} <span class="sugg-meta">${escapeHtml(m.activateMeta)}</span> from ${slot} <span class="sugg-meta">(net +${m.gain} value · irreversible — do this on ESPN)</span></li>`;
@@ -746,9 +753,15 @@
         const label = escapeHtml(m.slot || 'IL');
         const tag = `<span class="sugg-tag ilfull">${label} FULL</span>`;
         const who = `<b>${escapeHtml(m.name)}</b> <span class="sugg-meta">${escapeHtml(m.nameMeta || '')}</span>`;
-        return m.action === 'cant_activate'
-          ? `<li>${tag} Your ${label} is full — to activate ${who}, you need to drop someone from your roster first. Visit ESPN to make a roster move.</li>`
-          : `<li>${tag} ${label} full — no open slot for ${who} (the players on your ${label} are worth keeping). Drop a bench or ${label} player on ESPN to make room.</li>`;
+        if (m.action === 'cant_activate') {
+          return `<li>${tag} Your ${label} is full — to activate ${who}, you need to drop someone from your roster first. Visit ESPN to make a roster move.</li>`;
+        }
+        // All IL players are worth more than the injured starter — name the weakest and
+        // show the comparison so the user can still make the call themselves.
+        if (m.action === 'cant_il_compare') {
+          return `<li>${tag} ${label} full — your weakest ${label} player is <b>${escapeHtml(m.weakestName)}</b> (${escapeHtml(fmtVal(m.weakestVal, m.weakestKnown))}), worth more than injured <b>${escapeHtml(m.name)}</b> (${escapeHtml(fmtVal(m.stashVal, m.stashKnown))}). Dropping <b>${escapeHtml(m.weakestName)}</b> would open a slot for ${escapeHtml(m.name)} — your call.</li>`;
+        }
+        return `<li>${tag} ${label} full — no open slot for ${who}. Drop a bench or ${label} player on ESPN to make room.</li>`;
       }
       // IL/IR roster moves.
       if (m.il) {
