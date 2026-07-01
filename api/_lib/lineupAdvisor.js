@@ -30,6 +30,7 @@ const SPORT_CFG = {
     waiverGain: 2.0, // min value gain (z) to surface a waiver add/drop
     floor: -5,       // value for a player we don't rank
     deferIl: true,   // MLB games run all day → defer IL moves once the slate's underway
+    defaultIlCap: 1, // assumed IL capacity when lineupSlotCounts omits the IL slot
   },
   wnba: {
     il: { slotId: 13, benchId: 12, label: 'IR' },
@@ -42,6 +43,7 @@ const SPORT_CFG = {
     waiverGain: 5,   // ~5 fantasy pts/game to justify a waiver churn
     floor: 10,       // replacement-level fantasy output for an unranked body
     deferIl: false,  // WNBA sets daily; IR moves can go anytime before lock
+    defaultIlCap: 1, // assumed IR capacity when lineupSlotCounts omits the IR slot
   },
 };
 const cfgFor = (sport) => SPORT_CFG[sport] || SPORT_CFG.mlb;
@@ -243,8 +245,18 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
   const ilClosed = cfg.deferIl ? (ilWindowClosed ?? isIlWindowClosed()) : false;
   const ilDeferred = ilClosed && (R > 0 || I > 0);
 
-  const ilCapacity = Number(league.slotCounts?.[ilSlotId]) || 0;
-  const openIL = Math.max(0, ilCapacity - R - nonRecoveredIL);                                 // empty IL slots
+  // IL/IR capacity from the league's lineupSlotCounts. Some ESPN payloads (seen on WNBA)
+  // OMIT the IL/IR slot from lineupSlotCounts, which made an empty-but-real IR read as
+  // capacity 0 — so the engine wrongly reported "IR FULL" and never suggested moving an
+  // injured starter in. When the slot key is ABSENT (vs an explicit 0), fall back to the
+  // sport's default capacity, floored by however many players are already on the IL so we
+  // never under-count. An explicit 0 is respected (the league truly has no IL slot).
+  const onIlCount = R + nonRecoveredIL;
+  const rawIlCap = league.slotCounts?.[ilSlotId];
+  const ilCapacity = rawIlCap != null
+    ? (Number(rawIlCap) || 0)
+    : Math.max(cfg.defaultIlCap || 0, onIlCount);
+  const openIL = Math.max(0, ilCapacity - onIlCount);                                          // empty IL slots
   const roomNonIL = Math.max(0, nonIlCapacity(league.slotCounts, ilSlotId) - roster.filter((rp) => !onIL(rp)).length);
 
   // A recovered↔injured pair can always swap (activate one + IL the other = net-zero on
@@ -428,6 +440,10 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
   return {
     moves: [...special, ...lineupMoves],
     plan,
-    summary: { count: moves.length, ilMoves, ilFull, waiverMoves, injuredStarters, totalGain, optimal: moves.length === 0 },
+    summary: {
+      count: moves.length, ilMoves, ilFull, waiverMoves, injuredStarters, totalGain, optimal: moves.length === 0,
+      // IL/IR diagnostics (for verifying capacity detection against a live league).
+      il: { slot: ilSlotId, cap: ilCapacity, open: openIL, onIl: onIlCount, injured: I, capSource: rawIlCap != null ? 'reported' : 'default' },
+    },
   };
 }
