@@ -729,18 +729,26 @@
         const tag = '<span class="sugg-tag waiver">WAIVER</span>';
         return `<li>${tag} Drop ${escapeHtml(m.drop)} <span class="sugg-meta">${escapeHtml(m.dropMeta)}</span> <span class="sugg-arrow">→</span> Add <b>${escapeHtml(m.add)}</b> <span class="sugg-meta">${escapeHtml(m.addMeta)}</span> <span class="sugg-meta">(+${m.gain} value · do this on ESPN)</span></li>`;
       }
-      // Forced drop to make room to activate a recovered IL player — user confirms on ESPN.
+      // Forced drop to make room — user confirms on ESPN (irreversible).
       if (m.drop) {
         const tag = '<span class="sugg-tag drop">DROP</span>';
-        return `<li>${tag} Drop <b>${escapeHtml(m.dropName)}</b> <span class="sugg-meta">${escapeHtml(m.dropMeta)}</span> to activate ${escapeHtml(m.activate)} <span class="sugg-meta">${escapeHtml(m.activateMeta)}</span> from IL <span class="sugg-meta">(net +${m.gain} value · irreversible — do this on ESPN)</span></li>`;
+        const slot = escapeHtml(m.slot || 'IL');
+        // Drop-from-IL: cut the weakest injured player ON the IL to open a slot, then
+        // stash a more valuable injured starter there (frees an active roster spot).
+        if (m.fromIl) {
+          return `<li>${tag} Drop <b>${escapeHtml(m.dropName)}</b> <span class="sugg-meta">${escapeHtml(m.dropMeta)}</span> from ${slot} to open a slot, then move injured ${escapeHtml(m.stash)} <span class="sugg-meta">${escapeHtml(m.stashMeta)}</span> to ${slot} <span class="sugg-meta">(frees a roster spot · keeps +${m.gain} value · irreversible — do this on ESPN)</span></li>`;
+        }
+        // Drop a bench player to make room to activate a recovered IL player.
+        return `<li>${tag} Drop <b>${escapeHtml(m.dropName)}</b> <span class="sugg-meta">${escapeHtml(m.dropMeta)}</span> to activate ${escapeHtml(m.activate)} <span class="sugg-meta">${escapeHtml(m.activateMeta)}</span> from ${slot} <span class="sugg-meta">(net +${m.gain} value · irreversible — do this on ESPN)</span></li>`;
       }
       // IL/IR full — can't fit; user must drop someone on ESPN. Not in the Apply txn.
       if (m.ilFull) {
-        const tag = '<span class="sugg-tag ilfull">IL FULL</span>';
+        const label = escapeHtml(m.slot || 'IL');
+        const tag = `<span class="sugg-tag ilfull">${label} FULL</span>`;
         const who = `<b>${escapeHtml(m.name)}</b> <span class="sugg-meta">${escapeHtml(m.nameMeta || '')}</span>`;
         return m.action === 'cant_activate'
-          ? `<li>${tag} Your IL is full — to activate ${who}, you need to drop someone from your roster first. Visit ESPN to make a roster move.</li>`
-          : `<li>${tag} IL full — no open slot to move ${who}. You may need to drop an IL player to make room.</li>`;
+          ? `<li>${tag} Your ${label} is full — to activate ${who}, you need to drop someone from your roster first. Visit ESPN to make a roster move.</li>`
+          : `<li>${tag} ${label} full — no open slot for ${who} (the players on your ${label} are worth keeping). Drop a bench or ${label} player on ESPN to make room.</li>`;
       }
       // IL/IR roster moves.
       if (m.il) {

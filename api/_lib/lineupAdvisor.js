@@ -318,13 +318,35 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
     const pos = dropPool.findIndex((di) => roster[di]._v.adjZ < rec._v.adjZ);
     if (pos >= 0) {
       const d = roster[dropPool.splice(pos, 1)[0]];
-      moves.push({ reason: 'drop', drop: true, dropName: d.name, dropMeta: meta(d), activate: rec.name, activateMeta: meta(rec), gain: Math.round((rec._v.adjZ - d._v.adjZ) * 10) / 10 });
+      moves.push({ reason: 'drop', drop: true, slot: IL.label, dropName: d.name, dropMeta: meta(d), activate: rec.name, activateMeta: meta(rec), gain: Math.round((rec._v.adjZ - d._v.adjZ) * 10) / 10 });
     } else {
-      moves.push({ reason: 'il_full', ilFull: true, action: 'cant_activate', name: rec.name, nameMeta: meta(rec) });
+      moves.push({ reason: 'il_full', ilFull: true, action: 'cant_activate', name: rec.name, nameMeta: meta(rec), slot: IL.label });
     }
   }
-  for (const i of ilBlocked) {
-    moves.push({ reason: 'il_full', ilFull: true, action: 'cant_il', name: roster[i].name, nameMeta: meta(roster[i]), slot: IL.label });
+  // FORCED IL/IR DROP: injured starters that can't reach the IL/IR because it's full of
+  // OTHER injured players. Drop the weakest injured player currently ON the IL (worth
+  // less than the injured starter) to free a slot, then stash the injured starter there
+  // — freeing their active roster spot for a healthy replacement. Both players are
+  // injured, so we compare RAW value (`z`, not injury-penalized `adjZ`) — otherwise the
+  // penalties dominate and mask who's actually the more valuable asset to keep. Rescue
+  // the most valuable injured starters first. Display-only, like every drop.
+  const ilOccupantPool = roster.map((_, i) => i)
+    .filter((i) => onIL(roster[i]) && roster[i].injury && !roster[i].locked && roster[i].id != null)
+    .sort((a, b) => roster[a]._v.z - roster[b]._v.z); // weakest raw value first
+  const ilBlockedByVal = [...ilBlocked].sort((a, b) => roster[b]._v.z - roster[a]._v.z);
+  for (const bi of ilBlockedByVal) {
+    const inj = roster[bi];
+    const pos = ilOccupantPool.findIndex((oi) => roster[oi]._v.z < inj._v.z);
+    if (pos >= 0) {
+      const d = roster[ilOccupantPool.splice(pos, 1)[0]];
+      moves.push({
+        reason: 'drop', drop: true, fromIl: true, slot: IL.label,
+        dropName: d.name, dropMeta: meta(d), stash: inj.name, stashMeta: meta(inj),
+        gain: Math.round((inj._v.z - d._v.z) * 10) / 10,
+      });
+    } else {
+      moves.push({ reason: 'il_full', ilFull: true, action: 'cant_il', name: inj.name, nameMeta: meta(inj), slot: IL.label });
+    }
   }
 
   // PROACTIVE WAIVER: best ranked free agent vs the weakest droppable bench player.
