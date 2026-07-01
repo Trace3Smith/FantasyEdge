@@ -18,7 +18,7 @@ import {
   getManualLeagues, addManualLeague, removeManualLeague,
   maskSwid, credsShape, EspnAuthError,
 } from '../_lib/espnFantasy.js';
-import { buildMlbValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
+import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
 import { normName } from '../_lib/golf.js';
 
 // connect/leagues make several ESPN calls; trade actions also call Claude (10-20s).
@@ -28,6 +28,9 @@ export const maxDuration = 60;
 // Sport → cached ranked-player dataset (for trade value grounding).
 const DATASET_BY_SPORT = { mlb: DATASET_KEY, nba: NBA_DATASET_KEY, wnba: WNBA_DATASET_KEY, nhl: NHL_DATASET_KEY, nfl: NFL_DATASET_KEY };
 const TRADE_SPORTS = new Set(['mlb', 'wnba', 'nfl', 'nba', 'nhl']);
+// Sports with the full lineup engine (suggestions + apply + autopilot): MLB (roto z)
+// and WNBA (H2H Points). Others show rosters only until an engine is wired for them.
+const ENGINE_SPORTS = new Set(['mlb', 'wnba']);
 
 // Per-sport ROTO scoring categories: [z-block key, display label], in display order.
 // NFL is points-based (no categories) and handled via PPR weighting instead.
@@ -267,11 +270,9 @@ async function leagues(req, res, userId) {
   }
   result.sport = sport;
 
-  // MLB gets the full engine: manual-league fallback, start/sit + IL + waiver
-  // suggestions, and the autopilot toggle state. Other in-season sports (WNBA) show
-  // leagues + rosters only for now — the suggestion engine is MLB-specific.
+  // Manual-league merge is an MLB-only discovery fallback (WNBA fan discovery is
+  // reliable; the paste-a-league-id path was only needed for MLB).
   if (sport === 'mlb') {
-    // Merge manually-added leagues (fan-discovery fallback), deduped.
     try {
       const manual = await getManualLeagues(redis, userId);
       const have = new Set((result.leagues || []).filter((l) => l.teamId != null).map(leagueKeyOf));
@@ -283,19 +284,34 @@ async function leagues(req, res, userId) {
         } catch { /* skip a manual league that fails to load */ }
       }
     } catch { /* manual merge is optional */ }
+  }
 
+  // Full engine for MLB (roto z) + WNBA (H2H Points): start/sit + IL/IR + waiver
+  // suggestions and the autopilot toggle state. Each reads its own cached dataset and
+  // valuation. Other sports show leagues + rosters only.
+  if (ENGINE_SPORTS.has(sport)) {
     try {
-      const ds = await redis.get(DATASET_KEY);
+      const ds = await redis.get(DATASET_BY_SPORT[sport]);
       const players = (ds?.players || []).filter((p) => !p.searchOnly);
       if (players.length) {
-        const idx = buildMlbValueIndex(players);
+        // Per-league custom scoring weights (sent from the client's League Settings,
+        // persisted in localStorage): { [leagueId]: { ...catWeights } }. Leagues on
+        // defaults share one cached index; only customized leagues build their own.
+        const weightsMap = (req.body?.weights && typeof req.body.weights === 'object') ? req.body.weights : {};
+        const idxCache = new Map();
+        const indexFor = (w) => {
+          const sig = w ? JSON.stringify(w) : 'default';
+          if (!idxCache.has(sig)) idxCache.set(sig, buildValueIndex(players, sport, w));
+          return idxCache.get(sig);
+        };
         await Promise.all((result.leagues || []).map(async (lg) => {
           if (!lg || !lg.team || !Array.isArray(lg.roster) || !lg.roster.length) return;
           let freeAgents = [];
           try {
-            freeAgents = await fetchFreeAgents(creds, { leagueId: lg.leagueId, seasonId: lg.season, limit: 40 });
+            freeAgents = await fetchFreeAgents(creds, { leagueId: lg.leagueId, seasonId: lg.season, limit: 40 }, sport);
           } catch { /* waiver data is optional */ }
-          lg.suggestions = suggestLineup(lg, idx, 'mlb', { freeAgents });
+          const w = weightsMap[lg.leagueId] || weightsMap[String(lg.leagueId)] || null;
+          lg.suggestions = suggestLineup(lg, indexFor(w), sport, { freeAgents });
         }));
       }
     } catch { /* suggestions are optional */ }
@@ -321,15 +337,21 @@ async function applyLineup(req, res, userId) {
   if (!creds) throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
 
   const { leagueId, season, teamId } = req.body || {};
+  const sport = ENGINE_SPORTS.has(req.body?.sport) ? req.body.sport : 'mlb';
+  // This league's custom scoring weights (from the client's League Settings), if any.
+  const weights = (req.body?.weights && typeof req.body.weights === 'object') ? req.body.weights : null;
   if (!leagueId || !season || teamId == null) {
     throw new HttpError(400, 'Missing league', { error: 'missing_league' });
   }
 
+  // Never trust a client-sent plan: re-fetch the roster and recompute the optimal
+  // lineup server-side from this sport's cached valuations (under the league's weights)
+  // before posting it.
   let league, players;
   try {
     [league, players] = await Promise.all([
-      fetchLeagueRoster(creds, { leagueId: String(leagueId), seasonId: season, teamId }),
-      redis.get(DATASET_KEY).then((ds) => (ds?.players || []).filter((p) => !p.searchOnly)),
+      fetchLeagueRoster(creds, { leagueId: String(leagueId), seasonId: season, teamId }, sport),
+      redis.get(DATASET_BY_SPORT[sport]).then((ds) => (ds?.players || []).filter((p) => !p.searchOnly)),
     ]);
   } catch (err) {
     if (err instanceof EspnAuthError) throw new HttpError(409, 'ESPN cookies expired', { error: 'espn_auth', reconnect: true });
@@ -337,14 +359,14 @@ async function applyLineup(req, res, userId) {
   }
   if (!players.length) throw new HttpError(503, 'Player values unavailable', { error: 'no_dataset' });
 
-  const sugg = suggestLineup(league, buildMlbValueIndex(players));
+  const sugg = suggestLineup(league, buildValueIndex(players, sport, weights), sport);
   if (!sugg.plan.length) return res.json({ applied: 0, moves: [], message: 'Lineup already optimal' });
 
   let result;
   try {
     result = await setLineup(creds, {
       leagueId: String(leagueId), seasonId: season, teamId, scoringPeriodId: league.scoringPeriodId,
-    }, sugg.plan, { roster: league.roster });
+    }, sugg.plan, { roster: league.roster, sport });
   } catch (err) {
     if (err instanceof EspnAuthError) throw new HttpError(409, 'ESPN cookies expired', { error: 'espn_auth', reconnect: true });
     throw new HttpError(502, 'ESPN rejected the lineup change', { error: 'apply_failed', detail: String(err.message || err) });
@@ -356,11 +378,12 @@ async function applyLineup(req, res, userId) {
 // teamId}, on } toggles; omitting `on` just returns the current prefs map.
 async function autopilotPref(req, res, userId) {
   const { league, on } = req.body || {};
+  const sport = ENGINE_SPORTS.has(req.body?.sport) ? req.body.sport : 'mlb';
   if (typeof on === 'boolean') {
     if (!league || !league.leagueId || !league.season || league.teamId == null) {
       throw new HttpError(400, 'Missing league', { error: 'missing_league' });
     }
-    const prefs = await setAutopilotLeague(redis, userId, leagueKeyOf(league), on);
+    const prefs = await setAutopilotLeague(redis, userId, leagueKeyOf(league), on, sport);
     return res.json({ on, prefs });
   }
   return res.json({ prefs: await getAutopilot(redis, userId) });

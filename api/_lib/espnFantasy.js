@@ -433,12 +433,14 @@ export async function fetchFreeAgents(creds, { leagueId, seasonId, limit = 50 },
 }
 
 // --- lineup write (v3 transactions) ----------------------------------------------------------
-const V3_WRITE_BASE = 'https://lm-api-writes.fantasy.espn.com/apis/v3/games/flb/seasons';
+// The write host is shared across sports; only the game code in the path differs
+// (flb = baseball, wfba = WNBA, fba = NBA, …), so it's derived from the sport config.
+const v3Write = (game) => `https://lm-api-writes.fantasy.espn.com/apis/v3/games/${game}/seasons`;
 
 // POST one lineup transaction; returns { ok, status, body } without throwing on a
 // non-2xx so the caller can inspect (e.g. a 409 "X is locked").
-async function postLineupTxn(creds, { leagueId, seasonId, teamId, scoringPeriodId }, items) {
-  const url = `${V3_WRITE_BASE}/${seasonId}/segments/0/leagues/${leagueId}/transactions/`;
+async function postLineupTxn(creds, { leagueId, seasonId, teamId, scoringPeriodId, game = 'flb' }, items) {
+  const url = `${v3Write(game)}/${seasonId}/segments/0/leagues/${leagueId}/transactions/`;
   const body = {
     isLeagueManager: false,
     teamId,
@@ -499,15 +501,17 @@ const idsForNames = (names, roster) => {
 //   • "X is locked" (game started)        → drop X and retry (the rest still applies).
 //   • "X is already in the BE slot" (etc.) → that move is redundant; drop it as a
 //     no-op (X is already where we want them) and retry the rest.
-// Pass { roster } so the names in the 409 can be mapped back to playerIds.
-export async function setLineup(creds, ids, items = [], { roster = [] } = {}) {
+// Pass { roster } so the names in the 409 can be mapped back to playerIds, and
+// { sport } so the transaction posts to the correct game (WNBA writes to wfba, not flb).
+export async function setLineup(creds, ids, items = [], { roster = [], sport = 'mlb' } = {}) {
   if (!items.length) return { applied: 0, skippedLocked: [] };
+  const game = sportCfg(sport).game;
   const skippedLocked = [];
   let alreadySet = 0;
   let attempt = items.slice();
 
   for (let tries = 0; tries < 6 && attempt.length; tries++) {
-    const r = await postLineupTxn(creds, ids, attempt);
+    const r = await postLineupTxn(creds, { ...ids, game }, attempt);
     if (r.ok) return { applied: attempt.length, skippedLocked, alreadySet };
     if (r.status === 401 || r.status === 403) throw new EspnAuthError();
 
@@ -569,9 +573,13 @@ export async function getAutopilot(redis, userId) {
   return (await redis.get(autopilotKey(userId))) || {};
 }
 
-export async function setAutopilotLeague(redis, userId, leagueKey, on) {
+// A pref value records which sport's engine to run for that league. Legacy prefs were
+// stored as the bare boolean `true` (MLB-only era) — treat those as MLB.
+export const autopilotSportOf = (v) => (v && typeof v === 'object' && v.sport) ? v.sport : 'mlb';
+
+export async function setAutopilotLeague(redis, userId, leagueKey, on, sport = 'mlb') {
   const prefs = await getAutopilot(redis, userId);
-  if (on) prefs[leagueKey] = true; else delete prefs[leagueKey];
+  if (on) prefs[leagueKey] = { sport }; else delete prefs[leagueKey];
   await redis.set(autopilotKey(userId), prefs);
   if (Object.keys(prefs).length) await redis.sadd(AUTOPILOT_USERS, userId);
   else await redis.srem(AUTOPILOT_USERS, userId);
