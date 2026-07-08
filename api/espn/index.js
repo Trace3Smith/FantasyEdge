@@ -321,9 +321,6 @@ async function leagues(req, res, userId) {
           // category impact — gaining a category they trail in matters more than one they lead.
           const ranks = categoryRanks(lg.standings, lg.teamId, sport);
           lg.suggestions = suggestLineup(lg, indexFor(scoring?.weights || null), sport, { freeAgents, cats: scoring?.cats || null, ranks });
-          // TEMP diagnostic (verify live standings ranks): keep the resolved per-category
-          // ranks + how many teams' stat totals ESPN returned. Remove once confirmed.
-          lg.standingsDiag = { teams: Array.isArray(lg.standings) ? lg.standings.length : 0, ranks: ranks || null };
         }));
       }
     } catch { /* suggestions are optional */ }
