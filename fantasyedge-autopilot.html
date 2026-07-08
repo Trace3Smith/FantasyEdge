@@ -131,6 +131,9 @@
   .cat-up { background: rgba(74,222,128,0.16); color: #86efac; }
   .cat-down { background: rgba(229,76,76,0.16); color: #f3a1a1; }
   .cat-rank { opacity: 0.7; font-weight: 600; font-size: 9px; margin-left: 3px; }
+  /* TEMP standings diagnostic (remove once live category ranks are confirmed) */
+  .st-diag { margin: 0 0 12px; padding: 9px 12px; border: 1px dashed rgba(96,165,250,0.5); border-radius: 8px; background: rgba(96,165,250,0.08); color: var(--gray-light); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.7; word-break: break-word; }
+  .st-diag b { color: var(--white); }
   /* Embedded AI Coach */
   .coach { border-top: 1px solid rgba(255,255,255,0.06); }
   .coach-toggle { width: 100%; text-align: left; background: rgba(212,160,23,0.04); color: var(--gold-light); border: none; padding: 12px 18px; font-family: inherit; font-weight: 600; font-size: 13px; cursor: pointer; }
@@ -586,6 +589,7 @@
         ${rec ? `<div class="lc-record">${rec}</div>` : ''}
       </div>
       ${renderScoring(lg)}
+      ${renderStandingsDiag(lg)}
       ${renderSuggestions(lg.suggestions)}
       ${renderControls(lg)}
       <table class="roster">
@@ -715,6 +719,21 @@
     if (v == null || known === false) return 'unranked';
     const n = Math.round(v * 10) / 10;
     return currentSport === 'wnba' ? `${n} pts/game` : `${n} value`;
+  }
+
+  // TEMP diagnostic: surface the live standings-derived category ranks ESPN returns for
+  // this league so we can verify roto ranks are read correctly (e.g. Big League Chew).
+  // Remove once confirmed. Only shows when standings data is present (MLB roto).
+  function renderStandingsDiag(lg) {
+    const d = lg && lg.standingsDiag;
+    if (!d) return '';
+    const ranks = d.ranks || null;
+    if (!ranks && !d.teams) return '';
+    const cells = ranks
+      ? Object.keys(ranks).map((k) => `<b>${escapeHtml(k.toUpperCase())}</b> ${ordinal(ranks[k].rank)}/${ranks[k].of}`).join(' · ')
+      : '<i>no category ranks resolved</i>';
+    return `<div class="st-diag">🔧 <b>Standings debug</b> — mStandings teams: <b>${d.teams}</b>`
+      + ` · your category ranks: ${cells}</div>`;
   }
 
   // Ordinal for a standings rank: 1 → "1st", 12 → "12th".
