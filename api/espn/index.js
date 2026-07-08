@@ -317,7 +317,7 @@ async function leagues(req, res, userId) {
           try {
             freeAgents = await fetchFreeAgents(creds, { leagueId: lg.leagueId, seasonId: lg.season, limit: 40 }, sport);
           } catch { /* waiver data is optional */ }
-          lg.suggestions = suggestLineup(lg, indexFor(scoring?.weights || null), sport, { freeAgents });
+          lg.suggestions = suggestLineup(lg, indexFor(scoring?.weights || null), sport, { freeAgents, cats: scoring?.cats || null });
         }));
       }
     } catch { /* suggestions are optional */ }

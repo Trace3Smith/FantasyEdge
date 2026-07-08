@@ -125,6 +125,11 @@
   .sugg-tag.ilfull { background: rgba(251,146,60,0.2); color: #fdba74; }
   .sugg-tag.waiver { background: rgba(45,212,191,0.18); color: #5eead4; }
   .sugg-tag.drop { background: rgba(229,76,76,0.22); color: #f3a1a1; }
+  /* Roto net-category impact chips on waiver suggestions */
+  .cat-impact { white-space: normal; }
+  .cat-up, .cat-down { font-weight: 700; font-size: 11px; padding: 1px 5px; border-radius: 4px; margin-right: 3px; }
+  .cat-up { background: rgba(74,222,128,0.16); color: #86efac; }
+  .cat-down { background: rgba(229,76,76,0.16); color: #f3a1a1; }
   /* Embedded AI Coach */
   .coach { border-top: 1px solid rgba(255,255,255,0.06); }
   .coach-toggle { width: 100%; text-align: left; background: rgba(212,160,23,0.04); color: var(--gold-light); border: none; padding: 12px 18px; font-family: inherit; font-weight: 600; font-size: 13px; cursor: pointer; }
@@ -711,6 +716,17 @@
     return currentSport === 'wnba' ? `${n} pts/game` : `${n} value`;
   }
 
+  // Roto net-category breakdown for a waiver swap: green +CAT for categories that improve,
+  // red −CAT for those that worsen, plus the net count. Only net-positive swaps reach here.
+  function renderCatImpact(c) {
+    const up = (c.up || []).map((x) => `<span class="cat-up">+${escapeHtml(x)}</span>`);
+    const down = (c.down || []).map((x) => `<span class="cat-down">−${escapeHtml(x)}</span>`);
+    const chips = [...up, ...down].join(' ');
+    const n = c.net > 0 ? `+${c.net}` : String(c.net);
+    const word = Math.abs(c.net) === 1 ? 'category' : 'categories';
+    return `<span class="cat-impact">${chips} <span class="sugg-meta">= net ${n} ${word} · do this on ESPN</span></span>`;
+  }
+
   // Start/sit suggestions for one league (computed server-side from our values).
   function renderSuggestions(s) {
     if (!s) return ''; // dataset unavailable / no engine for this sport — show nothing
@@ -732,9 +748,12 @@
         return `<li><span class="sugg-tag il">${escapeHtml(m.label || 'IL')}</span> ${escapeHtml(m.label || 'IL')} moves will apply tomorrow — games are in progress.</li>`;
       }
       // Waiver add/drop — suggestion only, never auto-executed (drops are irreversible).
+      // For MLB roto, show the net category impact (which categories go up / down) so the
+      // user can make an informed call — only net-positive swaps are ever surfaced.
       if (m.waiver) {
         const tag = '<span class="sugg-tag waiver">WAIVER</span>';
-        return `<li>${tag} Drop ${escapeHtml(m.drop)} <span class="sugg-meta">${escapeHtml(m.dropMeta)}</span> <span class="sugg-arrow">→</span> Add <b>${escapeHtml(m.add)}</b> <span class="sugg-meta">${escapeHtml(m.addMeta)}</span> <span class="sugg-meta">(+${m.gain} value · do this on ESPN)</span></li>`;
+        const note = m.cats ? renderCatImpact(m.cats) : `<span class="sugg-meta">(+${m.gain} value · do this on ESPN)</span>`;
+        return `<li>${tag} Drop ${escapeHtml(m.drop)} <span class="sugg-meta">${escapeHtml(m.dropMeta)}</span> <span class="sugg-arrow">→</span> Add <b>${escapeHtml(m.add)}</b> <span class="sugg-meta">${escapeHtml(m.addMeta)}</span> ${note}</li>`;
       }
       // Forced drop to make room — user confirms on ESPN (irreversible).
       if (m.drop) {
