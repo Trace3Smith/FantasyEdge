@@ -429,12 +429,13 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
   }
 
   // PROACTIVE WAIVER: recommend the free agent that most improves the roster over the
-  // weakest droppable bench player. For MLB ROTO we gate on STANDINGS-WEIGHTED NET
-  // CATEGORY IMPACT, not raw value: a swap only surfaces if it wins more (weighted)
-  // scored categories than it loses (roto is category-count based — a higher aggregate z
-  // that tanks three categories is a bad roto move). The weighting means gaining a
-  // category the user ranks LAST in outweighs losing one they already lead. We pick the
-  // FA with the best weighted net (aggregate value breaks ties) and attach the per-
+  // weakest droppable bench player. For MLB ROTO a swap must clear TWO gates: it wins
+  // strictly more categories than it loses (raw net > 0 — a break-even or category-losing
+  // add is never a roto upgrade, even if standings weighting inflates the score; e.g.
+  // adding an arm that dents a category the team already leads), AND it's standings-
+  // positive (weightedNet > 0). Standings weighting therefore only PRIORITIZES among
+  // genuine net-category gains — it never rescues a raw-neutral/negative swap. We pick
+  // the FA with the best weighted net (aggregate value breaks ties) and attach the per-
   // category up/down breakdown (with the user's rank per cat) so the UI can show why.
   // WNBA (H2H Points) has no categories, so it keeps the scalar points-gain gate.
   if (freeAgents.length && dropPool.length) {
@@ -446,7 +447,7 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
       if (!rec || typeof rec.z !== 'number') continue;       // only suggest a free agent we can value
       if (roto) {
         const impact = rotoCategoryImpact(rec.zc, wb._v.zc, cats, ranks);
-        if (impact.weightedNet <= 0) continue;               // not a net roto upgrade — never surface
+        if (impact.net <= 0 || impact.weightedNet <= 0) continue; // must gain more cats than it loses AND be standings-positive
         if (!best || impact.weightedNet > best.impact.weightedNet
           || (impact.weightedNet === best.impact.weightedNet && rec.z > best.z)) {
           best = { name: fa.name, pos: fa.pos, proTeam: fa.proTeam, z: rec.z, impact };
