@@ -73,23 +73,39 @@ export const MLB_CAT_LABELS = { r: 'R', hr: 'HR', rbi: 'RBI', sb: 'SB', avg: 'BA
 // Net roto category impact of swapping `dropZc` OUT for `addZc` IN, over the league's
 // scored categories. Each category's z is oriented higher = better (ERA/WHIP already
 // sign-flipped in the build), so the add IMPROVES a category when its z exceeds the
-// dropped player's, and WORSENS it when lower. Returns { up:[labels], down:[labels],
-// net } with net = #up − #down. A tiny |Δ| < CAT_EPS counts as no change (z noise).
-// `cats` restricts to the league's actually-scored categories (from ESPN settings);
-// falls back to all standard roto cats when unknown. Missing per-cat z → treated as 0
-// (replacement level), so a valued add still compares against an unranked drop.
+// dropped player's, and WORSENS it when lower. A tiny |Δ| < CAT_EPS counts as no change
+// (z noise). `cats` restricts to the league's actually-scored categories (from ESPN
+// settings); falls back to all standard roto cats when unknown. Missing per-cat z →
+// treated as 0 (replacement level), so a valued add still compares against an unranked
+// drop.
+//
+// STANDINGS WEIGHTING: `ranks` (from view=mStandings, { catKey: { rank, of } }) weights
+// each category by how the user currently ranks in it — gaining a category you're LAST
+// in matters far more than one you already lead. Weight = rank / of ∈ (0,1]: last place
+// (rank = of) → 1.0, first place → 1/of. `weightedNet` = Σ w(gained) − Σ w(lost) is the
+// standings-aware score the engine gates and ranks waiver swaps on. Without `ranks`
+// every weight is 1, so weightedNet collapses to the plain category count (`net`).
+// Returns { up, down, net, weightedNet } where up/down are { cat, rank, of } entries
+// ordered most-impactful (highest weight) first.
 const CAT_EPS = 0.05;
-export function rotoCategoryImpact(addZc, dropZc, cats = null) {
+export function rotoCategoryImpact(addZc, dropZc, cats = null, ranks = null) {
   const keys = (Array.isArray(cats) && cats.length ? cats : MLB_CAT_KEYS).filter((c) => c in MLB_CAT_LABELS);
   const up = [], down = [];
+  let weightedNet = 0;
   for (const c of keys) {
     const a = typeof addZc?.[c] === 'number' ? addZc[c] : 0;
     const d = typeof dropZc?.[c] === 'number' ? dropZc[c] : 0;
     const delta = a - d;
-    if (delta > CAT_EPS) up.push(MLB_CAT_LABELS[c]);
-    else if (delta < -CAT_EPS) down.push(MLB_CAT_LABELS[c]);
+    if (Math.abs(delta) <= CAT_EPS) continue;
+    const r = ranks && ranks[c];
+    const w = r && r.of ? r.rank / r.of : 1;
+    const entry = { cat: MLB_CAT_LABELS[c], rank: r ? r.rank : null, of: r ? r.of : null, w };
+    if (delta > 0) { up.push(entry); weightedNet += w; }
+    else { down.push(entry); weightedNet -= w; }
   }
-  return { up, down, net: up.length - down.length };
+  up.sort((a, b) => b.w - a.w);
+  down.sort((a, b) => b.w - a.w);
+  return { up, down, net: up.length - down.length, weightedNet: Math.round(weightedNet * 100) / 100 };
 }
 
 // Index our MLB dataset by normalized name → { z, pos, tag, rank }. On duplicate
@@ -248,7 +264,7 @@ const meta = (rp) => `${rp.pos}${rp.proTeam ? ' · ' + rp.proTeam : ''}${rp.inju
 // scale + IL/IR slot config; `freeAgents` (optional) enables waiver-wire suggestions.
 // Returns { moves, plan, summary }. NOTE: waiver/drop suggestions are display-only —
 // never in `plan` (drops are irreversible; the user executes them on ESPN).
-export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilWindowClosed, cats = null } = {}) {
+export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilWindowClosed, cats = null, ranks = null } = {}) {
   const cfg = cfgFor(sport);
   const roster = (league.roster || []).map((rp) => ({ ...rp }));
   const empty = { moves: [], plan: [], summary: { count: 0, ilMoves: 0, injuredStarters: 0, totalGain: 0, optimal: true } };
@@ -413,12 +429,14 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
   }
 
   // PROACTIVE WAIVER: recommend the free agent that most improves the roster over the
-  // weakest droppable bench player. For MLB ROTO we gate on NET CATEGORY IMPACT, not raw
-  // value: a swap only surfaces if it wins MORE scored categories than it loses (roto is
-  // category-count based — a higher aggregate z that tanks three categories is a bad roto
-  // move). We pick the FA with the best net-category gain (aggregate value breaks ties)
-  // and attach the per-category up/down breakdown so the UI can show why. WNBA (H2H
-  // Points) has no categories, so it keeps the scalar points-gain gate.
+  // weakest droppable bench player. For MLB ROTO we gate on STANDINGS-WEIGHTED NET
+  // CATEGORY IMPACT, not raw value: a swap only surfaces if it wins more (weighted)
+  // scored categories than it loses (roto is category-count based — a higher aggregate z
+  // that tanks three categories is a bad roto move). The weighting means gaining a
+  // category the user ranks LAST in outweighs losing one they already lead. We pick the
+  // FA with the best weighted net (aggregate value breaks ties) and attach the per-
+  // category up/down breakdown (with the user's rank per cat) so the UI can show why.
+  // WNBA (H2H Points) has no categories, so it keeps the scalar points-gain gate.
   if (freeAgents.length && dropPool.length) {
     const wb = roster[dropPool[0]]; // weakest remaining droppable bench player
     const roto = sport === 'mlb';
@@ -427,9 +445,10 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
       const rec = idx.get(normName(fa.name));
       if (!rec || typeof rec.z !== 'number') continue;       // only suggest a free agent we can value
       if (roto) {
-        const impact = rotoCategoryImpact(rec.zc, wb._v.zc, cats);
-        if (impact.net <= 0) continue;                       // not a net roto upgrade — never surface
-        if (!best || impact.net > best.impact.net || (impact.net === best.impact.net && rec.z > best.z)) {
+        const impact = rotoCategoryImpact(rec.zc, wb._v.zc, cats, ranks);
+        if (impact.weightedNet <= 0) continue;               // not a net roto upgrade — never surface
+        if (!best || impact.weightedNet > best.impact.weightedNet
+          || (impact.weightedNet === best.impact.weightedNet && rec.z > best.z)) {
           best = { name: fa.name, pos: fa.pos, proTeam: fa.proTeam, z: rec.z, impact };
         }
       } else {
@@ -443,7 +462,7 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
         add: best.name, addMeta: `${best.pos}${best.proTeam ? ' · ' + best.proTeam : ''}`,
         drop: wb.name, dropMeta: meta(wb),
         gain: Math.round((best.z - wb._v.z) * 10) / 10,
-        cats: best.impact || null,   // { up:[labels], down:[labels], net } for roto; null for points
+        cats: best.impact || null,   // { up, down, net, weightedNet } for roto; null for points
       });
     }
   }

@@ -347,6 +347,12 @@ function buildLeagueResult(data, team, { leagueId, seasonId, cfg = SPORTS.mlb })
     // Active lineup shape: { slotId: count }. Drives optimal-assignment slot openings
     // (the league's roster rules — how many of each position start, plus bench/IL).
     slotCounts: data?.settings?.rosterSettings?.lineupSlotCounts || {},
+    // Roto category standings (from view=mStandings): each team's cumulative per-stat
+    // totals (statId → value). Used to weight waiver category impact by how the user
+    // ranks in each category. Empty/absent for points leagues — the advisor tolerates it.
+    standings: teams
+      .map((t) => ({ id: t.id, valuesByStat: t.valuesByStat || t.cumulativeScore?.valuesByStat || null }))
+      .filter((t) => t.valuesByStat && typeof t.valuesByStat === 'object'),
     team: team
       ? {
           id: team.id,
@@ -363,7 +369,7 @@ function buildLeagueResult(data, team, { leagueId, seasonId, cfg = SPORTS.mlb })
 }
 
 const leagueUrl = (leagueId, seasonId, game) => `${v3Read(game)}/${seasonId}/segments/0/leagues/${leagueId}`
-  + `?view=mTeam&view=mRoster&view=mSettings`;
+  + `?view=mTeam&view=mRoster&view=mSettings&view=mStandings`;
 
 // Fetch one league and pull the authoritative league name + the user's team + roster.
 export async function fetchLeagueRoster(creds, { leagueId, seasonId, teamId }, sport = 'mlb') {

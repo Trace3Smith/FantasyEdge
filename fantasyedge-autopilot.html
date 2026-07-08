@@ -130,6 +130,7 @@
   .cat-up, .cat-down { font-weight: 700; font-size: 11px; padding: 1px 5px; border-radius: 4px; margin-right: 3px; }
   .cat-up { background: rgba(74,222,128,0.16); color: #86efac; }
   .cat-down { background: rgba(229,76,76,0.16); color: #f3a1a1; }
+  .cat-rank { opacity: 0.7; font-weight: 600; font-size: 9px; margin-left: 3px; }
   /* Embedded AI Coach */
   .coach { border-top: 1px solid rgba(255,255,255,0.06); }
   .coach-toggle { width: 100%; text-align: left; background: rgba(212,160,23,0.04); color: var(--gold-light); border: none; padding: 12px 18px; font-family: inherit; font-weight: 600; font-size: 13px; cursor: pointer; }
@@ -716,15 +717,31 @@
     return currentSport === 'wnba' ? `${n} pts/game` : `${n} value`;
   }
 
+  // Ordinal for a standings rank: 1 → "1st", 12 → "12th".
+  function ordinal(n) {
+    if (n == null) return '';
+    const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  }
+
   // Roto net-category breakdown for a waiver swap: green +CAT for categories that improve,
-  // red −CAT for those that worsen, plus the net count. Only net-positive swaps reach here.
+  // red −CAT for those that worsen, each annotated with the user's current standings rank
+  // in that category (so it's clear a gained category they rank last in is a big deal).
+  // Ordered most-impactful first. Only net-positive (standings-weighted) swaps reach here.
   function renderCatImpact(c) {
-    const up = (c.up || []).map((x) => `<span class="cat-up">+${escapeHtml(x)}</span>`);
-    const down = (c.down || []).map((x) => `<span class="cat-down">−${escapeHtml(x)}</span>`);
+    const chip = (x, sign, cls) => {
+      const rk = x.rank != null && x.of != null
+        ? `<span class="cat-rank" title="You rank ${ordinal(x.rank)} of ${x.of} in this category">${ordinal(x.rank)}</span>` : '';
+      return `<span class="${cls}">${sign}${escapeHtml(x.cat)}${rk}</span>`;
+    };
+    const up = (c.up || []).map((x) => chip(x, '+', 'cat-up'));
+    const down = (c.down || []).map((x) => chip(x, '−', 'cat-down'));
     const chips = [...up, ...down].join(' ');
     const n = c.net > 0 ? `+${c.net}` : String(c.net);
     const word = Math.abs(c.net) === 1 ? 'category' : 'categories';
-    return `<span class="cat-impact">${chips} <span class="sugg-meta">= net ${n} ${word} · do this on ESPN</span></span>`;
+    const weighted = (c.weightedNet != null && Math.round(c.weightedNet) !== c.net)
+      ? ` (standings-weighted +${c.weightedNet})` : '';
+    return `<span class="cat-impact">${chips} <span class="sugg-meta">= net ${n} ${word}${weighted} · do this on ESPN</span></span>`;
   }
 
   // Start/sit suggestions for one league (computed server-side from our values).

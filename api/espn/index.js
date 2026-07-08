@@ -19,7 +19,7 @@ import {
   maskSwid, credsShape, EspnAuthError,
 } from '../_lib/espnFantasy.js';
 import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
-import { parseScoringSettings, scoringKey } from '../_lib/espnScoring.js';
+import { parseScoringSettings, scoringKey, categoryRanks } from '../_lib/espnScoring.js';
 import { normName } from '../_lib/golf.js';
 
 // connect/leagues make several ESPN calls; trade actions also call Claude (10-20s).
@@ -317,7 +317,10 @@ async function leagues(req, res, userId) {
           try {
             freeAgents = await fetchFreeAgents(creds, { leagueId: lg.leagueId, seasonId: lg.season, limit: 40 }, sport);
           } catch { /* waiver data is optional */ }
-          lg.suggestions = suggestLineup(lg, indexFor(scoring?.weights || null), sport, { freeAgents, cats: scoring?.cats || null });
+          // Rank the user in each scored category (from mStandings) to weight waiver
+          // category impact — gaining a category they trail in matters more than one they lead.
+          const ranks = categoryRanks(lg.standings, lg.teamId, sport);
+          lg.suggestions = suggestLineup(lg, indexFor(scoring?.weights || null), sport, { freeAgents, cats: scoring?.cats || null, ranks });
         }));
       }
     } catch { /* suggestions are optional */ }
@@ -330,9 +333,9 @@ async function leagues(req, res, userId) {
     } catch { /* toggle state is optional */ }
   }
 
-  // Don't ship ESPN's raw scoring blob to the client (we've already translated the
-  // parts we use into lg.scoring); keep the payload lean.
-  for (const lg of (result.leagues || [])) if (lg) delete lg.scoringRaw;
+  // Don't ship ESPN's raw scoring blob or the standings stat totals to the client (we've
+  // already translated the parts we use into lg.scoring / the suggestions); keep it lean.
+  for (const lg of (result.leagues || [])) if (lg) { delete lg.scoringRaw; delete lg.standings; }
 
   // Surface (non-sensitive) cred shape for debugging "connected but no leagues".
   if (result.diag) result.diag.creds = credsShape(creds);

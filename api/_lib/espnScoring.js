@@ -40,6 +40,41 @@ export function scoringLabel(typeRaw) {
 // Key for the per-league scoring record in KV (stored alongside the roster data).
 export const scoringKey = (sport, season, leagueId) => `espn:scoring:${sport}:${season}:${leagueId}`;
 
+// Category keys where a LOWER cumulative total is better (ranked ascending). Everything
+// else ranks descending (more is better). ERA/WHIP are the roto "rate against" cats.
+const LOWER_BETTER_CATS = new Set(['era', 'whip', 'gaa', 'l', 'to']);
+
+// Compute the user's roto rank in each scored category from mStandings' per-team stat
+// totals. `standings` is [{ id, valuesByStat: { [statId]: number } }] (from
+// buildLeagueResult). Returns { catKey: { rank, of } } with rank 1 = best (leading the
+// category), `of` = teams with data. Ties share a rank (rank = 1 + #teams strictly
+// better). Returns null when there's no usable standings data — the advisor then falls
+// back to unweighted category counting.
+export function categoryRanks(standings, myTeamId, sport) {
+  const statMap = STAT_MAP_BY_SPORT[sport];
+  if (!statMap || !Array.isArray(standings) || standings.length < 2 || myTeamId == null) return null;
+  const out = {};
+  for (const [statIdStr, catKey] of Object.entries(statMap)) {
+    const statId = Number(statIdStr);
+    const vals = [];
+    for (const t of standings) {
+      const v = t.valuesByStat ? t.valuesByStat[statId] : undefined;
+      if (typeof v === 'number' && Number.isFinite(v)) vals.push({ id: t.id, v });
+    }
+    if (vals.length < 2) continue;
+    const mine = vals.find((x) => x.id === myTeamId);
+    if (!mine) continue;
+    const lower = LOWER_BETTER_CATS.has(catKey);
+    let better = 0;
+    for (const x of vals) {
+      if (x.id === myTeamId) continue;
+      if (lower ? x.v < mine.v : x.v > mine.v) better++;
+    }
+    out[catKey] = { rank: better + 1, of: vals.length };
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 // Parse a raw scoringSettings object for a sport. Returns:
 //   { scoringType, label, format:'points'|'category', weights, cats, unrecognized }
 // `weights` is a per-category map ONLY for a confidently-translated POINTS league;
