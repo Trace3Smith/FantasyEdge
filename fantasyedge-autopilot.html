@@ -161,9 +161,6 @@
   .add-league summary { cursor: pointer; font-weight: 600; color: var(--gold); font-size: 14px; }
   .add-league .row { margin-top: 12px; gap: 10px; align-items: center; }
   .add-league .hint { margin-top: 10px; }
-  /* TEMP IL/IR debug line (remove once the WNBA IR slot is confirmed) */
-  .il-diag { margin: 0 0 12px; padding: 9px 12px; border: 1px dashed rgba(96,165,250,0.5); border-radius: 8px; background: rgba(96,165,250,0.08); color: var(--gray-light); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.6; word-break: break-word; }
-  .il-diag b { color: var(--white); }
   /* Detected scoring (auto-read from ESPN league settings) */
   .lc-scoring { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; font-size: 12.5px; color: var(--gray-light); }
   .lc-scoring-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 2px 7px; border-radius: 12px; background: rgba(96,165,250,0.16); color: #93c5fd; }
@@ -584,7 +581,6 @@
       </div>
       ${renderScoring(lg)}
       ${renderSuggestions(lg.suggestions)}
-      ${renderIlDiag(lg)}
       ${renderControls(lg)}
       <table class="roster">
         <thead><tr><th style="width:64px">Slot</th><th>Player</th><th style="width:110px">Pos · Team</th></tr></thead>
@@ -706,18 +702,6 @@
       ${detail}
       <span class="lc-scoring-src" title="Read automatically from your ESPN league settings">· auto-detected</span>
     </div>`;
-  }
-
-  // TEMP diagnostic: surface the raw IL/IR slot data ESPN returns for this league so we
-  // can identify the correct IR slot id (the WNBA IR slot id isn't 13 for some leagues).
-  // Remove once the WNBA IR slot is confirmed and hardcoded.
-  function renderIlDiag(lg) {
-    const il = lg.suggestions && lg.suggestions.summary && lg.suggestions.summary.il;
-    if (!il) return '';
-    const slots = Array.isArray(il.slots) ? il.slots.join(', ') : '—';
-    return `<div class="il-diag">🔧 <b>IL/IR debug</b> — ESPN lineup slot IDs: <b>[${escapeHtml(slots)}]</b>`
-      + ` · resolved IR slot: <b>${escapeHtml(String(il.slot))}</b> (exists in league: <b>${il.exists ? 'yes' : 'NO'}</b>)`
-      + ` · capacity ${il.cap} · open ${il.open} · on&nbsp;IL ${il.onIl} · injured&nbsp;starters ${il.injured}</div>`;
   }
 
   // Format a player value with the sport's unit (WNBA = fantasy pts/game; MLB = roto value).

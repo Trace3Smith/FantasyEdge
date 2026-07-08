@@ -231,16 +231,17 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
 
   const IL = cfg.il;
   const benchId = IL.benchId;
-  // Detect the league's REAL IL/IR slot id. The sport default (13 for WNBA) is wrong
-  // for some leagues — writing an injured player to a slot the league doesn't have
-  // returns ESPN 409 "Lineup slot does not exist" (TRAN_ROSTER_SLOT). Use the default
-  // only when the league actually has it; otherwise fall back to the reserve slot that
-  // sits ABOVE the bench in lineupSlotCounts (the IL/IR is the non-active reserve slot).
+  // Detect the league's REAL IL/IR slot id. The sport default (13 for WNBA) is wrong for
+  // some leagues — writing an injured player to a slot the league doesn't have returns
+  // ESPN 409 "Lineup slot does not exist" (TRAN_ROSTER_SLOT). Use the default when the
+  // league actually has it; otherwise some leagues use a COMPRESSED slot scheme with no
+  // slot 13 (e.g. a WNBA league whose lineupSlotCounts only spans 0-8). Roster slots are
+  // laid out active (low ids) → bench → IL/IR (highest), so the reserve/IR slot is the
+  // HIGHEST slot id present in lineupSlotCounts (confirmed: this league's IR is slot 8).
   const slotIds = new Set(Object.keys(league.slotCounts || {}).map(Number));
   let ilSlotId = IL.slotId;
-  if (!slotIds.has(ilSlotId)) {
-    const reserve = [...slotIds].filter((s) => s > benchId).sort((a, b) => a - b);
-    if (reserve.length) ilSlotId = reserve[0];
+  if (!slotIds.has(ilSlotId) && slotIds.size) {
+    ilSlotId = Math.max(...slotIds);
   }
   // Whether the league actually has this IL/IR slot. If not, we never generate IL moves
   // (no capacity, nothing added to the executable plan) so Apply can't 409 on it.
