@@ -131,6 +131,17 @@
   .cat-up { background: rgba(74,222,128,0.16); color: #86efac; }
   .cat-down { background: rgba(229,76,76,0.16); color: #f3a1a1; }
   .cat-rank { opacity: 0.7; font-weight: 600; font-size: 9px; margin-left: 3px; }
+  /* Prospect call-up alert */
+  .callup { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: space-between; margin: 0 0 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.5; background: rgba(96,165,250,0.1); border: 1px solid rgba(96,165,250,0.35); color: var(--gray-light); }
+  .callup.reclaim { background: rgba(212,160,23,0.12); border-color: rgba(212,160,23,0.5); }
+  .callup b { color: var(--white); }
+  .callup-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+  .btn-mini { font: inherit; font-size: 11px; font-weight: 600; padding: 4px 9px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.05); color: var(--gray-light); cursor: pointer; text-decoration: none; white-space: nowrap; }
+  .btn-mini:hover { background: rgba(255,255,255,0.1); }
+  .btn-mini.gold { background: var(--gold); border-color: var(--gold); color: #1a1a1a; }
+  .watch-btn { margin-left: 4px; }
+  .watch-btn.on { background: rgba(96,165,250,0.2); border-color: rgba(96,165,250,0.5); color: #93c5fd; }
+  .stash-warn { color: #fdba74; font-size: 12px; }
   /* Embedded AI Coach */
   .coach { border-top: 1px solid rgba(255,255,255,0.06); }
   .coach-toggle { width: 100%; text-align: left; background: rgba(212,160,23,0.04); color: var(--gold-light); border: none; padding: 12px 18px; font-family: inherit; font-weight: 600; font-size: 13px; cursor: pointer; }
@@ -586,7 +597,8 @@
         ${rec ? `<div class="lc-record">${rec}</div>` : ''}
       </div>
       ${renderScoring(lg)}
-      ${renderSuggestions(lg.suggestions)}
+      ${renderCallUps(lg)}
+      ${renderSuggestions(lg.suggestions, lg)}
       ${renderControls(lg)}
       <table class="roster">
         <thead><tr><th style="width:64px">Slot</th><th>Player</th><th style="width:110px">Pos · Team</th></tr></thead>
@@ -624,6 +636,52 @@
 
   function team_count_label(lg) {
     return `${lg.teamCount}-team league` + (lg.scoringType ? ` · ${escapeHtml(lg.scoringType)}` : '');
+  }
+
+  // data-* attributes identifying a league (shared by controls, watch + call-up buttons).
+  function lgData(lg) {
+    const teamId = lg.teamId != null ? lg.teamId : (lg.team && lg.team.id);
+    return `data-league-id="${escapeHtml(String(lg.leagueId))}" data-season="${escapeHtml(String(lg.season))}" data-team-id="${escapeHtml(String(teamId))}"`;
+  }
+
+  // Prospect call-up alerts (part 2): a stashed/Watched prospect whose ESPN status flipped
+  // from minor-league to active. Reclaim-flagged ones get a one-tap jump to ESPN; all can
+  // be dismissed (acknowledged so they stop re-surfacing). We never add the player for you.
+  function renderCallUps(lg) {
+    const ups = Array.isArray(lg.callUps) ? lg.callUps : [];
+    if (!ups.length) return '';
+    const teamId = lg.teamId != null ? lg.teamId : (lg.team && lg.team.id);
+    const espnUrl = `https://fantasy.espn.com/baseball/team?leagueId=${encodeURIComponent(lg.leagueId)}&seasonId=${encodeURIComponent(lg.season)}&teamId=${encodeURIComponent(teamId)}`;
+    return ups.map((u) => {
+      const who = `<b>${escapeHtml(u.name)}</b>${u.pos ? ` <span class="sugg-meta">${escapeHtml(u.pos)}</span>` : ''}`;
+      const line = u.reclaim
+        ? `${who} was called up to the majors — you flagged this prospect to reclaim.`
+        : `${who} was called up to the majors.`;
+      const reclaimBtn = u.reclaim
+        ? `<a class="btn-mini gold" href="${espnUrl}" target="_blank" rel="noopener" data-callup-ack ${lgData(lg)} data-player-id="${escapeHtml(String(u.id))}">Reclaim on ESPN →</a>`
+        : '';
+      return `<div class="callup${u.reclaim ? ' reclaim' : ''}">
+        <span class="callup-msg">🔔 <b>CALL-UP:</b> ${line}</span>
+        <span class="callup-actions">${reclaimBtn}
+          <button class="btn-mini" data-callup-dismiss ${lgData(lg)} data-player-id="${escapeHtml(String(u.id))}">Dismiss</button>
+        </span>
+      </div>`;
+    }).join('');
+  }
+
+  // Prospect drop context + Watch toggle for a drop/waiver move naming a stashed prospect
+  // (parts 3 + 4). Long-stashed (60+ days, no call-up) strengthens the drop rec; the Watch
+  // button flags the prospect to reclaim if they're later called up.
+  function renderProspectDrop(m, lg) {
+    if (!m.prospect) return '';
+    const name = m.dropName || m.drop || '';
+    const days = m.daysInMinors | 0;
+    const ctx = m.longStash
+      ? `<span class="stash-warn">⏳ stashed ${days} days in the minors with no call-up — a strong drop candidate.</span>`
+      : (days ? `<span class="sugg-meta">⏳ ${days}d stashed</span>` : '');
+    const on = !!m.watching;
+    const btn = `<button class="btn-mini watch-btn${on ? ' on' : ''}" ${lgData(lg)} data-player-id="${escapeHtml(String(m.prospectId))}" data-name="${escapeHtml(name)}" data-pos="${escapeHtml(m.dropMeta || '')}">${on ? '👁 Watching' : '👁 Watch'}</button>`;
+    return ` ${ctx} ${btn}`;
   }
 
   // Per-league controls: one-tap apply + the autopilot toggle. MLB (roto) and WNBA
@@ -687,6 +745,39 @@
     }
   }
 
+  // Watch / unwatch a prospect on a drop suggestion — flags it to reclaim if called up.
+  async function toggleWatch(btn) {
+    const { leagueId, season, teamId, playerId, name, pos } = btn.dataset;
+    const on = !btn.classList.contains('on');
+    btn.disabled = true;
+    const { ok, data } = await api('/api/espn', {
+      action: 'watchProspect', op: on ? 'watch' : 'unwatch',
+      playerId: Number(playerId) || playerId, name, pos,
+      leagueId, season: Number(season), teamId: Number(teamId),
+    });
+    btn.disabled = false;
+    if (ok) {
+      const watching = !!data.watching;
+      btn.classList.toggle('on', watching);
+      btn.textContent = watching ? '👁 Watching' : '👁 Watch';
+    }
+  }
+
+  // Dismiss (acknowledge) a call-up alert so it stops re-surfacing.
+  async function dismissCallUp(btn) {
+    const { leagueId, season, teamId, playerId } = btn.dataset;
+    btn.disabled = true;
+    await api('/api/espn', { action: 'watchProspect', op: 'ack', playerId: Number(playerId) || playerId, leagueId, season: Number(season), teamId: Number(teamId) });
+    const box = btn.closest('.callup');
+    if (box) box.remove();
+  }
+
+  // Fire-and-forget ack when the user taps "Reclaim on ESPN" (the link still opens ESPN).
+  function ackCallUp(el) {
+    const { leagueId, season, teamId, playerId } = el.dataset;
+    api('/api/espn', { action: 'watchProspect', op: 'ack', playerId: Number(playerId) || playerId, leagueId, season: Number(season), teamId: Number(teamId) });
+  }
+
   // Detected scoring — auto-read from each league's ESPN settings (no manual entry).
   // Shows the format and, for points leagues, the exact per-stat weights we're using.
   function renderScoring(lg) {
@@ -745,7 +836,9 @@
   }
 
   // Start/sit suggestions for one league (computed server-side from our values).
-  function renderSuggestions(s) {
+  // `lg` is passed so drop/waiver moves naming a stashed prospect can render the
+  // days-in-minors context + a Watch button (parts 3 + 4 of prospect monitoring).
+  function renderSuggestions(s, lg) {
     if (!s) return ''; // dataset unavailable / no engine for this sport — show nothing
     if (!s.moves || !s.moves.length) {
       const tail = currentSport === 'wnba' ? 'every best available starter is in.' : 'every best available bat & arm is in.';
@@ -770,7 +863,7 @@
       if (m.waiver) {
         const tag = '<span class="sugg-tag waiver">WAIVER</span>';
         const note = m.cats ? renderCatImpact(m.cats) : `<span class="sugg-meta">(+${m.gain} value · do this on ESPN)</span>`;
-        return `<li>${tag} Drop ${escapeHtml(m.drop)} <span class="sugg-meta">${escapeHtml(m.dropMeta)}</span> <span class="sugg-arrow">→</span> Add <b>${escapeHtml(m.add)}</b> <span class="sugg-meta">${escapeHtml(m.addMeta)}</span> ${note}</li>`;
+        return `<li>${tag} Drop ${escapeHtml(m.drop)} <span class="sugg-meta">${escapeHtml(m.dropMeta)}</span> <span class="sugg-arrow">→</span> Add <b>${escapeHtml(m.add)}</b> <span class="sugg-meta">${escapeHtml(m.addMeta)}</span> ${note}${renderProspectDrop(m, lg)}</li>`;
       }
       // Forced drop to make room — user confirms on ESPN (irreversible).
       if (m.drop) {
@@ -779,10 +872,10 @@
         // Drop-from-IL: cut the weakest (lowest-value) injured player ON the IL to open
         // a slot for a more valuable injured starter (frees an active roster spot).
         if (m.fromIl) {
-          return `<li>${tag} Drop <b>${escapeHtml(m.dropName)}</b> from ${slot} (lowest value: ${escapeHtml(fmtVal(m.dropVal, m.dropKnown))}) to open a slot for <b>${escapeHtml(m.stash)}</b> (${escapeHtml(fmtVal(m.stashVal, m.stashKnown))}) <span class="sugg-meta">(frees a roster spot · irreversible — do this on ESPN)</span></li>`;
+          return `<li>${tag} Drop <b>${escapeHtml(m.dropName)}</b> from ${slot} (lowest value: ${escapeHtml(fmtVal(m.dropVal, m.dropKnown))}) to open a slot for <b>${escapeHtml(m.stash)}</b> (${escapeHtml(fmtVal(m.stashVal, m.stashKnown))}) <span class="sugg-meta">(frees a roster spot · irreversible — do this on ESPN)</span>${renderProspectDrop(m, lg)}</li>`;
         }
         // Drop a bench player to make room to activate a recovered IL player.
-        return `<li>${tag} Drop <b>${escapeHtml(m.dropName)}</b> <span class="sugg-meta">${escapeHtml(m.dropMeta)}</span> to activate ${escapeHtml(m.activate)} <span class="sugg-meta">${escapeHtml(m.activateMeta)}</span> from ${slot} <span class="sugg-meta">(net +${m.gain} value · irreversible — do this on ESPN)</span></li>`;
+        return `<li>${tag} Drop <b>${escapeHtml(m.dropName)}</b> <span class="sugg-meta">${escapeHtml(m.dropMeta)}</span> to activate ${escapeHtml(m.activate)} <span class="sugg-meta">${escapeHtml(m.activateMeta)}</span> from ${slot} <span class="sugg-meta">(net +${m.gain} value · irreversible — do this on ESPN)</span>${renderProspectDrop(m, lg)}</li>`;
       }
       // IL/IR full — can't fit; user must drop someone on ESPN. Not in the Apply txn.
       if (m.ilFull) {
@@ -853,6 +946,12 @@
   $('leaguesArea').addEventListener('click', (e) => {
     const applyBtn = e.target.closest('.apply-btn');
     if (applyBtn) { applyLineupClick(applyBtn); return; }
+    const watchBtn = e.target.closest('.watch-btn');
+    if (watchBtn) { toggleWatch(watchBtn); return; }
+    const dismiss = e.target.closest('[data-callup-dismiss]');
+    if (dismiss) { dismissCallUp(dismiss); return; }
+    const ack = e.target.closest('[data-callup-ack]');
+    if (ack) { ackCallUp(ack); /* let the link open ESPN */ }
   });
   $('leaguesArea').addEventListener('change', (e) => {
     if (e.target.classList.contains('ap-toggle')) toggleAutopilot(e.target);

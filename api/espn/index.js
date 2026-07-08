@@ -20,6 +20,7 @@ import {
 } from '../_lib/espnFantasy.js';
 import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
 import { parseScoringSettings, scoringKey, categoryRanks } from '../_lib/espnScoring.js';
+import { getWatch, setWatch, prospectIndex, reconcileWatch, applyWatchOp } from '../_lib/prospectWatch.js';
 import { normName } from '../_lib/golf.js';
 
 // connect/leagues make several ESPN calls; trade actions also call Claude (10-20s).
@@ -193,6 +194,7 @@ export default async function handler(req, res) {
       case 'autopilot':  return await autopilotPref(req, res, userId);
       case 'addLeague':  return await addLeague(req, res, userId);
       case 'removeLeague': return await removeLeague(req, res, userId);
+      case 'watchProspect': return await watchProspect(req, res, userId);
       case 'tradeScan':  return await tradeScan(req, res, userId);
       case 'tradeAdvise': return await tradeAdvise(req, res, userId);
       default:
@@ -322,6 +324,41 @@ async function leagues(req, res, userId) {
           const ranks = categoryRanks(lg.standings, lg.teamId, sport);
           lg.suggestions = suggestLineup(lg, indexFor(scoring?.weights || null), sport, { freeAgents, cats: scoring?.cats || null, ranks });
         }));
+
+        // Prospect call-up monitoring (MLB only): track stashed prospects, detect
+        // call-ups from the dataset's prospect flag, attach call-up alerts to each
+        // league card, and annotate any drop suggestion that names a stashed prospect
+        // with days-in-minors + a Watch hook. Uses the FULL dataset (incl. searchOnly
+        // prospect records, which the ranked `players` list above excludes).
+        if (sport === 'mlb') {
+          try {
+            const pIdx = prospectIndex(ds?.players || []);
+            const watch = await getWatch(redis, userId);
+            const { watch: nextWatch, byLeague } = reconcileWatch({ watch, leagues: result.leagues || [], idx: pIdx });
+            setWatch(redis, userId, nextWatch).catch(() => {});
+            const reclaimIds = new Set(Object.values(nextWatch).filter((e) => e.reclaim).map((e) => String(e.id)));
+            for (const lg of (result.leagues || [])) {
+              if (!lg || !lg.team) continue;
+              const b = byLeague[`${lg.season}:${lg.leagueId}:${lg.teamId ?? lg.team.id}`];
+              if (!b) continue;
+              if (b.callUps.length) lg.callUps = b.callUps;
+              // Annotate drop/waiver moves naming a stashed prospect (part 3 + 4).
+              const stashByName = new Map(b.stashed.map((s) => [normName(s.name), s]));
+              const moves = lg.suggestions && lg.suggestions.moves;
+              if (Array.isArray(moves)) {
+                for (const m of moves) {
+                  const s = stashByName.get(normName(m.dropName || m.drop || ''));
+                  if (!s) continue;
+                  m.prospect = true;
+                  m.prospectId = s.id;
+                  m.daysInMinors = s.days;
+                  m.longStash = s.longStash;
+                  m.watching = reclaimIds.has(String(s.id));
+                }
+              }
+            }
+          } catch { /* prospect monitoring is optional */ }
+        }
       }
     } catch { /* suggestions are optional */ }
 
@@ -431,6 +468,23 @@ async function removeLeague(req, res, userId) {
   const season = Number(req.body?.season) || new Date().getFullYear();
   const list = await removeManualLeague(redis, userId, { leagueId, season });
   return res.json({ removed: true, count: list.length });
+}
+
+// Watch / unwatch a prospect for call-up, or acknowledge a surfaced call-up alert.
+// Sets the reclaim intent so a call-up produces a high-priority reclaim prompt — we
+// never execute the roster transaction ourselves (the user confirms it on ESPN).
+async function watchProspect(req, res, userId) {
+  const op = ['watch', 'unwatch', 'ack'].includes(req.body?.op) ? req.body.op : 'watch';
+  const playerId = req.body?.playerId;
+  if (playerId == null) throw new HttpError(400, 'playerId required', { error: 'bad_request' });
+  const { name, pos, leagueName } = req.body || {};
+  const lg = (req.body?.leagueId != null && req.body?.season != null && req.body?.teamId != null)
+    ? `${req.body.season}:${req.body.leagueId}:${req.body.teamId}` : undefined;
+  const watch = await getWatch(redis, userId);
+  const next = applyWatchOp(watch, { op, playerId, name, pos, lg, leagueName });
+  await setWatch(redis, userId, next);
+  const e = next[String(playerId)];
+  return res.json({ ok: true, op, watching: !!(e && e.reclaim) });
 }
 
 // ===== Trade Center =========================================================================
