@@ -1038,13 +1038,20 @@ function buildSleeperIndex() {
   sleeperNameIdx = new Map();
   for (const p of players) { const k = normName(p.name); if (k && !sleeperNameIdx.has(k)) sleeperNameIdx.set(k, p); }
 }
-// Match one Sleeper pick to a board player. DST matches by team abbrev; everyone else by
-// normalized full name. Returns null if the player isn't in our ranked pool (deep bench).
+// NFL team-abbrev variants differ across providers (Sleeper uses WAS/JAC/LA/OAK/SD; our
+// pool uses WSH/JAX/LAR/LV/LAC). Canonicalize both sides so DST matching survives them —
+// verified against Sleeper's live players feed, where only Washington (WAS↔WSH) diverged.
+const TEAM_CANON = { WAS: 'WSH', JAC: 'JAX', LA: 'LAR', STL: 'LAR', OAK: 'LV', SD: 'LAC' };
+const canonTeam = (t) => { const u = String(t || '').toUpperCase(); return TEAM_CANON[u] || u; };
+
+// Match one Sleeper pick to a board player. DST matches by (canonicalized) team abbrev;
+// everyone else by normalized full name. Returns null if the player isn't in our ranked
+// pool (deep bench) — the caller still logs the pick so the feed/clock stay complete.
 function matchSleeper(pick) {
   const md = pick.metadata || {};
   if (md.position === 'DEF' || md.position === 'DST') {
-    const t = String(md.team || '').toUpperCase();
-    return players.find((p) => p.pos === 'DST' && String(p.team || '').toUpperCase() === t) || null;
+    const t = canonTeam(md.team);
+    return players.find((p) => p.pos === 'DST' && canonTeam(p.team) === t) || null;
   }
   const nm = normName(`${md.first_name || ''} ${md.last_name || ''}`);
   return (nm && sleeperNameIdx.get(nm)) || null;
