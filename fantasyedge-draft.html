@@ -1044,9 +1044,15 @@ function buildSleeperIndex() {
 const TEAM_CANON = { WAS: 'WSH', JAC: 'JAX', LA: 'LAR', STL: 'LAR', OAK: 'LV', SD: 'LAC' };
 const canonTeam = (t) => { const u = String(t || '').toUpperCase(); return TEAM_CANON[u] || u; };
 
+// Scoped legal-name → our-name aliases (normalized). NOT a fuzzy matcher — just a hand-
+// kept list for the handful of players where Sleeper uses a legal name and our pool uses a
+// nickname (or vice-versa). Add entries only for confirmed mismatches.
+const NAME_ALIASES = { 'marquise brown': 'hollywood brown' };
+
 // Match one Sleeper pick to a board player. DST matches by (canonicalized) team abbrev;
-// everyone else by normalized full name. Returns null if the player isn't in our ranked
-// pool (deep bench) — the caller still logs the pick so the feed/clock stay complete.
+// everyone else by normalized full name (with the alias map as a fallback). Returns null
+// if the player isn't in our ranked pool (deep bench) — the caller still logs the pick so
+// the feed/clock stay complete.
 function matchSleeper(pick) {
   const md = pick.metadata || {};
   if (md.position === 'DEF' || md.position === 'DST') {
@@ -1054,7 +1060,8 @@ function matchSleeper(pick) {
     return players.find((p) => p.pos === 'DST' && canonTeam(p.team) === t) || null;
   }
   const nm = normName(`${md.first_name || ''} ${md.last_name || ''}`);
-  return (nm && sleeperNameIdx.get(nm)) || null;
+  if (!nm) return null;
+  return sleeperNameIdx.get(nm) || (NAME_ALIASES[nm] && sleeperNameIdx.get(NAME_ALIASES[nm])) || null;
 }
 
 // Step 1: paste a draft link/ID → fetch the draft, show detected settings + a slot picker.
