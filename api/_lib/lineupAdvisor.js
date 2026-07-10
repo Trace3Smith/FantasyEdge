@@ -82,12 +82,20 @@ export const MLB_CAT_LABELS = { r: 'R', hr: 'HR', rbi: 'RBI', sb: 'SB', avg: 'BA
 // STANDINGS WEIGHTING: `ranks` (from view=mStandings, { catKey: { rank, of } }) weights
 // each category by how the user currently ranks in it — gaining a category you're LAST
 // in matters far more than one you already lead. Weight = rank / of ∈ (0,1]: last place
-// (rank = of) → 1.0, first place → 1/of. `weightedNet` = Σ w(gained) − Σ w(lost) is the
-// standings-aware score the engine gates and ranks waiver swaps on. Without `ranks`
-// every weight is 1, so weightedNet collapses to the plain category count (`net`).
-// Returns { up, down, net, weightedNet } where up/down are { cat, rank, of } entries
-// ordered most-impactful (highest weight) first.
+// (rank = of) → 1.0, first place → 1/of (≈0.08 in a 12-team league). `weightedNet` =
+// Σ w(gained) − Σ w(lost) is the standings-aware score the engine gates and ranks waiver
+// swaps on. Returns { up, down, net, weightedNet } where up/down are { cat, rank, of }
+// entries ordered most-impactful (highest weight) first.
+//
+// Fallback weights matter: an UNKNOWN rank must never be treated as maximally urgent.
+//  • No standings at all (`ranks` null) → weight 1 everywhere, so weightedNet collapses
+//    to the plain category count (`net`) — the honest "we can't weight" degrade.
+//  • Standings present but this category didn't resolve a rank → NEUTRAL (mid-pack) weight,
+//    NOT 1.0. Defaulting an unresolved category to the top weight is what let an already-
+//    dominant category (e.g. ERA at rank 1) drive a waiver suggestion that doesn't move the
+//    standings — so an unknown category is assumed average, never last-place.
 const CAT_EPS = 0.05;
+const NEUTRAL_W = 0.5; // unresolved category when standings exist: assume mid-pack, never max
 export function rotoCategoryImpact(addZc, dropZc, cats = null, ranks = null) {
   const keys = (Array.isArray(cats) && cats.length ? cats : MLB_CAT_KEYS).filter((c) => c in MLB_CAT_LABELS);
   const up = [], down = [];
@@ -98,7 +106,7 @@ export function rotoCategoryImpact(addZc, dropZc, cats = null, ranks = null) {
     const delta = a - d;
     if (Math.abs(delta) <= CAT_EPS) continue;
     const r = ranks && ranks[c];
-    const w = r && r.of ? r.rank / r.of : 1;
+    const w = r && r.of ? r.rank / r.of : (ranks ? NEUTRAL_W : 1);
     const entry = { cat: MLB_CAT_LABELS[c], rank: r ? r.rank : null, of: r ? r.of : null, w };
     if (delta > 0) { up.push(entry); weightedNet += w; }
     else { down.push(entry); weightedNet -= w; }
