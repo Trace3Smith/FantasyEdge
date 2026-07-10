@@ -32,6 +32,10 @@ export const PROJECTIONS_KEY = 'projections:nfl';
 // Drives realistic mock-draft opponents and the falling-value boost in the
 // recommendation engine. Persisted separately for graceful degrade.
 export const ADP_KEY = 'adp:nfl';
+// NFL Pick'em weekly feed (Brackets & Bowls) — games + market-implied picks, injuries, and
+// outdoor weather, built daily by the refresh cron from free ESPN + NWS sources and served
+// via api/sports.js (?feed=nfl-pickem). Cached so requests make zero upstream calls.
+export const NFL_PICKEM_KEY = 'pickem:nfl';
 
 export const redis = new Redis({
   url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL,

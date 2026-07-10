@@ -13,7 +13,8 @@ import { enrichProspects } from '../_lib/enrichProspects.js';
 import { enrichForm } from '../_lib/enrichForm.js';
 import { enrichNflProjections } from '../_lib/fantasyProjections.js';
 import { enrichNflAdp } from '../_lib/fantasyAdp.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, DATASET_VERSION } from '../_lib/kv.js';
+import { buildNflPickem } from '../_lib/nflPickem.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, DATASET_VERSION } from '../_lib/kv.js';
 
 // Secondary sports (ESPN-sourced, no prospects/enrichment). Each is built and
 // cached independently so one league's source failure can't drop another's
@@ -97,10 +98,23 @@ export default async function handler(req, res) {
       }
     }
 
+    // NFL Pick'em weekly feed (Brackets & Bowls) — free ESPN + NWS sources, no key. Additive
+    // and failure-tolerant: a failed build leaves the last good feed in KV rather than
+    // dropping it, and never blocks the dataset writes above.
+    let pickem;
+    try {
+      const feed = await buildNflPickem();
+      await redis.set(NFL_PICKEM_KEY, feed);
+      pickem = { week: feed.week, games: feed.games.length, upsets: feed.upsetAlerts.length };
+    } catch (err) {
+      pickem = { error: err.message };
+    }
+
     return res.status(200).json({
       ok: true,
       builtAt: dataset.builtAt,
       counts: dataset.counts,
+      pickem,
       ...secondary,
     });
   } catch (err) {

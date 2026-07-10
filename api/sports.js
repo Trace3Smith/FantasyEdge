@@ -8,8 +8,9 @@ import { buildNbaDataset, buildWnbaDataset } from './_lib/buildNbaDataset.js';
 import { buildNhlDataset } from './_lib/buildNhlDataset.js';
 import { buildNflDataset } from './_lib/buildNflDataset.js';
 import { buildPgaDataset } from './_lib/buildPgaDataset.js';
+import { buildNflPickem } from './_lib/nflPickem.js';
 import { requirePremium, sendError } from './_lib/auth.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, DATASET_VERSION } from './_lib/kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, DATASET_VERSION } from './_lib/kv.js';
 
 // Per-sport dataset wiring: which KV key holds it and how to (re)build it on a
 // cold-start cache miss. Add a sport here + a frontend tab to light it up. A
@@ -43,6 +44,24 @@ function filterLivByField(players) {
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
+
+  // Brackets & Bowls feeds ride this same function (dispatch on ?feed=) to stay within the
+  // serverless-function budget — no dedicated endpoint. NFL Pick'em is a free, read-only
+  // feed of public data (like the rankings), served from the daily-cached KV payload with a
+  // cold-start inline build so it self-heals before the first cron run.
+  if (req.query.feed === 'nfl-pickem') {
+    try {
+      let feed = await redis.get(NFL_PICKEM_KEY);
+      if (!feed || !Array.isArray(feed.games)) {
+        feed = await buildNflPickem();
+        await redis.set(NFL_PICKEM_KEY, feed);
+      }
+      return res.json(feed);
+    } catch (err) {
+      return res.status(500).json({ error: err.message, games: [] });
+    }
+  }
+
   const sport = req.query.sport || 'mlb';
   const cfg = SPORTS[sport];
 
