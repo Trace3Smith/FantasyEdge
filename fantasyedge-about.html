@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FantasyEdge — About &amp; Features</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --gold: #D4A017; --gold-light: #F0C040; --black: #080808; --dark: #111111;
+    --dark2: #1A1A1A; --dark3: #222222; --dark4: #2A2A2A; --white: #F5F5F0;
+    --gray: #888888; --gray-light: #AAAAAA; --green: #4CAF50; --red: #F44336; --orange: #FF9800;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--dark); color: var(--white); font-family: 'Barlow', sans-serif; display: flex; min-height: 100vh; }
+  .sidebar { width: 200px; min-width: 200px; background: var(--black); border-right: 1px solid rgba(212,160,23,0.15); display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; overflow-y: auto; }
+  .sidebar-logo { padding: 24px 20px 20px; border-bottom: 1px solid rgba(212,160,23,0.15); font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 3px; color: var(--white); }
+  .sidebar-logo span { color: var(--gold); }
+  .sidebar-section-label { padding: 18px 20px 6px; font-size: 10px; font-weight: 600; letter-spacing: 2px; color: var(--gray); text-transform: uppercase; }
+  .sidebar-nav { list-style: none; padding: 0 8px; }
+  .sidebar-nav li a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 6px; color: var(--gray-light); text-decoration: none; font-size: 13px; font-weight: 500; transition: all 0.15s; }
+  .sidebar-nav li a:hover { background: var(--dark3); color: var(--white); }
+  .sidebar-nav li a.active { background: rgba(212,160,23,0.12); color: var(--gold); }
+  .sidebar-nav li a .icon { font-size: 15px; width: 18px; text-align: center; }
+  .upgrade-box { margin: auto 14px 18px; padding: 16px; background: linear-gradient(160deg, rgba(212,160,23,0.15), rgba(212,160,23,0.03)); border: 1px solid rgba(212,160,23,0.25); border-radius: 10px; }
+  .upgrade-box p { font-size: 12px; color: var(--gray-light); line-height: 1.5; margin-bottom: 12px; }
+  .upgrade-btn { display: block; text-align: center; padding: 9px; background: var(--gold); color: #111; font-weight: 700; font-size: 13px; border-radius: 6px; text-decoration: none; cursor: pointer; }
+
+  .main { margin-left: 200px; flex: 1; padding: 28px 34px 60px; max-width: 1080px; }
+  .top-header { margin-bottom: 22px; }
+  .page-title { font-family: 'Bebas Neue', sans-serif; font-size: 32px; letter-spacing: 2px; }
+  .page-title span { color: var(--gold); }
+  .page-subtitle { color: var(--gray); font-size: 13px; margin-top: 2px; max-width: 720px; line-height: 1.55; }
+
+  .panel { background: var(--dark2); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 22px; margin-bottom: 20px; }
+  .panel h2 { font-size: 18px; margin-bottom: 3px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+  .panel .grp-sub { color: var(--gray); font-size: 12.5px; line-height: 1.5; margin-bottom: 16px; }
+
+  /* FREE / PREMIUM badges */
+  .badge { font-size: 10px; font-weight: 800; letter-spacing: .06em; padding: 2px 8px; border-radius: 5px; text-transform: uppercase; vertical-align: middle; white-space: nowrap; }
+  .badge.premium { background: rgba(212,160,23,0.16); color: var(--gold-light); border: 1px solid rgba(212,160,23,0.4); }
+  .badge.free { background: rgba(76,175,80,0.14); color: #9bdc9e; border: 1px solid rgba(76,175,80,0.35); }
+
+  /* legend */
+  .legend { display: flex; gap: 22px; flex-wrap: wrap; align-items: center; }
+  .legend .li { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--gray-light); }
+
+  /* feature list */
+  .feat-list { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+  .feat { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; background: var(--dark3); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; }
+  .feat .fx { font-size: 17px; line-height: 1.4; width: 22px; text-align: center; flex-shrink: 0; }
+  .feat .fbody { flex: 1; }
+  .feat .fname { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .feat .fdesc { color: var(--gray-light); font-size: 12.5px; line-height: 1.5; margin-top: 3px; }
+  .feat .fdesc b { color: var(--white); font-weight: 600; }
+
+  .note { font-size: 12px; color: var(--gray); line-height: 1.6; }
+  .note b { color: var(--gray-light); }
+  a.inline { color: var(--gold-light); text-decoration: none; }
+  a.inline:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">FANTASY<span>EDGE</span></div>
+  <div class="sidebar-section-label">Main</div>
+  <ul class="sidebar-nav">
+    <li><a href="fantasyedge.html"><span class="icon">🏠</span> Home</a></li>
+    <li><a href="fantasyedge-rankings.html"><span class="icon">📊</span> Rankings</a></li>
+    <li><a href="fantasyedge-analyzer.html"><span class="icon">🔍</span> Roster Analyzer</a></li>
+    <li><a href="fantasyedge-draft.html"><span class="icon">📋</span> Draft Mode</a></li>
+    <li><a href="fantasyedge-draft.html?mode=mock"><span class="icon">🎯</span> Mock Draft</a></li>
+    <li><a href="fantasyedge-autopilot.html"><span class="icon">🎛️</span> Team Manager</a></li>
+    <li><a href="fantasyedge-trade-center.html"><span class="icon">🤝</span> Trade Center</a></li>
+    <li><a href="fantasyedge-trending.html"><span class="icon">🔥</span> Trending Players</a></li>
+    <li><a href="fantasyedge-brackets.html"><span class="icon">🏆</span> Brackets &amp; Bowls</a></li>
+    <li><a href="fantasyedge-about.html" class="active"><span class="icon">ℹ️</span> About &amp; Features</a></li>
+  </ul>
+  <div class="upgrade-box">
+    <p>Autopilot, Trade Center, and live draft linking are Premium — $9.99/mo.</p>
+    <a class="upgrade-btn" id="upsell">Go Premium</a>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="top-header">
+    <div class="page-title">ABOUT &amp; <span>FEATURES</span></div>
+    <div class="page-subtitle">Everything FantasyEdge does today, and what's free vs. Premium — so you know what's here before you dive in. This is the reference, not the pitch.</div>
+  </div>
+
+  <!-- Legend -->
+  <div class="panel">
+    <div class="legend">
+      <span class="li"><span class="badge free">Free</span> Included for every signed-in account</span>
+      <span class="li"><span class="badge premium">Premium</span> Requires FantasyEdge Premium ($9.99/mo · $79/yr)</span>
+    </div>
+    <p class="note" style="margin-top:14px">Premium is enforced on our servers, not just hidden in the UI — so these badges reflect exactly what a free vs. paid account can actually do.</p>
+  </div>
+
+  <!-- Player Rankings -->
+  <div class="panel">
+    <h2>📊 Player Rankings</h2>
+    <p class="grp-sub">Rankings for every supported sport, driven by the same valuation model the rest of the app uses.</p>
+    <ul class="feat-list">
+      <li class="feat">
+        <span class="fx">📈</span>
+        <div class="fbody">
+          <div class="fname">Multi-sport rankings <span class="badge free">Free</span></div>
+          <div class="fdesc">MLB, NBA, WNBA, NHL, and NFL rankings — roto z-score value for category sports, points/VORP for NFL.</div>
+        </div>
+      </li>
+      <li class="feat">
+        <span class="fx">🔥</span>
+        <div class="fbody">
+          <div class="fname">HOT / COLD form indicators <span class="badge free">Free</span></div>
+          <div class="fdesc">Real recent-form badges — a player's last-stretch production vs. their season baseline — flagged right on the rankings, not a rank guess.</div>
+        </div>
+      </li>
+      <li class="feat">
+        <span class="fx">⛳</span>
+        <div class="fbody">
+          <div class="fname">PGA rankings <span class="badge premium">Premium</span></div>
+          <div class="fdesc">Golf rankings are Premium; all other sports' rankings are free.</div>
+        </div>
+      </li>
+    </ul>
+  </div>
+
+  <!-- Team Manager -->
+  <div class="panel">
+    <h2>🎛️ Team Manager <span class="badge premium">Premium</span></h2>
+    <p class="grp-sub">Link your ESPN account once (cookies stored server-side, same login covers every sport) and manage your lineups. The entire Team Manager is Premium.</p>
+    <ul class="feat-list">
+      <li class="feat">
+        <span class="fx">🤖</span>
+        <div class="fbody">
+          <div class="fname">Lineup Autopilot — MLB &amp; WNBA <span class="badge premium">Premium</span></div>
+          <div class="fdesc">Sets your optimal legal lineup automatically each morning, valuing players under your league's own detected scoring (MLB roto z-score, WNBA H2H Points). One-tap "apply optimal lineup" too.</div>
+        </div>
+      </li>
+      <li class="feat">
+        <span class="fx">🩹</span>
+        <div class="fbody">
+          <div class="fname">IL/IR management with smart swaps <span class="badge premium">Premium</span></div>
+          <div class="fdesc">Detects your league's real IL/IR slot, activates recovered players, and moves injured starters to the IL — pairing swaps so nothing overfills your roster.</div>
+        </div>
+      </li>
+      <li class="feat">
+        <span class="fx">📥</span>
+        <div class="fbody">
+          <div class="fname">Waiver suggestions — standings-weighted category impact <span class="badge premium">Premium</span></div>
+          <div class="fdesc">For MLB roto, only surfaces a waiver add if it wins <b>more categories than it loses</b>, weighting each category by where you actually rank — gaining a category you're last in matters far more than padding one you already lead.</div>
+        </div>
+      </li>
+      <li class="feat">
+        <span class="fx">✂️</span>
+        <div class="fbody">
+          <div class="fname">Drop recommendations <span class="badge premium">Premium</span></div>
+          <div class="fdesc">Names the specific weakest droppable player (by value under your scoring) when a roster move is needed — display-only, since drops are irreversible.</div>
+        </div>
+      </li>
+      <li class="feat">
+        <span class="fx">🔔</span>
+        <div class="fbody">
+          <div class="fname">Prospect call-up system <span class="badge premium">Premium</span></div>
+          <div class="fdesc">Tracks stashed minor-league prospects and alerts you the moment one is called up. Flag any prospect with <b>Watch</b> to get a one-tap <b>Reclaim on ESPN</b> prompt if they're promoted, and drop suggestions carry days-in-minors context (60+ days flags a long stash).</div>
+        </div>
+      </li>
+    </ul>
+  </div>
+
+  <!-- Trade Center -->
+  <div class="panel">
+    <h2>🤝 Trade Center <span class="badge premium">Premium</span></h2>
+    <p class="grp-sub">Reads every team's roster in your linked leagues and reasons about trades with our player values. The entire Trade Center is Premium.</p>
+    <ul class="feat-list">
+      <li class="feat">
+        <span class="fx">🔎</span>
+        <div class="fbody">
+          <div class="fname">Trade Scanner <span class="badge premium">Premium</span></div>
+          <div class="fdesc">Finds 2–3 win-win trades across your league — who to target, what you give, what you get, and a fairness score.</div>
+        </div>
+      </li>
+      <li class="feat">
+        <span class="fx">⚖️</span>
+        <div class="fbody">
+          <div class="fname">Trade Evaluator <span class="badge premium">Premium</span></div>
+          <div class="fdesc">Paste or describe any incoming offer and get a call — accept, reject, or counter — grounded in both rosters and our values.</div>
+        </div>
+      </li>
+      <li class="feat">
+        <span class="fx">🔁</span>
+        <div class="fbody">
+          <div class="fname">Counter Generator <span class="badge premium">Premium</span></div>
+          <div class="fdesc">Asks for 2–3 ranked counter-offers that swing the deal in your favor while staying realistic enough to get accepted.</div>
+        </div>
+      </li>
+      <li class="feat">
+        <span class="fx">🚪</span>
+        <div class="fbody">
+          <div class="fname">Walk Away Detector <span class="badge premium">Premium</span></div>
+          <div class="fdesc">Calls out when you're being lowballed so you know when the right move is simply to pass.</div>
+        </div>
+      </li>
+      <li class="feat">
+        <span class="fx">🎯</span>
+        <div class="fbody">
+          <div class="fname">Category-aware valuation <span class="badge premium">Premium</span></div>
+          <div class="fdesc">Values trades by how they move <b>your</b> category standings — not just raw player value — including outlier warnings on players whose recent line is out of step with their track record.</div>
+        </div>
+      </li>
+    </ul>
+  </div>
+
+  <!-- Draft Mode -->
+  <div class="panel">
+    <h2>📋 Draft Mode</h2>
+    <p class="grp-sub">One draft board, two ways to run it — plus a free mock draft against AI opponents. The AI Coach advises you on every pick.</p>
+    <ul class="feat-list">
+      <li class="feat">
+        <span class="fx">📝</span>
+        <div class="fbody">
+          <div class="fname">Offline draft board <span class="badge premium">Premium</span></div>
+          <div class="fdesc">Track a real league draft (Zoom or in person) — mark each pick as it happens and the board, roster, and Coach update live.</div>
+        </div>
+      </li>
+      <li class="feat">
+        <span class="fx">🔗</span>
+        <div class="fbody">
+          <div class="fname">Linked draft — Sleeper <span class="badge premium">Premium</span></div>
+          <div class="fdesc">Paste your Sleeper draft link and we auto-track every pick live (no Sleeper login needed), with <b>live value suggestions</b> on your turn and a <b>post-pick grade</b> for every pick — value over the next-best available at that slot.</div>
+        </div>
+      </li>
+      <li class="feat">
+        <span class="fx">🎯</span>
+        <div class="fbody">
+          <div class="fname">Mock Draft <span class="badge free">Free</span></div>
+          <div class="fdesc">Draft against AI opponents that pick at realistic value. Free accounts get <b>1 mock per day</b> with AI Coach advice through <b>round 7</b>; Premium unlocks unlimited mocks and advice every round.</div>
+        </div>
+      </li>
+      <li class="feat">
+        <span class="fx">💬</span>
+        <div class="fbody">
+          <div class="fname">AI Draft Coach <span class="badge premium">Premium</span></div>
+          <div class="fdesc">A conversational coach embedded in Draft Mode and the Trade Center that already knows your roster and settings. Free mock users see the analyst's pick through round 7; follow-up questions are Premium.</div>
+        </div>
+      </li>
+    </ul>
+  </div>
+
+  <div class="panel">
+    <p class="note">Questions or something looks off? This page tracks what's actually shipped — if a badge here doesn't match what you see in the app, that's a bug worth flagging. Not listed yet: <b>Brackets &amp; Bowls</b> (in the nav but still being built).</p>
+  </div>
+</main>
+
+<script>
+  const upsell = document.getElementById('upsell');
+  if (upsell) upsell.addEventListener('click', () => window.FE && window.FE.openPricing && window.FE.openPricing());
+</script>
+<script type="module" src="/auth.js"></script>
+</body>
+</html>
