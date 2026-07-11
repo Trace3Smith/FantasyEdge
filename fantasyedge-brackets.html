@@ -129,6 +129,52 @@
   .edge-orange{color:var(--orange);}
 
   .bowl-upset-banner{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;background:rgba(255,152,0,0.12);color:var(--orange);padding:2px 8px;margin-left:8px;}
+
+  /* ===== NFL Pick'em ===== */
+  #nflView{display:none;} #nflView.active{display:block;}
+  .nfl-week{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px;}
+  .nfl-week h2{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;letter-spacing:2px;text-transform:uppercase;}
+  .nfl-week .stamp{font-size:11px;color:var(--gray);}
+  .nfl-sub{font-size:12.5px;color:var(--gray);margin-bottom:22px;line-height:1.5;max-width:720px;}
+  .nfl-rails{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:26px;}
+  @media(max-width:820px){.nfl-rails{grid-template-columns:1fr;}}
+  .rail{background:var(--dark2);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:16px 18px;}
+  .rail-title{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+  .rail.best .rail-title{color:var(--green);} .rail.upset .rail-title{color:var(--orange);}
+  .rail-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid rgba(255,255,255,0.05);font-size:13px;}
+  .rail-row:first-of-type{border-top:none;}
+  .rail-row .rr-team{font-weight:700;} .rail-row .rr-meta{font-size:11px;color:var(--gray);}
+  .rail-row .rr-pct{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:15px;}
+  .rail.best .rr-pct{color:var(--green);} .rail.upset .rr-pct{color:var(--orange);}
+  .rail-empty{font-size:12px;color:var(--gray);}
+
+  .games-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;}
+  .gcard{background:var(--dark2);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:16px;position:relative;}
+  .gcard.upset{border-color:rgba(255,152,0,0.4);}
+  .gc-top{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px;}
+  .gc-when{font-size:11px;color:var(--gray);}
+  .gc-upset{font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;background:rgba(255,152,0,0.14);color:var(--orange);padding:2px 8px;border-radius:4px;}
+  .gc-live{font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;background:rgba(244,67,54,0.16);color:#f3a1a1;padding:2px 8px;border-radius:4px;}
+  .matchup{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;}
+  .team-row{display:flex;align-items:center;gap:10px;}
+  .team-row img{width:26px;height:26px;flex-shrink:0;}
+  .team-row .tname{font-weight:700;font-size:15px;flex:1;}
+  .team-row .trec{font-size:11px;color:var(--gray);}
+  .team-row.picked .tname{color:var(--gold-light);}
+  .team-row .pickchk{font-size:11px;font-weight:700;color:var(--gold);}
+  .gc-pick{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--dark3);border-radius:8px;padding:9px 12px;margin-bottom:10px;}
+  .gc-pick .pk-lbl{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--gray);}
+  .gc-pick .pk-team{font-weight:700;font-size:14px;}
+  .gc-pick .pk-prob{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:20px;}
+  .conf-lock{color:var(--green);} .conf-lean{color:var(--gold);} .conf-coin{color:var(--orange);}
+  .gc-line{font-size:11.5px;color:var(--gray-light);margin-bottom:10px;display:flex;gap:12px;flex-wrap:wrap;}
+  .gc-line b{color:var(--white);font-weight:600;}
+  .gc-extra{display:flex;flex-direction:column;gap:6px;}
+  .gc-inj{font-size:11.5px;line-height:1.45;}
+  .gc-inj .inj-team{font-weight:700;color:var(--gray-light);}
+  .gc-inj .inj-out{color:#f3a1a1;} .gc-inj .inj-q{color:#fdba74;}
+  .gc-wx{font-size:11.5px;color:var(--blue);display:flex;align-items:center;gap:6px;}
+  .nfl-loading,.nfl-error{padding:40px 20px;text-align:center;color:var(--gray);font-size:13px;}
 </style>
 </head>
 <body>
@@ -171,19 +217,31 @@
     <div class="topbar">
       <div class="topbar-left">
         <h1>Brackets & Bowl Games</h1>
-        <p>Data-backed picks for March Madness and College Football Bowl Season</p>
+        <p>NFL Pick'em win probabilities now — March Madness & College Bowl picks in season</p>
       </div>
     </div>
 
     <div class="content">
       <!-- MODE TABS -->
       <div class="mode-tabs">
-        <button class="mode-tab active" onclick="switchMode('march')">🏀 March Madness</button>
+        <button class="mode-tab active" onclick="switchMode('nfl')">🏈 NFL Pick'em</button>
+        <button class="mode-tab" onclick="switchMode('march')">🏀 March Madness</button>
         <button class="mode-tab" onclick="switchMode('bowl')">🏈 Bowl Games</button>
       </div>
 
+      <!-- NFL PICK'EM (live) -->
+      <div id="nflView" class="active">
+        <div class="nfl-week">
+          <h2 id="nflWeekTitle">NFL Pick'em</h2>
+          <span class="stamp" id="nflStamp"></span>
+        </div>
+        <div class="nfl-sub">Every game's pick and win probability, derived from the current betting market, plus injuries and (game-week) weather. Highest-confidence picks and upset alerts are flagged. Informational — not betting advice.</div>
+        <div class="nfl-rails" id="nflRails"></div>
+        <div id="nflGames"><div class="nfl-loading">Loading this week's games…</div></div>
+      </div>
+
       <!-- MARCH MADNESS -->
-      <div id="marchView" class="active">
+      <div id="marchView">
         <!-- INTRO -->
         <div class="bracket-intro">
           <div class="intro-card">
@@ -248,10 +306,97 @@ let mx=0,my=0,rx=0,ry=0;
 document.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;});
 (function a(){cursor.style.left=mx+'px';cursor.style.top=my+'px';rx+=(mx-rx)*.15;ry+=(my-ry)*.15;ring.style.left=rx+'px';ring.style.top=ry+'px';requestAnimationFrame(a);})();
 
+const MODES = ['nfl','march','bowl'];
 function switchMode(mode) {
-  document.querySelectorAll('.mode-tab').forEach((t,i)=>{t.classList.toggle('active',i===(mode==='march'?0:1));});
+  const idx = MODES.indexOf(mode);
+  document.querySelectorAll('.mode-tab').forEach((t,i)=>t.classList.toggle('active', i===idx));
+  document.getElementById('nflView').classList.toggle('active', mode==='nfl');
   document.getElementById('marchView').classList.toggle('active', mode==='march');
   document.getElementById('bowlView').classList.toggle('active', mode==='bowl');
+  if (mode==='nfl' && !nflLoaded) loadPickem();
+}
+
+// ===== NFL PICK'EM (live feed: ESPN + NWS via /api/sports?feed=nfl-pickem) =====
+let nflLoaded = false;
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+const SEASON_TYPE = { 1:'Preseason', 2:'', 3:'Postseason' };
+
+async function loadPickem() {
+  nflLoaded = true; // guard: only fetch once per page load
+  const wrap = document.getElementById('nflGames');
+  try {
+    const r = await fetch('/api/sports?feed=nfl-pickem');
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    const data = await r.json();
+    if (!data.games || !data.games.length) { wrap.innerHTML = '<div class="nfl-error">No games scheduled right now — check back closer to game week.</div>'; return; }
+    renderPickemHeader(data);
+    renderRails(data);
+    wrap.innerHTML = '<div class="games-grid">'+data.games.map(gameCard).join('')+'</div>';
+  } catch (e) {
+    nflLoaded = false; // allow a retry on next tab switch
+    wrap.innerHTML = '<div class="nfl-error">Couldn\'t load this week\'s games. Try again shortly.</div>';
+  }
+}
+
+function renderPickemHeader(d) {
+  const stype = SEASON_TYPE[d.seasonType] ? SEASON_TYPE[d.seasonType]+' · ' : '';
+  document.getElementById('nflWeekTitle').textContent = `NFL Pick'em — ${stype}Week ${d.week ?? ''}`.trim();
+  const when = d.builtAt ? new Date(d.builtAt) : null;
+  document.getElementById('nflStamp').textContent = when ? 'Updated '+when.toLocaleDateString([], {month:'short',day:'numeric'})+' · '+d.season : '';
+}
+
+function renderRails(d) {
+  const best = (d.bestPicks||[]).map(p =>
+    `<div class="rail-row"><span class="rr-team">${esc(p.team)} <span class="rr-meta">vs ${esc(p.opp)}</span></span><span class="rr-pct">${p.winProb}%</span></div>`
+  ).join('') || '<div class="rail-empty">Picks post once lines are set.</div>';
+  const ups = (d.upsetAlerts||[]).map(u =>
+    `<div class="rail-row"><span class="rr-team">${esc(u.underdog)} <span class="rr-meta">+dog vs ${esc(u.favorite)}</span></span><span class="rr-pct">${u.favWinProb}%</span></div>`
+  ).join('') || '<div class="rail-empty">No coin-flip games flagged this week.</div>';
+  document.getElementById('nflRails').innerHTML =
+    `<div class="rail best"><div class="rail-title">🎯 Highest-confidence picks</div>${best}</div>`+
+    `<div class="rail upset"><div class="rail-title">⚡ Upset alerts</div>${ups}</div>`;
+}
+
+function teamRow(t, picked) {
+  const logo = t.logo ? `<img src="${esc(t.logo)}" alt="">` : '';
+  const rec = t.record ? `<span class="trec">${esc(t.record)}</span>` : '';
+  const chk = picked ? '<span class="pickchk">✓ PICK</span>' : '';
+  return `<div class="team-row${picked?' picked':''}">${logo}<span class="tname">${esc(t.name)}</span>${rec}${chk}</div>`;
+}
+
+function injLine(label, rows) {
+  if (!rows || !rows.length) return '';
+  const items = rows.slice(0,3).map(x => {
+    const cls = /out|reserve|susp/i.test(x.status) ? 'inj-out' : 'inj-q';
+    return `<span class="${cls}">${esc(x.name)}${x.pos?' ('+esc(x.pos)+')':''} — ${esc(x.status)}</span>`;
+  }).join(', ');
+  return `<div class="gc-inj"><span class="inj-team">${esc(label)}:</span> ${items}</div>`;
+}
+
+function gameCard(g) {
+  const d = g.date ? new Date(g.date) : null;
+  const when = d ? d.toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'})+' · '+d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '';
+  const live = g.state==='in' ? '<span class="gc-live">● Live</span>' : (g.state==='post' ? '<span class="gc-live" style="background:rgba(136,136,136,.16);color:#aaa">Final</span>' : '');
+  const flag = g.upsetAlert ? '<span class="gc-upset">⚡ Upset alert</span>' : '';
+  const pickTeam = g.pick ? g.pick.team : null;
+  const pickBlock = g.pick
+    ? `<div class="gc-pick"><div><div class="pk-lbl">Pick</div><div class="pk-team">${esc(g.pick.team)}</div></div>`+
+      `<div class="pk-prob conf-${g.pick.confidence}">${g.pick.winProb}%</div></div>`
+    : `<div class="gc-pick"><span class="pk-lbl">Line not set yet</span></div>`;
+  const line = g.odds
+    ? `<div class="gc-line"><span>Spread <b>${esc(g.odds.details||g.odds.spread)}</b></span>${g.odds.overUnder!=null?`<span>O/U <b>${g.odds.overUnder}</b></span>`:''}<span>${g.venue.indoor?'🏟 Indoor':'☁ Outdoor'} · ${esc(g.venue.name)}</span></div>`
+    : `<div class="gc-line"><span>${g.venue.indoor?'🏟 Indoor':'☁ Outdoor'} · ${esc(g.venue.name)}</span></div>`;
+  const inj = injLine(g.away.abbr, g.injuries.away) + injLine(g.home.abbr, g.injuries.home);
+  const wx = g.weather
+    ? `<div class="gc-wx">🌦 ${g.weather.tempF!=null?g.weather.tempF+'°F':''} ${esc(g.weather.condition||'')}${g.weather.windMph?' · wind '+g.weather.windMph+'mph':''}${g.weather.precipPct!=null?' · '+g.weather.precipPct+'% precip':''}</div>`
+    : '';
+  return `<div class="gcard${g.upsetAlert?' upset':''}">
+    <div class="gc-top"><span class="gc-when">${esc(when)}</span><span>${live}${flag}</span></div>
+    <div class="matchup">${teamRow(g.away, pickTeam===g.away.abbr)}${teamRow(g.home, pickTeam===g.home.abbr)}</div>
+    ${pickBlock}
+    ${line}
+    <div class="gc-extra">${inj}${wx}</div>
+  </div>`;
 }
 
 // MARCH MADNESS DATA
@@ -423,6 +568,7 @@ function makeBowlPick(game, team) {
 renderRegions();
 renderChamp();
 renderBowl();
+loadPickem(); // NFL Pick'em is the default active tab — load its live feed on page open
 </script>
 <script type="module" src="/auth.js"></script>
 </body>
