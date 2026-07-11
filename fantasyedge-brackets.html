@@ -153,6 +153,7 @@
   .gcard.upset{border-color:rgba(255,152,0,0.4);}
   .gc-top{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px;}
   .gc-when{font-size:11px;color:var(--gray);}
+  .gc-bowl{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gold-light);margin-bottom:8px;}
   .gc-upset{font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;background:rgba(255,152,0,0.14);color:var(--orange);padding:2px 8px;border-radius:4px;}
   .gc-live{font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;background:rgba(244,67,54,0.16);color:#f3a1a1;padding:2px 8px;border-radius:4px;}
   .matchup{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;}
@@ -281,20 +282,15 @@
         </div>
       </div>
 
-      <!-- BOWL GAMES -->
+      <!-- BOWL GAMES / CFB PLAYOFF (live feed: ESPN + NWS via /api/sports?feed=cfb-bowl) -->
       <div id="bowlView" class="bowl-view">
-        <div class="bowl-header-row">
-          <div>
-            <div class="bracket-section-title">Bowl Game Picks</div>
-            <div class="bracket-section-sub">Click a team to make your pick. FantasyEdge confidence score shown on the right.</div>
-          </div>
-          <div class="bowl-score-card">
-            <div><div class="bowl-score-label">Picks Made</div><div class="bowl-score-val" id="bowlPickCount">0</div></div>
-            <div style="width:1px;height:40px;background:rgba(212,160,23,0.15)"></div>
-            <div><div class="bowl-score-label">Total Games</div><div class="bowl-score-val">10</div></div>
-          </div>
+        <div class="nfl-week">
+          <h2 id="cfbTitle">Bowl Games &amp; Playoff</h2>
+          <span class="stamp" id="cfbStamp"></span>
         </div>
-        <div class="bowl-games-list" id="bowlGamesList"></div>
+        <div class="nfl-sub">Every bowl and College Football Playoff game's pick and win probability, from the current betting market, plus injuries and (game-week) weather. Matchups are set in December — until then this fills in as bowls are announced. Informational — not betting advice.</div>
+        <div class="nfl-rails" id="cfbRails"></div>
+        <div id="cfbGames"><div class="nfl-loading">Loading the bowl slate…</div></div>
       </div>
     </div>
   </div>
@@ -313,46 +309,58 @@ function switchMode(mode) {
   document.getElementById('nflView').classList.toggle('active', mode==='nfl');
   document.getElementById('marchView').classList.toggle('active', mode==='march');
   document.getElementById('bowlView').classList.toggle('active', mode==='bowl');
-  if (mode==='nfl' && !nflLoaded) loadPickem();
+  if (mode==='nfl') loadNfl();
+  if (mode==='bowl') loadCfb();
 }
 
-// ===== NFL PICK'EM (live feed: ESPN + NWS via /api/sports?feed=nfl-pickem) =====
-let nflLoaded = false;
+// ===== Pick'em feeds (NFL + CFB Bowl) — same shared renderers, two endpoints =====
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 const SEASON_TYPE = { 1:'Preseason', 2:'', 3:'Postseason' };
 
-async function loadPickem() {
-  nflLoaded = true; // guard: only fetch once per page load
-  const wrap = document.getElementById('nflGames');
+// Generic feed loader. `cfg`: { endpoint, gamesId, railsId, header(data), empty }.
+async function loadFeed(cfg) {
+  if (cfg._loaded) return; cfg._loaded = true; // fetch once per page load (retry on error)
+  const wrap = document.getElementById(cfg.gamesId);
   try {
-    const r = await fetch('/api/sports?feed=nfl-pickem');
+    const r = await fetch(cfg.endpoint);
     if (!r.ok) throw new Error('HTTP '+r.status);
     const data = await r.json();
-    if (!data.games || !data.games.length) { wrap.innerHTML = '<div class="nfl-error">No games scheduled right now — check back closer to game week.</div>'; return; }
-    renderPickemHeader(data);
-    renderRails(data);
+    cfg.header(data);
+    if (!data.games || !data.games.length) { document.getElementById(cfg.railsId).innerHTML=''; wrap.innerHTML = `<div class="nfl-error">${cfg.empty}</div>`; return; }
+    renderRails(data, cfg.railsId);
     wrap.innerHTML = '<div class="games-grid">'+data.games.map(gameCard).join('')+'</div>';
   } catch (e) {
-    nflLoaded = false; // allow a retry on next tab switch
-    wrap.innerHTML = '<div class="nfl-error">Couldn\'t load this week\'s games. Try again shortly.</div>';
+    cfg._loaded = false; // allow a retry on next tab switch
+    wrap.innerHTML = '<div class="nfl-error">Couldn\'t load this slate. Try again shortly.</div>';
   }
 }
 
-function renderPickemHeader(d) {
-  const stype = SEASON_TYPE[d.seasonType] ? SEASON_TYPE[d.seasonType]+' · ' : '';
-  document.getElementById('nflWeekTitle').textContent = `NFL Pick'em — ${stype}Week ${d.week ?? ''}`.trim();
-  const when = d.builtAt ? new Date(d.builtAt) : null;
-  document.getElementById('nflStamp').textContent = when ? 'Updated '+when.toLocaleDateString([], {month:'short',day:'numeric'})+' · '+d.season : '';
-}
+const NFL_FEED = { endpoint:'/api/sports?feed=nfl-pickem', gamesId:'nflGames', railsId:'nflRails',
+  empty:'No games scheduled right now — check back closer to game week.',
+  header(d){
+    const stype = SEASON_TYPE[d.seasonType] ? SEASON_TYPE[d.seasonType]+' · ' : '';
+    document.getElementById('nflWeekTitle').textContent = `NFL Pick'em — ${stype}Week ${d.week ?? ''}`.trim();
+    document.getElementById('nflStamp').textContent = stampText(d);
+  } };
+const CFB_FEED = { endpoint:'/api/sports?feed=cfb-bowl', gamesId:'cfbGames', railsId:'cfbRails',
+  empty:'Bowl matchups are announced in December — check back when the slate is set.',
+  header(d){
+    document.getElementById('cfbTitle').textContent = `Bowl Games & Playoff${d.season?' — '+d.season:''}`;
+    document.getElementById('cfbStamp').textContent = stampText(d);
+  } };
+function loadNfl(){ loadFeed(NFL_FEED); }
+function loadCfb(){ loadFeed(CFB_FEED); }
 
-function renderRails(d) {
+function stampText(d){ const w = d.builtAt ? new Date(d.builtAt) : null; return w ? 'Updated '+w.toLocaleDateString([], {month:'short',day:'numeric'}) : ''; }
+
+function renderRails(d, railsId) {
   const best = (d.bestPicks||[]).map(p =>
     `<div class="rail-row"><span class="rr-team">${esc(p.team)} <span class="rr-meta">vs ${esc(p.opp)}</span></span><span class="rr-pct">${p.winProb}%</span></div>`
   ).join('') || '<div class="rail-empty">Picks post once lines are set.</div>';
   const ups = (d.upsetAlerts||[]).map(u =>
     `<div class="rail-row"><span class="rr-team">${esc(u.underdog)} <span class="rr-meta">+dog vs ${esc(u.favorite)}</span></span><span class="rr-pct">${u.favWinProb}%</span></div>`
-  ).join('') || '<div class="rail-empty">No coin-flip games flagged this week.</div>';
-  document.getElementById('nflRails').innerHTML =
+  ).join('') || '<div class="rail-empty">No coin-flip games flagged.</div>';
+  document.getElementById(railsId).innerHTML =
     `<div class="rail best"><div class="rail-title">🎯 Highest-confidence picks</div>${best}</div>`+
     `<div class="rail upset"><div class="rail-title">⚡ Upset alerts</div>${ups}</div>`;
 }
@@ -390,8 +398,11 @@ function gameCard(g) {
   const wx = g.weather
     ? `<div class="gc-wx">🌦 ${g.weather.tempF!=null?g.weather.tempF+'°F':''} ${esc(g.weather.condition||'')}${g.weather.windMph?' · wind '+g.weather.windMph+'mph':''}${g.weather.precipPct!=null?' · '+g.weather.precipPct+'% precip':''}</div>`
     : '';
+  // CFB bowl/playoff games carry a bowl name; NFL games don't. `@`/`vs` for site type.
+  const bowl = g.bowlName ? `<div class="gc-bowl">${esc(g.bowlName)}</div>` : '';
   return `<div class="gcard${g.upsetAlert?' upset':''}">
     <div class="gc-top"><span class="gc-when">${esc(when)}</span><span>${live}${flag}</span></div>
+    ${bowl}
     <div class="matchup">${teamRow(g.away, pickTeam===g.away.abbr)}${teamRow(g.home, pickTeam===g.home.abbr)}</div>
     ${pickBlock}
     ${line}
@@ -501,74 +512,10 @@ function submitBracket() {
   alert(`🏆 Bracket locked with ${count} picks! ${champPick?'Champion pick: '+champPick:'Add a champion pick to complete your bracket.'}`);
 }
 
-// BOWL GAMES DATA
-const bowlGames = [
-  {name:'Rose Bowl',date:'Jan 1 · 5:00 PM ET',t1:{name:'Michigan',rank:'#3',seed:'B1G'},t2:{name:'Alabama',rank:'#6',seed:'SEC'},edge:62,favor:'Michigan',confidence:'medium'},
-  {name:'Sugar Bowl',date:'Jan 1 · 8:45 PM ET',t1:{name:'Georgia',rank:'#1',seed:'SEC'},t2:{name:'Texas',rank:'#4',seed:'B12'},edge:71,favor:'Georgia',confidence:'high'},
-  {name:'Orange Bowl',date:'Dec 30 · 8:00 PM ET',t1:{name:'Penn State',rank:'#9',seed:'B1G'},t2:{name:'Ole Miss',rank:'#12',seed:'SEC'},edge:54,favor:'Penn State',confidence:'low'},
-  {name:'Cotton Bowl',date:'Dec 28 · 4:00 PM ET',t1:{name:'Ohio State',rank:'#2',seed:'B1G'},t2:{name:'Missouri',rank:'#18',seed:'SEC'},edge:78,favor:'Ohio State',confidence:'high'},
-  {name:'Peach Bowl',date:'Dec 28 · 8:00 PM ET',t1:{name:'Tennessee',rank:'#8',seed:'SEC'},t2:{name:'Iowa',rank:'#14',seed:'B1G'},edge:58,favor:'Tennessee',confidence:'medium'},
-  {name:'Fiesta Bowl',date:'Jan 1 · 1:00 PM ET',t1:{name:'Oklahoma',rank:'#11',seed:'B12'},t2:{name:'Oregon',rank:'#5',seed:'PAC'},edge:57,favor:'Oregon',confidence:'medium'},
-  {name:'Alamo Bowl',date:'Dec 29 · 8:00 PM ET',t1:{name:'Washington',rank:'#7',seed:'PAC'},t2:{name:'Texas A&M',rank:'#15',seed:'SEC'},edge:60,favor:'Washington',confidence:'medium'},
-  {name:'Citrus Bowl',date:'Jan 1 · 1:00 PM ET',t1:{name:'LSU',rank:'#10',seed:'SEC'},t2:{name:'Wisconsin',rank:'#20',seed:'B1G'},edge:65,favor:'LSU',confidence:'medium'},
-  {name:'Holiday Bowl',date:'Dec 27 · 8:00 PM ET',t1:{name:'UCLA',rank:'NR',seed:'PAC'},t2:{name:'Boise State',rank:'#22',seed:'MWC'},edge:52,favor:'Boise State',confidence:'low'},
-  {name:'Liberty Bowl',date:'Dec 27 · 5:30 PM ET',t1:{name:'Arkansas',rank:'NR',seed:'SEC'},t2:{name:'Kansas',rank:'NR',seed:'B12'},edge:51,favor:'Arkansas',confidence:'low'},
-];
-
-let bowlPicks = {};
-
-function renderBowl() {
-  const list = document.getElementById('bowlGamesList');
-  const madeCount = Object.keys(bowlPicks).length;
-  document.getElementById('bowlPickCount').textContent = madeCount;
-
-  const edgeClass = g => g.confidence==='high'?'edge-green':g.confidence==='medium'?'edge-gold':'edge-orange';
-  const upsetGame = g => {
-    const fav = g.favor;
-    const pick = bowlPicks[g.name];
-    if(pick && pick!==fav) return `<span class="bowl-upset-banner">⚡ Upset Pick</span>`;
-    return '';
-  };
-
-  list.innerHTML = bowlGames.map(g => `
-    <div class="bowl-game">
-      <div class="bowl-info">
-        <div class="bowl-name">${g.name}</div>
-        <div class="bowl-date">${g.date}</div>
-      </div>
-      <div class="bowl-matchup">
-        <div class="bowl-team ${bowlPicks[g.name]===g.t1.name?'picked':''}" onclick="makeBowlPick('${g.name}','${g.t1.name}')">
-          <div>
-            <div class="bowl-team-name">${g.t1.name}${upsetGame(g)&&bowlPicks[g.name]===g.t1.name?upsetGame(g):''}</div>
-            <div class="bowl-team-rank">${g.t1.rank} · ${g.t1.seed}</div>
-          </div>
-        </div>
-        <div class="bowl-vs">VS</div>
-        <div class="bowl-team ${bowlPicks[g.name]===g.t2.name?'picked':''}" onclick="makeBowlPick('${g.name}','${g.t2.name}')">
-          <div style="text-align:right">
-            <div class="bowl-team-name">${g.t2.name}${upsetGame(g)&&bowlPicks[g.name]===g.t2.name?upsetGame(g):''}</div>
-            <div class="bowl-team-rank">${g.t2.rank} · ${g.t2.seed}</div>
-          </div>
-        </div>
-      </div>
-      <div class="bowl-edge">
-        <div class="edge-label">Edge</div>
-        <div class="edge-val ${edgeClass(g)}">${g.edge}%</div>
-        <div class="edge-favor" style="font-size:10px;color:var(--gray);margin-top:3px;">${g.favor}</div>
-      </div>
-    </div>
-  `).join('');
-}
-
-function makeBowlPick(game, team) {
-  bowlPicks[game]=team;
-  renderBowl();
-}
-
 renderRegions();
 renderChamp();
-renderBowl();
-loadPickem(); // NFL Pick'em is the default active tab — load its live feed on page open
+loadNfl(); // NFL Pick'em is the default active tab — load its live feed on page open
+// (CFB Bowl loads lazily when its tab is opened; March Madness stays mock for now.)
 </script>
 <script type="module" src="/auth.js"></script>
 </body>
