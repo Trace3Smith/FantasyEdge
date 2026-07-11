@@ -36,6 +36,10 @@ export const ADP_KEY = 'adp:nfl';
 // outdoor weather, built daily by the refresh cron from free ESPN + NWS sources and served
 // via api/sports.js (?feed=nfl-pickem). Cached so requests make zero upstream calls.
 export const NFL_PICKEM_KEY = 'pickem:nfl';
+// CFB Bowl / Playoff Pick'em feed (Brackets & Bowls) — postseason bowl + CFP slate with
+// market-implied picks, injuries, and weather, built daily from the same free ESPN + NWS
+// sources as NFL and served via api/sports.js (?feed=cfb-bowl). Empty out of bowl season.
+export const CFB_BOWL_KEY = 'pickem:cfb';
 
 export const redis = new Redis({
   url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL,

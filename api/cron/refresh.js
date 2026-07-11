@@ -14,7 +14,8 @@ import { enrichForm } from '../_lib/enrichForm.js';
 import { enrichNflProjections } from '../_lib/fantasyProjections.js';
 import { enrichNflAdp } from '../_lib/fantasyAdp.js';
 import { buildNflPickem } from '../_lib/nflPickem.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, DATASET_VERSION } from '../_lib/kv.js';
+import { buildCfbBowl } from '../_lib/cfbBowl.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, DATASET_VERSION } from '../_lib/kv.js';
 
 // Secondary sports (ESPN-sourced, no prospects/enrichment). Each is built and
 // cached independently so one league's source failure can't drop another's
@@ -110,11 +111,23 @@ export default async function handler(req, res) {
       pickem = { error: err.message };
     }
 
+    // CFB Bowl / Playoff feed — same pipeline, postseason slate. Empty out of bowl season
+    // (matchups are set in December). Additive + failure-tolerant like the NFL feed.
+    let cfbBowl;
+    try {
+      const feed = await buildCfbBowl();
+      await redis.set(CFB_BOWL_KEY, feed);
+      cfbBowl = { season: feed.season, games: feed.games.length, upsets: feed.upsetAlerts.length };
+    } catch (err) {
+      cfbBowl = { error: err.message };
+    }
+
     return res.status(200).json({
       ok: true,
       builtAt: dataset.builtAt,
       counts: dataset.counts,
       pickem,
+      cfbBowl,
       ...secondary,
     });
   } catch (err) {
