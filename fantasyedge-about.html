@@ -40,6 +40,9 @@
   .badge { font-size: 10px; font-weight: 800; letter-spacing: .06em; padding: 2px 8px; border-radius: 5px; text-transform: uppercase; vertical-align: middle; white-space: nowrap; }
   .badge.premium { background: rgba(212,160,23,0.16); color: var(--gold-light); border: 1px solid rgba(212,160,23,0.4); }
   .badge.free { background: rgba(76,175,80,0.14); color: #9bdc9e; border: 1px solid rgba(76,175,80,0.35); }
+  .badge.wip { background: rgba(136,136,136,0.14); color: var(--gray-light); border: 1px dashed rgba(170,170,170,0.4); }
+  /* dim an in-progress feature row so it reads as clearly not-yet-live */
+  .feat.wip { opacity: 0.62; }
 
   /* legend */
   .legend { display: flex; gap: 22px; flex-wrap: wrap; align-items: center; }
@@ -249,8 +252,37 @@
     </ul>
   </div>
 
+  <!-- Brackets & Bowls -->
   <div class="panel">
-    <p class="note">Questions or something looks off? This page tracks what's actually shipped — if a badge here doesn't match what you see in the app, that's a bug worth flagging. Not listed yet: <b>Brackets &amp; Bowls</b> (in the nav but still being built).</p>
+    <h2>🏆 Brackets &amp; Bowls</h2>
+    <p class="grp-sub">Data-backed game picks. NFL Pick'em is live now; the college sections light up in their seasons.</p>
+    <ul class="feat-list">
+      <li class="feat">
+        <span class="fx">🏈</span>
+        <div class="fbody">
+          <div class="fname">NFL Pick'em <span class="badge free">Free</span></div>
+          <div class="fdesc">Every game's pick and <b>win probability</b>, derived from the live betting market, plus key injuries and game-week weather. Highest-confidence picks and upset alerts are flagged. Informational — not betting advice.</div>
+        </div>
+      </li>
+      <li class="feat wip">
+        <span class="fx">🏈</span>
+        <div class="fbody">
+          <div class="fname">College Bowl picks <span class="badge wip">In progress</span></div>
+          <div class="fdesc">Bowl-season game picks — <b>not live yet</b>, targeted for December.</div>
+        </div>
+      </li>
+      <li class="feat wip">
+        <span class="fx">🏀</span>
+        <div class="fbody">
+          <div class="fname">March Madness bracket optimizer <span class="badge wip">In progress</span></div>
+          <div class="fdesc">Bracket picks weighted for pool scoring, with upset alerts — <b>not live yet</b>, targeted for March.</div>
+        </div>
+      </li>
+    </ul>
+  </div>
+
+  <div class="panel">
+    <p class="note">Questions or something looks off? This page tracks what's actually shipped — if a badge here doesn't match what you see in the app, that's a bug worth flagging. <b>In progress</b> items are visible in the app but not finished, so don't rely on them yet.</p>
   </div>
 </main>
 
