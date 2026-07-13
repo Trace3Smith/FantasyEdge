@@ -87,6 +87,20 @@
   .champ-pick{padding:10px 20px;background:var(--dark3);border:1px solid rgba(212,160,23,0.15);font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gray);cursor:none;transition:all 0.2s;}
   .champ-pick:hover{border-color:var(--gold);color:var(--gold-light);}
   .champ-pick.selected{background:rgba(212,160,23,0.15);border-color:var(--gold);color:var(--gold);}
+  .champ-pick .cp-seed{color:var(--gray);font-size:11px;margin-right:4px;} .champ-pick.selected .cp-seed{color:var(--gold-light);}
+  .champ-pick .cp-pct{color:var(--gold-light);margin-left:6px;}
+
+  /* RECOMMENDED BRACKET */
+  .reco-card{background:var(--dark2);border:1px solid rgba(212,160,23,0.12);padding:20px 24px;margin-bottom:32px;}
+  .reco-title{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);margin-bottom:14px;}
+  .reco-row{display:flex;align-items:center;gap:16px;padding:9px 0;border-top:1px solid rgba(255,255,255,0.05);}
+  .reco-row:first-of-type{border-top:none;}
+  .reco-lbl{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gray);width:110px;flex-shrink:0;}
+  .reco-teams{display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:14px;font-weight:600;}
+  .reco-teams em{color:var(--gray);font-style:normal;font-size:11px;}
+  .reco-team .team-seed{display:inline-block;width:auto;margin-right:5px;font-size:15px;}
+  .reco-row.champ .reco-teams{color:var(--gold);} .reco-pct{color:var(--gold-light);font-family:'Barlow Condensed',sans-serif;font-weight:700;}
+  .reco-note{font-size:11px;color:var(--gray);margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05);}
 
   /* SUBMIT */
   .submit-row{display:flex;align-items:center;justify-content:space-between;padding:20px;background:var(--dark2);border:1px solid rgba(212,160,23,0.08);}
@@ -241,44 +255,53 @@
         <div id="nflGames"><div class="nfl-loading">Loading this week's games…</div></div>
       </div>
 
-      <!-- MARCH MADNESS -->
+      <!-- MARCH MADNESS (premium; live feed: ESPN BPI + seed history via /api/sports?feed=march-madness) -->
       <div id="marchView">
-        <!-- INTRO -->
-        <div class="bracket-intro">
-          <div class="intro-card">
-            <span class="intro-icon">📊</span>
-            <div><div class="intro-title">Model-Based Picks</div><div class="intro-sub">KenPom + NET + recent form combined</div></div>
-          </div>
-          <div class="intro-card">
-            <span class="intro-icon">⚡</span>
-            <div><div class="intro-title">Upset Alerts</div><div class="intro-sub">3 high-probability upsets flagged this year</div></div>
-          </div>
-          <div class="intro-card">
-            <span class="intro-icon">🎯</span>
-            <div><div class="intro-title">Pick Optimizer</div><div class="intro-sub">Picks weighted for max league scoring</div></div>
-          </div>
-        </div>
+        <!-- Premium lock (shown to non-premium users) -->
+        <div id="marchLocked" style="display:none"></div>
 
-        <div class="bracket-section-title">First Round Picks</div>
-        <div class="bracket-section-sub">Click a team to lock in your pick. FantasyEdge recommends are pre-selected based on our model.</div>
-
-        <!-- REGIONS -->
-        <div class="regions-grid" id="regionsGrid"></div>
-
-        <!-- CHAMPION -->
-        <div class="champion-section">
-          <div class="champ-title">🏆 National Champion</div>
-          <div class="champ-sub">Who's cutting the nets? Our model gives Kansas a 24% championship probability.</div>
-          <div class="champ-picks" id="champPicks"></div>
-        </div>
-
-        <!-- SUBMIT -->
-        <div class="submit-row">
-          <div class="submit-progress">
-            <div class="submit-label">Picks made: <span id="pickCount">0</span> of 32</div>
-            <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+        <!-- Bracket content (premium) -->
+        <div id="marchContent">
+          <div class="nfl-week">
+            <h2 id="marchTitle">March Madness — Bracket Optimizer</h2>
+            <span class="stamp" id="marchStamp"></span>
           </div>
-          <button class="submit-btn" onclick="submitBracket()">Lock In Bracket →</button>
+          <div class="nfl-sub">Every game's pick and win probability from our model — current-year team strength (ESPN BPI) blended with historical seed performance — plus round-by-round advancement odds and a recommended optimal bracket. Informational, not betting advice.</div>
+
+          <!-- INTRO -->
+          <div class="bracket-intro">
+            <div class="intro-card">
+              <span class="intro-icon">📊</span>
+              <div><div class="intro-title">Model-Based Picks</div><div class="intro-sub">ESPN BPI strength + historical seed performance</div></div>
+            </div>
+            <div class="intro-card">
+              <span class="intro-icon">⚡</span>
+              <div><div class="intro-title">Upset Alerts</div><div class="intro-sub"><span id="marchUpsetCount">—</span> live first-round upsets flagged</div></div>
+            </div>
+            <div class="intro-card">
+              <span class="intro-icon">🎯</span>
+              <div><div class="intro-title">Bracket Optimizer</div><div class="intro-sub">Round-by-round odds → a recommended fill</div></div>
+            </div>
+          </div>
+
+          <!-- RAILS: title odds + upset alerts -->
+          <div class="nfl-rails" id="marchRails"></div>
+
+          <!-- RECOMMENDED BRACKET -->
+          <div id="marchReco"></div>
+
+          <div class="bracket-section-title">First-Round Picks</div>
+          <div class="bracket-section-sub">Our model's favorite is highlighted in each game, with its win probability. ⚡ marks a live upset.</div>
+
+          <!-- REGIONS -->
+          <div class="regions-grid" id="regionsGrid"></div>
+
+          <!-- CHAMPION -->
+          <div class="champion-section">
+            <div class="champ-title">🏆 National Title Odds</div>
+            <div class="champ-sub" id="champSub">Model championship probabilities across the field.</div>
+            <div class="champ-picks" id="champPicks"></div>
+          </div>
         </div>
       </div>
 
@@ -310,6 +333,7 @@ function switchMode(mode) {
   document.getElementById('marchView').classList.toggle('active', mode==='march');
   document.getElementById('bowlView').classList.toggle('active', mode==='bowl');
   if (mode==='nfl') loadNfl();
+  if (mode==='march') loadMarch();
   if (mode==='bowl') loadCfb();
 }
 
@@ -410,112 +434,138 @@ function gameCard(g) {
   </div>`;
 }
 
-// MARCH MADNESS DATA
-const regions = [
-  { name:'East', tag:'Strong Chalk', matchups:[
-    {round:'R32',t1:{seed:1,name:'Connecticut',edge:'74%'},t2:{seed:16,name:'Stetson',edge:'26%'},rec:0},
-    {round:'R32',t1:{seed:2,name:'Iowa State',edge:'68%'},t2:{seed:15,name:'South Dakota St',edge:'32%'},rec:0},
-    {round:'R32',t1:{seed:3,name:'Illinois',edge:'65%'},t2:{seed:14,name:'Morehead St',edge:'35%'},rec:0},
-    {round:'R32',t1:{seed:4,name:'Auburn',edge:'60%'},t2:{seed:13,name:'Yale',edge:'40%',upset:true},rec:0},
-  ]},
-  { name:'West', tag:'Upset Zone', matchups:[
-    {round:'R32',t1:{seed:1,name:'North Carolina',edge:'72%'},t2:{seed:16,name:'Wagner',edge:'28%'},rec:0},
-    {round:'R32',t1:{seed:2,name:'Arizona',edge:'63%'},t2:{seed:15,name:'Long Beach St',edge:'37%'},rec:0},
-    {round:'R32',t1:{seed:3,name:'Baylor',edge:'58%'},t2:{seed:14,name:'Colgate',edge:'42%',upset:true},rec:0},
-    {round:'R32',t1:{seed:4,name:'Alabama',edge:'55%'},t2:{seed:13,name:'Charleston',edge:'45%',upset:true},rec:0},
-  ]},
-  { name:'South', tag:'Favorite Friendly', matchups:[
-    {round:'R32',t1:{seed:1,name:'Houston',edge:'78%'},t2:{seed:16,name:'Longwood',edge:'22%'},rec:0},
-    {round:'R32',t1:{seed:2,name:'Marquette',edge:'64%'},t2:{seed:15,name:'Western KY',edge:'36%'},rec:0},
-    {round:'R32',t1:{seed:3,name:'Kentucky',edge:'62%'},t2:{seed:14,name:'Oakland',edge:'38%'},rec:0},
-    {round:'R32',t1:{seed:4,name:'Duke',edge:'61%'},t2:{seed:13,name:'Vermont',edge:'39%'},rec:0},
-  ]},
-  { name:'Midwest', tag:'Wide Open', matchups:[
-    {round:'R32',t1:{seed:1,name:'Kansas',edge:'76%'},t2:{seed:16,name:'Samford',edge:'24%'},rec:0},
-    {round:'R32',t1:{seed:2,name:'Tennessee',edge:'66%'},t2:{seed:15,name:'Saint Peter\'s',edge:'34%'},rec:0},
-    {round:'R32',t1:{seed:3,name:'Creighton',edge:'60%'},t2:{seed:14,name:'Akron',edge:'40%'},rec:0},
-    {round:'R32',t1:{seed:4,name:'Texas',edge:'57%'},t2:{seed:13,name:'Colgate',edge:'43%',upset:true},rec:0},
-  ]}
-];
+// ===== March Madness bracket optimizer (PREMIUM; live feed) =====
+// Unlike the free NFL/CFB Pick'em feeds, this is premium-gated: the endpoint re-verifies the
+// plan server-side, and the UI shows an upsell to non-premium users. Data is the model output
+// from /api/sports?feed=march-madness (ESPN BPI + seed history). Read-only — it presents the
+// model's recommended bracket and probabilities, not an interactive pick-your-own form.
+const MM = { loaded:false };
+const marchIsPremium = () => !!(window.FE && window.FE.isPremium && window.FE.isPremium());
 
-const champTeams = ['Connecticut','Kansas','North Carolina','Houston','Arizona','Iowa State','Tennessee','Kentucky'];
-let picks = {};
-let champPick = null;
+function renderMarchLock() {
+  document.getElementById('marchContent').style.display = 'none';
+  const lock = document.getElementById('marchLocked');
+  lock.style.display = 'block';
+  lock.innerHTML = `<div class="nfl-error" style="padding:64px 24px">
+    <div style="font-size:34px;margin-bottom:14px">🔒</div>
+    <div style="font-size:18px;color:var(--gold);font-weight:700;margin-bottom:8px">Premium feature</div>
+    <div style="max-width:440px;margin:0 auto 22px">The bracket optimizer — every game's model pick, round-by-round advancement odds, title probabilities, and a recommended bracket — is part of FantasyEdge Premium.</div>
+    <button class="submit-btn" onclick="(window.FE&&window.FE.openPricing)?window.FE.openPricing():(location.href='/fantasyedge-draft.html')">Unlock Premium →</button>
+  </div>`;
+}
 
-function renderRegions() {
+async function loadMarch() {
+  if (!marchIsPremium()) { renderMarchLock(); return; }
+  document.getElementById('marchLocked').style.display = 'none';
+  document.getElementById('marchContent').style.display = 'block';
+  if (MM.loaded) return; MM.loaded = true;
   const grid = document.getElementById('regionsGrid');
-  grid.innerHTML = regions.map((r,ri) => `
+  grid.innerHTML = '<div class="nfl-loading">Building this year\'s bracket…</div>';
+  try {
+    const headers = {};
+    const tok = window.FE && window.FE.getToken ? await window.FE.getToken() : null;
+    if (tok) headers.Authorization = 'Bearer ' + tok;
+    const r = await fetch('/api/sports?feed=march-madness', { headers });
+    if (r.status === 401 || r.status === 403) { MM.loaded = false; renderMarchLock(); return; }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    renderMarch(await r.json());
+  } catch (e) {
+    MM.loaded = false;
+    grid.innerHTML = '<div class="nfl-error">Couldn\'t load the bracket. Try again shortly.</div>';
+  }
+}
+
+function renderMarch(d) {
+  document.getElementById('marchTitle').textContent = `March Madness — Bracket Optimizer${d.season ? ' ' + d.season : ''}`;
+  document.getElementById('marchStamp').textContent = d.builtAt ? 'Updated ' + new Date(d.builtAt).toLocaleDateString([], {month:'short', day:'numeric'}) : '';
+  const grid = document.getElementById('regionsGrid');
+
+  // Off-season / mid-reveal: no full bracket to show yet.
+  if (d.field !== 'set') {
+    document.getElementById('marchRails').innerHTML = '';
+    document.getElementById('marchReco').innerHTML = '';
+    document.getElementById('champPicks').innerHTML = '';
+    document.getElementById('champSub').textContent = '';
+    document.getElementById('marchUpsetCount').textContent = '—';
+    grid.innerHTML = `<div class="nfl-error">${d.field === 'incomplete'
+      ? 'The field is being announced — check back shortly as the bracket fills in.'
+      : 'The bracket is set on Selection Sunday in March. Check back when the field is announced.'}</div>`;
+    return;
+  }
+
+  document.getElementById('marchUpsetCount').textContent = (d.upsetAlerts || []).length;
+
+  // Rails: title odds (left) + upset alerts (right) — reuse the Pick'em rail styling.
+  const champRail = (d.titleOdds || []).slice(0,6).map(t =>
+    `<div class="rail-row"><span class="rr-team"><span class="rr-meta">(${t.seed})</span> ${esc(t.abbr)} <span class="rr-meta">${esc(t.region)}</span></span><span class="rr-pct">${t.champ}%</span></div>`
+  ).join('') || '<div class="rail-empty">—</div>';
+  const upsRail = (d.upsetAlerts || []).slice(0,6).map(u =>
+    `<div class="rail-row"><span class="rr-team"><span class="rr-meta">(${u.dog.seed})</span> ${esc(u.dog.abbr)} <span class="rr-meta">over (${u.fav.seed}) ${esc(u.fav.abbr)}</span></span><span class="rr-pct">${u.dogWinProb}%</span></div>`
+  ).join('') || '<div class="rail-empty">No live first-round upsets flagged.</div>';
+  document.getElementById('marchRails').innerHTML =
+    `<div class="rail best"><div class="rail-title">🏆 Title odds</div>${champRail}</div>` +
+    `<div class="rail upset"><div class="rail-title">⚡ Upset alerts</div>${upsRail}</div>`;
+
+  // Recommended bracket (the "optimal fill"). The Final Four pairing is the real bracket pairing
+  // once ESPN's later rounds are set; before then the finalists are "projected" (no specific
+  // semifinal asserted) and we say so rather than invent a pairing.
+  const r = d.recommended;
+  const chip = (t) => `<span class="reco-team"><span class="team-seed">${t.seed}</span>${esc(t.short || t.abbr)}</span>`;
+  const known = r && r.pairingKnown;
+  document.getElementById('marchReco').innerHTML = r ? `
+    <div class="reco-card">
+      <div class="reco-title">🎯 Recommended Bracket</div>
+      <div class="reco-row"><span class="reco-lbl">Final Four</span><span class="reco-teams">${r.finalFour.map(chip).join('')}</span></div>
+      <div class="reco-row"><span class="reco-lbl">${known ? 'Championship' : 'Projected finalists'}</span><span class="reco-teams">${r.championship.map(chip).join(known ? ' <em>vs</em> ' : ' <em>·</em> ')}</span></div>
+      <div class="reco-row champ"><span class="reco-lbl">Champion</span><span class="reco-teams">${chip(r.champion)}${r.champion.winProb != null ? ` <span class="reco-pct">${r.champion.winProb}%</span>` : ''}</span></div>
+      ${!known ? '<div class="reco-note">Final Four pairing is confirmed once the regional finals are set — until then, championship odds average over the possible matchups.</div>' : ''}
+    </div>` : '';
+
+  // Region cards: all 8 first-round games, model pick highlighted.
+  grid.innerHTML = (d.regions || []).map(reg => `
     <div class="region-card">
-      <div class="region-header">
-        <div class="region-name">${r.name} Region</div>
-        <span class="region-tag">${r.tag}</span>
-      </div>
+      <div class="region-header"><div class="region-name">${esc(reg.name)} Region</div><span class="region-tag">Model picks</span></div>
       <div class="region-body">
-        ${r.matchups.map((m,mi) => `
+        ${reg.firstRound.map(g => `
           <div class="matchup">
-            <div class="matchup-label">${m.round}</div>
+            <div class="matchup-label">R64</div>
             <div class="matchup-teams">
-              ${[0,1].map(ti => {
-                const t = ti===0?m.t1:m.t2;
-                const id = `${ri}-${mi}-${ti}`;
-                const sel = picks[`${ri}-${mi}`]===ti;
-                const isRec = m.rec===ti;
-                return `<div class="team-pick ${sel?'selected':''}" onclick="makePick(${ri},${mi},${ti})">
+              ${[g.fav, g.dog].map(t => {
+                const picked = g.pick.team === t.abbr;
+                const prob = picked ? g.pick.winProb : g.dogWinProb;
+                const isDogUpset = g.upsetAlert && !picked;
+                return `<div class="team-pick ${picked ? 'selected' : ''}">
                   <span class="team-seed">${t.seed}</span>
-                  <span class="team-name">${t.name}${isRec?' ✓':''}</span>
-                  <span class="team-edge">${t.edge}</span>
-                  ${t.upset?'<span class="upset-badge">Upset Alert</span>':''}
+                  <span class="team-name">${esc(t.name)}${picked ? ' ✓' : ''}</span>
+                  <span class="team-edge">${prob}%</span>
+                  ${isDogUpset ? '<span class="upset-badge">Upset Alert</span>' : ''}
                 </div>`;
               }).join('')}
             </div>
           </div>
         `).join('')}
-        <div class="region-pick-bar"><div class="region-pick-fill" id="fill-${ri}" style="width:${getRegionPct(ri)}%"></div></div>
       </div>
     </div>
   `).join('');
-}
 
-function getRegionPct(ri) {
-  const total = regions[ri].matchups.length;
-  const made = regions[ri].matchups.filter((_,mi)=>picks[`${ri}-${mi}`]!==undefined).length;
-  return (made/total)*100;
-}
-
-function makePick(ri,mi,ti) {
-  const key=`${ri}-${mi}`;
-  picks[key]=ti;
-  updatePickCount();
-  renderRegions();
-}
-
-function updatePickCount() {
-  const count = Object.keys(picks).length;
-  document.getElementById('pickCount').textContent=count;
-  document.getElementById('progressFill').style.width=(count/32*100)+'%';
-}
-
-function renderChamp() {
-  document.getElementById('champPicks').innerHTML = champTeams.map(t =>
-    `<button class="champ-pick ${champPick===t?'selected':''}" onclick="pickChamp('${t}')">${t}</button>`
+  // National title odds chips.
+  const top = (d.titleOdds || [])[0];
+  document.getElementById('champSub').textContent = top
+    ? `Our model gives ${top.name} the best title shot at ${top.champ}%.`
+    : 'Model championship probabilities across the field.';
+  document.getElementById('champPicks').innerHTML = (d.titleOdds || []).slice(0,8).map((t,i) =>
+    `<span class="champ-pick ${i===0 ? 'selected' : ''}"><span class="cp-seed">(${t.seed})</span>${esc(t.abbr)}<span class="cp-pct">${t.champ}%</span></span>`
   ).join('');
 }
 
-function pickChamp(t) {
-  champPick=t;
-  renderChamp();
-}
+loadNfl(); // NFL Pick'em is the default active tab — load its live feed on page open.
+// CFB Bowl and March Madness load lazily when their tabs are opened (see switchMode).
 
-function submitBracket() {
-  const count=Object.keys(picks).length;
-  if(count<8){alert('Make at least 8 picks before locking in your bracket!');return;}
-  alert(`🏆 Bracket locked with ${count} picks! ${champPick?'Champion pick: '+champPick:'Add a champion pick to complete your bracket.'}`);
-}
-
-renderRegions();
-renderChamp();
-loadNfl(); // NFL Pick'em is the default active tab — load its live feed on page open
-// (CFB Bowl loads lazily when its tab is opened; March Madness stays mock for now.)
+// Auth resolves after first paint. If the user is sitting on the March tab when it does,
+// re-evaluate the premium lock (premium users get the bracket; also fires on sign-in/out).
+document.addEventListener('fe-auth-ready', () => {
+  if (document.getElementById('marchView').classList.contains('active')) loadMarch();
+});
 </script>
 <script type="module" src="/auth.js"></script>
 </body>
