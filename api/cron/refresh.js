@@ -15,7 +15,8 @@ import { enrichNflProjections } from '../_lib/fantasyProjections.js';
 import { enrichNflAdp } from '../_lib/fantasyAdp.js';
 import { buildNflPickem } from '../_lib/nflPickem.js';
 import { buildCfbBowl } from '../_lib/cfbBowl.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, DATASET_VERSION } from '../_lib/kv.js';
+import { buildMarchMadness } from '../_lib/marchMadness.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, MM_KEY, DATASET_VERSION } from '../_lib/kv.js';
 
 // Secondary sports (ESPN-sourced, no prospects/enrichment). Each is built and
 // cached independently so one league's source failure can't drop another's
@@ -122,12 +123,25 @@ export default async function handler(req, res) {
       cfbBowl = { error: err.message };
     }
 
+    // March Madness bracket (premium) — full men's tournament model, free ESPN sources. Empty
+    // out of season (the field only exists ~3 weeks each March). Additive + failure-tolerant:
+    // a failed build leaves the last good bracket in KV rather than dropping it.
+    let marchMadness;
+    try {
+      const feed = await buildMarchMadness();
+      await redis.set(MM_KEY, feed);
+      marchMadness = { field: feed.field, season: feed.season, regions: feed.regions.length, upsets: feed.upsetAlerts.length };
+    } catch (err) {
+      marchMadness = { error: err.message };
+    }
+
     return res.status(200).json({
       ok: true,
       builtAt: dataset.builtAt,
       counts: dataset.counts,
       pickem,
       cfbBowl,
+      marchMadness,
       ...secondary,
     });
   } catch (err) {

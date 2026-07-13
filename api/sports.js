@@ -10,8 +10,9 @@ import { buildNflDataset } from './_lib/buildNflDataset.js';
 import { buildPgaDataset } from './_lib/buildPgaDataset.js';
 import { buildNflPickem } from './_lib/nflPickem.js';
 import { buildCfbBowl } from './_lib/cfbBowl.js';
+import { buildMarchMadness } from './_lib/marchMadness.js';
 import { requirePremium, sendError } from './_lib/auth.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, DATASET_VERSION } from './_lib/kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, MM_KEY, DATASET_VERSION } from './_lib/kv.js';
 
 // Per-sport dataset wiring: which KV key holds it and how to (re)build it on a
 // cold-start cache miss. Add a sport here + a frontend tab to light it up. A
@@ -45,6 +46,35 @@ function filterLivByField(players) {
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
+
+  // March Madness bracket optimizer (Brackets & Bowls) — PREMIUM, unlike the free Pick'em
+  // feeds below. Rides this same function (?feed=march-madness) to preserve the function
+  // budget. Re-verifies the Clerk session + plan server-side (the UI lock is cosmetic), then
+  // serves the daily-cached bracket with a cold-start inline build so a fresh field self-heals
+  // on the first request after Selection Sunday — no waiting for the next daily cron.
+  if (req.query.feed === 'march-madness') {
+    try {
+      await requirePremium(req);
+    } catch (err) {
+      return sendError(res, err);
+    }
+    try {
+      let feed = await redis.get(MM_KEY);
+      // A complete ('set') bracket is cached until the daily cron rebuilds it. A cold miss, or a
+      // not-yet-'set' feed (off-season 'none' or a mid-reveal 'incomplete') older than 30 min,
+      // rebuilds inline — so a freshly-announced field self-heals within the half-hour of the
+      // first request, without re-fetching ESPN on every hit during the empty months.
+      const ageMs = feed?.builtAt ? Date.now() - Date.parse(feed.builtAt) : Infinity;
+      const stale = !feed || !Array.isArray(feed.regions) || (feed.field !== 'set' && ageMs > 30 * 60 * 1000);
+      if (stale) {
+        feed = await buildMarchMadness();
+        await redis.set(MM_KEY, feed);
+      }
+      return res.json(feed);
+    } catch (err) {
+      return res.status(500).json({ error: err.message, field: 'none', regions: [] });
+    }
+  }
 
   // Brackets & Bowls feeds ride this same function (dispatch on ?feed=) to stay within the
   // serverless-function budget — no dedicated endpoint. NFL Pick'em is a free, read-only

@@ -40,6 +40,12 @@ export const NFL_PICKEM_KEY = 'pickem:nfl';
 // market-implied picks, injuries, and weather, built daily from the same free ESPN + NWS
 // sources as NFL and served via api/sports.js (?feed=cfb-bowl). Empty out of bowl season.
 export const CFB_BOWL_KEY = 'pickem:cfb';
+// March Madness bracket optimizer feed (Brackets & Bowls, premium) — the full men's tournament
+// bracket with per-game model picks, round-by-round advancement probabilities, national title
+// odds, and a recommended optimal fill. Built daily from free ESPN sources (scoreboard field +
+// BPI) and served via api/sports.js (?feed=march-madness), premium-gated. Empty out of season
+// (the field only exists ~3 weeks each March).
+export const MM_KEY = 'bracket:mm';
 
 export const redis = new Redis({
   url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL,
