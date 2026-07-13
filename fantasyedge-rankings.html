@@ -20,6 +20,76 @@
     --green: #4CAF50;
     --red: #F44336;
     --orange: #FF9800;
+    /* Per-sport accent theming. The base layer defaults to the FantasyEdge gold
+       identity, so any sport without an override renders exactly as before. Each
+       sport swaps these in via body[data-sport="..."] (set by applySport). This is
+       ACCENT theming only — color/mood/texture — not a reskin: gold stays the brand. */
+    --sport-accent: var(--gold);
+    --sport-accent-light: var(--gold-light);
+    --sport-accent-rgb: 212,160,23;   /* for translucent fills/borders */
+    --sport-glow: none;               /* ambient corner wash (gradient layers) */
+    --sport-texture: none;            /* subtle repeating background pattern */
+  }
+  /* ⛳ Golf — manicured-course mood: deep fairway green, warm sunlight gold, azalea-pink accents. */
+  body[data-sport="pga"] {
+    --sport-accent: #3E8E5A;
+    --sport-accent-light: #7FC796;
+    --sport-accent-rgb: 62,142,90;
+    --sport-glow:
+      radial-gradient(1200px 520px at 88% -8%, rgba(232,197,71,0.11), transparent 62%),
+      radial-gradient(900px 520px at 2% 112%, rgba(232,160,192,0.07), transparent 60%);
+    --sport-texture: repeating-linear-gradient(116deg,
+      rgba(62,142,90,0.055) 0 62px, rgba(62,142,90,0.02) 62px 124px);
+  }
+  /* ⚾ MLB — classic-ballpark brick red (warm masonry), distinct from the greens. */
+  body[data-sport="mlb"] {
+    --sport-accent: #B0442E;
+    --sport-accent-light: #DD7256;
+    --sport-accent-rgb: 176,68,46;
+    --sport-glow:
+      radial-gradient(1100px 520px at 85% -10%, rgba(203,92,62,0.11), transparent 60%),
+      radial-gradient(820px 440px at -2% 108%, rgba(120,42,32,0.12), transparent 60%);
+    --sport-texture: repeating-linear-gradient(0deg,
+      rgba(176,68,46,0.06) 0 1px, transparent 1px 27px);
+  }
+  /* 🏀 NBA — hardwood: warm honey-wood brown (kept browner than the base gold),
+     vertical plank grain + warm court glow. */
+  body[data-sport="nba"] {
+    --sport-accent: #BE7B3A;
+    --sport-accent-light: #E0A967;
+    --sport-accent-rgb: 190,123,58;
+    --sport-glow:
+      radial-gradient(1150px 520px at 86% -10%, rgba(201,142,74,0.11), transparent 60%),
+      radial-gradient(820px 460px at -2% 110%, rgba(120,78,40,0.12), transparent 60%);
+    --sport-texture:
+      repeating-linear-gradient(90deg, rgba(190,123,58,0.05) 0 2px, transparent 2px 48px),
+      linear-gradient(0deg, rgba(150,96,46,0.035), rgba(150,96,46,0.035));
+  }
+  /* 🏈 NFL — field: cooler, deeper grass green with white/chalk horizontal yard-marker
+     lines (vs golf's warmer green + diagonal stripes, so the two greens stay distinct). */
+  body[data-sport="nfl"] {
+    --sport-accent: #3C8C4A;
+    --sport-accent-light: #74C083;
+    --sport-accent-rgb: 60,140,74;
+    --sport-glow:
+      radial-gradient(1300px 620px at 50% -22%, rgba(60,140,74,0.10), transparent 62%);
+    --sport-texture:
+      repeating-linear-gradient(0deg, rgba(240,245,240,0.05) 0 2px, transparent 2px 74px),
+      linear-gradient(0deg, rgba(46,120,60,0.05), rgba(46,120,60,0.05));
+  }
+  /* 🏒 NHL — ice: cool white / light-blue with faint horizontal rink-line motifs (blue
+     lines), a crisp cold wash that deliberately contrasts the warmer tones of the others. */
+  body[data-sport="nhl"] {
+    --sport-accent: #4FA3D4;
+    --sport-accent-light: #9FD3EE;
+    --sport-accent-rgb: 79,163,212;
+    --sport-glow:
+      radial-gradient(1300px 640px at 50% -18%, rgba(174,214,241,0.11), transparent 62%);
+    --sport-texture:
+      linear-gradient(0deg,
+        transparent 0 23%, rgba(79,163,212,0.07) 23% 23.5%,
+        transparent 23.5% 76.5%, rgba(79,163,212,0.07) 76.5% 77%, transparent 77%),
+      linear-gradient(0deg, rgba(150,190,220,0.045), rgba(150,190,220,0.045));
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -131,6 +201,12 @@
     display: flex;
     flex-direction: column;
     min-height: 100vh;
+    /* Sport accent backdrop: an ambient glow (fixed to the viewport) over a subtle
+       repeating texture. Both default to none, so unthemed sports keep the flat base. */
+    background-image: var(--sport-glow), var(--sport-texture);
+    background-repeat: no-repeat, repeat;
+    background-attachment: fixed, scroll;
+    transition: background-image 0.45s ease;
   }
   .top-header {
     padding: 24px 28px 0;
@@ -166,9 +242,9 @@
     letter-spacing: 0.5px;
   }
   .sport-tab:hover { color: var(--white); }
-  .sport-tab.active { color: var(--gold); border-bottom-color: var(--gold); }
+  .sport-tab.active { color: var(--sport-accent-light); border-bottom-color: var(--sport-accent); }
   .sport-tab .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gray); }
-  .sport-tab.active .dot { background: var(--gold); }
+  .sport-tab.active .dot { background: var(--sport-accent); }
   .sport-tab[data-sport="nba"] .dot { background: #C9082A; }
   .sport-tab[data-sport="wnba"] .dot { background: #FF6B35; }
   .sport-tab[data-sport="nhl"] .dot { background: #6EC6F5; }
@@ -194,16 +270,17 @@
   .roto-bar {
     margin: 0 28px 14px;
     padding: 10px 14px;
-    background: rgba(212,160,23,0.06);
-    border: 1px solid rgba(212,160,23,0.15);
+    background: rgba(var(--sport-accent-rgb),0.06);
+    border: 1px solid rgba(var(--sport-accent-rgb),0.15);
     border-radius: 6px;
     display: flex;
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
+    transition: background 0.45s ease, border-color 0.45s ease;
   }
-  .roto-label { font-size: 10px; font-weight: 700; letter-spacing: 1px; color: var(--gold); text-transform: uppercase; white-space: nowrap; }
-  .cat-pill { padding: 3px 8px; background: rgba(212,160,23,0.15); border: 1px solid rgba(212,160,23,0.3); border-radius: 3px; font-size: 10px; font-weight: 600; color: var(--gold-light); }
+  .roto-label { font-size: 10px; font-weight: 700; letter-spacing: 1px; color: var(--sport-accent-light); text-transform: uppercase; white-space: nowrap; }
+  .cat-pill { padding: 3px 8px; background: rgba(var(--sport-accent-rgb),0.15); border: 1px solid rgba(var(--sport-accent-rgb),0.3); border-radius: 3px; font-size: 10px; font-weight: 600; color: var(--sport-accent-light); }
   .pos-filters { display: flex; gap: 6px; padding: 0 28px 16px; flex-wrap: wrap; }
   .league-filters { padding-bottom: 10px; align-items: center; }
   .filter-group-label { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray); margin-right: 4px; align-self: center; }
@@ -794,6 +871,9 @@
   // Rebuild the position filters + roto-category banner for a sport and reset both
   // filters to their defaults; the AL/NL league toggle is MLB-only (hidden else).
   function applySport(sport) {
+    // Drive per-sport accent theming (see the body[data-sport] CSS blocks). Base gold
+    // identity stays; unthemed sports fall back to the gold custom-property defaults.
+    document.body.dataset.sport = sport;
     currentPos = 'ALL';
     currentLeague = 'ALL';
     currentScoring = 'PPR';
