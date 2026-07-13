@@ -895,8 +895,17 @@
     if (PREMIUM_SPORTS.has(currentSport)) loadAndRender(currentSport);
   });
 
-  applySport('mlb');
-  loadAndRender('mlb');
+  // Honor a ?sport= deep link (the sidebar SPORTS nav on other pages points here). Falls back to
+  // mlb for a missing/unknown value. Reflect it in both the sidebar and the sport-tabs' active state.
+  const VALID_SPORTS = new Set(['mlb', 'nba', 'wnba', 'nhl', 'pga', 'nfl']);
+  const qSport = new URLSearchParams(location.search).get('sport');
+  const initialSport = qSport && VALID_SPORTS.has(qSport) ? qSport : 'mlb';
+  if (initialSport !== 'mlb') {
+    document.querySelectorAll('.sport-tab,.sidebar-sports a').forEach(el => el.classList.remove('active'));
+    document.querySelector(`#sidebarSports a[data-sport="${initialSport}"]`)?.classList.add('active');
+    document.querySelector(`.sport-tab[data-sport="${initialSport}"]`)?.classList.add('active');
+  applySport(initialSport);
+  loadAndRender(initialSport);
 </script>
 <script type="module" src="/auth.js"></script>
 </body>
