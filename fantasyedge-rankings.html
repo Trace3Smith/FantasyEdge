@@ -357,7 +357,7 @@
   </ul>
   <div class="upgrade-box">
     <p>Unlock live stats, full roster analyzer &amp; add/drop alerts.</p>
-    <a href="#" class="upgrade-btn">Get Pro — $9/mo</a>
+    <a href="#" class="upgrade-btn">Get Premium — $9.99/mo</a>
   </div>
 </aside>
 
@@ -904,6 +904,7 @@
     document.querySelectorAll('.sport-tab,.sidebar-sports a').forEach(el => el.classList.remove('active'));
     document.querySelector(`#sidebarSports a[data-sport="${initialSport}"]`)?.classList.add('active');
     document.querySelector(`.sport-tab[data-sport="${initialSport}"]`)?.classList.add('active');
+  }
   applySport(initialSport);
   loadAndRender(initialSport);
 </script>
