@@ -38,18 +38,19 @@
     --sport-bg-image: url("/assets/textures/golf-grass.webp");
     --sport-scrim: linear-gradient(180deg, rgba(12,15,12,0.87), rgba(10,13,11,0.90));
   }
-  /* ⚾ MLB — ivy climbing on brick (generic wall, no venue/signage): the green ivy adds the
-     saturation + pattern the flat brick lacked, so the classic-ballpark mood now survives the
-     scrim. Scrim opacity matches the other four for a consistent legibility balance. */
+  /* ⚾ MLB — warm weathered red brick (generic wall, no venue/signage), the brick clearly the
+     dominant subject. Bright and saturated, so it reads unmistakably as a brick wall through the
+     scrim; scrim opacity matches the other four for a consistent legibility balance. */
   body[data-sport="mlb"] {
     --sport-accent: #B0442E;
     --sport-accent-light: #DD7256;
     --sport-accent-rgb: 176,68,46;
-    --sport-bg-image: url("/assets/textures/mlb-ivy-brick.webp");
+    --sport-bg-image: url("/assets/textures/mlb-brick.webp");
     --sport-scrim: linear-gradient(180deg, rgba(14,13,11,0.87), rgba(11,10,10,0.90));
   }
-  /* 🏀 NBA — warm honey hardwood photo (generic plank floor) behind a dark warm-tinted scrim. */
-  body[data-sport="nba"] {
+  /* 🏀 NBA + WNBA — warm honey hardwood photo (generic plank floor) behind a dark warm-tinted
+     scrim. Both basketball tabs share the same court-hardwood mood, accent, and texture. */
+  body[data-sport="nba"], body[data-sport="wnba"] {
     --sport-accent: #BE7B3A;
     --sport-accent-light: #E0A967;
     --sport-accent-rgb: 190,123,58;
