@@ -9,7 +9,7 @@ to WebP, and stripped of EXIF metadata for weight and cleanliness.
 | File | Sport | Source (Pexels) | Notes |
 |------|-------|-----------------|-------|
 | `golf-grass.webp`  | Golf (PGA) | https://www.pexels.com/photo/413195/     | Manicured green turf, top-down; slight blur |
-| `mlb-brick.webp`   | MLB        | https://www.pexels.com/photo/1696261/    | Weathered warm red brick wall |
+| `mlb-ivy-brick.webp` | MLB      | https://www.pexels.com/photo/12183140/   | Green ivy climbing a red-brick wall (classic-ballpark mood); brightness/saturation lifted so it reads through the scrim |
 | `nba-hardwood.webp`| NBA        | https://www.pexels.com/photo/326862/     | Warm honey wood-plank flooring |
 | `nfl-field.webp`   | NFL        | https://www.pexels.com/photo/29393323/   | Mown grass with diagonal groom stripes; blurred (kept distinct from golf) |
 | `nhl-ice.webp`     | NHL        | https://www.pexels.com/photo/6015665/    | Skated rink-ice surface, cool blue-grey |
