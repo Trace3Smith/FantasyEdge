@@ -38,15 +38,16 @@
     --sport-bg-image: url("/assets/textures/golf-grass.webp");
     --sport-scrim: linear-gradient(180deg, rgba(12,15,12,0.87), rgba(10,13,11,0.90));
   }
-  /* ⚾ MLB — warm weathered red brick (generic wall, no venue/signage), the brick clearly the
-     dominant subject. Bright and saturated, so it reads unmistakably as a brick wall through the
-     scrim; scrim opacity matches the other four for a consistent legibility balance. */
+  /* ⚾ MLB — aged manual-scoreboard mood: weathered green painted metal with rust and flaking
+     paint (generic worn surface — not a real scoreboard, no data/venue). Blurred harder than the
+     other sports and behind a slightly stronger scrim so it reads as ambient worn texture, never
+     a second grid of numbers competing with the player table. */
   body[data-sport="mlb"] {
     --sport-accent: #B0442E;
     --sport-accent-light: #DD7256;
     --sport-accent-rgb: 176,68,46;
-    --sport-bg-image: url("/assets/textures/mlb-brick.webp");
-    --sport-scrim: linear-gradient(180deg, rgba(14,13,11,0.87), rgba(11,10,10,0.90));
+    --sport-bg-image: url("/assets/textures/mlb-scoreboard.webp");
+    --sport-scrim: linear-gradient(180deg, rgba(12,14,12,0.89), rgba(10,11,10,0.92));
   }
   /* 🏀 NBA + WNBA — warm honey hardwood photo (generic plank floor) behind a dark warm-tinted
      scrim. Both basketball tabs share the same court-hardwood mood, accent, and texture. */
