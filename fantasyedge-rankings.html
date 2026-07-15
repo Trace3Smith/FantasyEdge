@@ -68,14 +68,15 @@
     --sport-bg-image: url("/assets/textures/nfl-field.webp");
     --sport-scrim: linear-gradient(180deg, rgba(11,15,11,0.86), rgba(9,12,9,0.90));
   }
-  /* 🏒 NHL — rink-ice photo (generic skated surface, no lines/logos) behind a cool-tinted scrim;
-     the crisp cold surface deliberately contrasts the warmer tones of the other sports. */
+  /* 🏒 NHL — real rink: white dasher boards (blue kickplate, yellow cap rail), a hockey goal, and
+     cool ice (generic practice rink — no ads, board logos, or identifiable arena) behind a cool-
+     tinted scrim; the cold tones deliberately contrast the warmer sports. */
   body[data-sport="nhl"] {
     --sport-accent: #4FA3D4;
     --sport-accent-light: #9FD3EE;
     --sport-accent-rgb: 79,163,212;
-    --sport-bg-image: url("/assets/textures/nhl-ice.webp");
-    --sport-scrim: linear-gradient(180deg, rgba(11,14,17,0.84), rgba(9,11,14,0.89));
+    --sport-bg-image: url("/assets/textures/nhl-rink.webp");
+    --sport-scrim: linear-gradient(180deg, rgba(11,14,17,0.87), rgba(9,11,14,0.90));
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {

@@ -12,7 +12,7 @@ to WebP, and stripped of EXIF metadata for weight and cleanliness.
 | `mlb-field.webp`   | MLB        | https://www.pexels.com/photo/16163118/   | Mown outfield grass with a white foul line and red infield dirt (generic field surface, no venue/signage/seating). Moderate blur + standard scrim, like golf |
 | `nba-court.webp`   | NBA + WNBA | https://www.pexels.com/photo/6777245/    | Indoor basketball court — hardwood floor with hoop/backboard/free-throw arc (generic gym, no logos/branding/venue); shared by both basketball tabs |
 | `nfl-field.webp`   | NFL        | https://www.pexels.com/photo/29393323/   | Mown grass with diagonal groom stripes; blurred (kept distinct from golf) |
-| `nhl-ice.webp`     | NHL        | https://www.pexels.com/photo/6015665/    | Skated rink-ice surface, cool blue-grey |
+| `nhl-rink.webp`    | NHL        | https://www.pexels.com/photo/6847292/    | Real hockey rink — white dasher boards, goal, and cool ice (generic practice rink, no ads/board logos/venue) |
 
 Processing: `sharp` → resize ~1100–1200 px wide, WebP q48–58 (NFL blurred more to soften the
 stripes), metadata stripped. Each file 17–197 KB; only the active sport's image loads.
