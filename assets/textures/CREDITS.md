@@ -9,7 +9,7 @@ to WebP, and stripped of EXIF metadata for weight and cleanliness.
 | File | Sport | Source (Pexels) | Notes |
 |------|-------|-----------------|-------|
 | `golf-grass.webp`  | Golf (PGA) | https://www.pexels.com/photo/413195/     | Manicured green turf, top-down; slight blur |
-| `mlb-scoreboard.webp` | MLB     | https://www.pexels.com/photo/8707455/    | Weathered green painted metal with rust/flaking paint (aged manual-scoreboard mood; generic surface, no real scoreboard/data). Blurred harder + stronger scrim so it stays ambient behind the table |
+| `mlb-field.webp`   | MLB        | https://www.pexels.com/photo/16163118/   | Mown outfield grass with a white foul line and red infield dirt (generic field surface, no venue/signage/seating). Moderate blur + standard scrim, like golf |
 | `nba-hardwood.webp`| NBA + WNBA | https://www.pexels.com/photo/326862/     | Warm honey wood-plank flooring; shared by both basketball tabs (same court-hardwood mood) |
 | `nfl-field.webp`   | NFL        | https://www.pexels.com/photo/29393323/   | Mown grass with diagonal groom stripes; blurred (kept distinct from golf) |
 | `nhl-ice.webp`     | NHL        | https://www.pexels.com/photo/6015665/    | Skated rink-ice surface, cool blue-grey |

@@ -38,16 +38,16 @@
     --sport-bg-image: url("/assets/textures/golf-grass.webp");
     --sport-scrim: linear-gradient(180deg, rgba(12,15,12,0.87), rgba(10,13,11,0.90));
   }
-  /* ⚾ MLB — aged manual-scoreboard mood: weathered green painted metal with rust and flaking
-     paint (generic worn surface — not a real scoreboard, no data/venue). Blurred harder than the
-     other sports and behind a slightly stronger scrim so it reads as ambient worn texture, never
-     a second grid of numbers competing with the player table. */
+  /* ⚾ MLB — baseball field: mown outfield grass with a white foul line and red infield dirt
+     (generic field surface — no venue, signage, seating, or architecture). Golf's legibility
+     recipe: moderate blur + standard scrim, since grass + a line is a simpler visual than the
+     scoreboard's implied grid. */
   body[data-sport="mlb"] {
     --sport-accent: #B0442E;
     --sport-accent-light: #DD7256;
     --sport-accent-rgb: 176,68,46;
-    --sport-bg-image: url("/assets/textures/mlb-scoreboard.webp");
-    --sport-scrim: linear-gradient(180deg, rgba(12,14,12,0.89), rgba(10,11,10,0.92));
+    --sport-bg-image: url("/assets/textures/mlb-field.webp");
+    --sport-scrim: linear-gradient(180deg, rgba(13,14,12,0.87), rgba(10,12,10,0.90));
   }
   /* 🏀 NBA + WNBA — warm honey hardwood photo (generic plank floor) behind a dark warm-tinted
      scrim. Both basketball tabs share the same court-hardwood mood, accent, and texture. */
