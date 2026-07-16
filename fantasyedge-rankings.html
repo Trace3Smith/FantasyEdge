@@ -49,14 +49,15 @@
     --sport-bg-image: url("/assets/textures/mlb-field.webp");
     --sport-scrim: linear-gradient(180deg, rgba(13,14,12,0.87), rgba(10,12,10,0.90));
   }
-  /* 🏀 NBA + WNBA — indoor basketball court: hardwood floor with a hoop, backboard and free-throw
-     arc (generic gym — no team logos, floor branding, or identifiable arena). Both basketball
-     tabs share the same court texture, accent, and honey scrim. */
+  /* 🏀 NBA + WNBA — a ball dropping through the net, rim lit against blurred arena bokeh (generic
+     arena — no signage, team marks, or legible faces). Both basketball tabs share the same texture,
+     accent, and honey scrim. Barely blurred, unlike the other sports: the background is already
+     bokeh from the lens, and the lit net is the only thing that reads through a 90% scrim. */
   body[data-sport="nba"], body[data-sport="wnba"] {
     --sport-accent: #BE7B3A;
     --sport-accent-light: #E0A967;
     --sport-accent-rgb: 190,123,58;
-    --sport-bg-image: url("/assets/textures/nba-court.webp");
+    --sport-bg-image: url("/assets/textures/nba-arena.webp");
     --sport-scrim: linear-gradient(180deg, rgba(16,13,10,0.86), rgba(12,10,8,0.90));
   }
   /* 🏈 NFL — mown-field turf photo with diagonal groom stripes (generic grass, no lines/logos),
