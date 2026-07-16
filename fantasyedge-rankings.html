@@ -65,20 +65,18 @@
     --sport-bg-image: url("/assets/textures/nba-arena.webp");
     --sport-scrim: linear-gradient(180deg, rgba(16,13,10,0.86), rgba(12,10,8,0.90));
   }
-  /* 🏈 NFL — a 20-yard marker with the yard line and hash marks receding downfield (generic
-     field — no end zone wordmark, midfield logo, sponsor paint, or identifiable venue). The
-     yard number is the landmark that reads as football rather than turf, like golf's flagstick
-     and MLB's foul line. Moderate blur + standard scrim, as before.
-     Anchored to the top because the "20" sits at the top edge of the photo: on a viewport wider
-     than the image, cover crops vertically, and `center` would eat the marker from both sides at
-     once. Anchoring top spends the whole crop on the blurred foreground grass instead, which
-     carries nothing. Horizontal stays centred — the marker is mid-frame across. */
+  /* 🏈 NFL — overhead drone view: the 30 and 40 yard numbers with straight yard lines running
+     between them (generic field — no end zone wordmark, midfield logo, sponsor paint, people, or
+     identifiable venue). The yard numbers are the landmark that reads as football rather than
+     turf, like golf's flagstick and MLB's foul line. Shot from directly above, so the lines are
+     orthogonal rather than raked by perspective. Moderate blur + standard scrim, as before.
+     Keeps the default centre anchor: the numbers sit mid-frame, so a vertical crop eats the empty
+     turf above and below them first. */
   body[data-sport="nfl"] {
     --sport-accent: #3C8C4A;
     --sport-accent-light: #74C083;
     --sport-accent-rgb: 60,140,74;
-    --sport-bg-image: url("/assets/textures/nfl-yard-line.webp");
-    --sport-bg-position: center top;
+    --sport-bg-image: url("/assets/textures/nfl-yard-numbers.webp");
     --sport-scrim: linear-gradient(180deg, rgba(11,15,11,0.86), rgba(9,12,9,0.90));
   }
   /* 🏒 NHL — real rink: white dasher boards (blue kickplate, yellow cap rail), a hockey goal, and
