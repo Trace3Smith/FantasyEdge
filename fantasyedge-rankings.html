@@ -60,13 +60,16 @@
     --sport-bg-image: url("/assets/textures/nba-arena.webp");
     --sport-scrim: linear-gradient(180deg, rgba(16,13,10,0.86), rgba(12,10,8,0.90));
   }
-  /* 🏈 NFL — mown-field turf photo with diagonal groom stripes (generic grass, no lines/logos),
-     kept distinct from golf's uniform putting-green, behind a dark green-tinted scrim. */
+  /* 🏈 NFL — a 20-yard marker with the yard line and hash marks receding downfield (generic
+     field — no end zone wordmark, midfield logo, sponsor paint, or identifiable venue). The
+     yard number is the landmark that reads as football rather than turf, like golf's flagstick
+     and MLB's foul line. Moderate blur + standard scrim, as before. Note the "20" sits near the
+     top of the frame, so a very wide, short viewport can crop it under background-size: cover. */
   body[data-sport="nfl"] {
     --sport-accent: #3C8C4A;
     --sport-accent-light: #74C083;
     --sport-accent-rgb: 60,140,74;
-    --sport-bg-image: url("/assets/textures/nfl-field.webp");
+    --sport-bg-image: url("/assets/textures/nfl-yard-line.webp");
     --sport-scrim: linear-gradient(180deg, rgba(11,15,11,0.86), rgba(9,12,9,0.90));
   }
   /* 🏒 NHL — real rink: white dasher boards (blue kickplate, yellow cap rail), a hockey goal, and
