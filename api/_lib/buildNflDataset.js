@@ -200,10 +200,9 @@ async function buildDsts(season) {
 }
 
 export async function buildNflDataset() {
-  const { athletes, categories, season } = await fetchByAthlete({
+  const { athletes, categories, season, skipped } = await fetchByAthlete({
     sportPath: 'football/nfl',
     sort: 'scoring.totalPoints:desc',
-    limit: 1000,
   });
   const seasonYear = parseInt(season, 10) || new Date().getFullYear();
   const idx = buildIndex(categories);
@@ -339,6 +338,7 @@ export async function buildNflDataset() {
       season,
       maxGames,
       athletes: athletes.length,
+      unfetchable: skipped, // rows ESPN could not serialize; see fetchByAthlete
       ranked: ranked.length,
       dsts: dsts.length,
       subThreshold: subThreshold.length,

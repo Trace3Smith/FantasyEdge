@@ -120,7 +120,11 @@ export default async function handler(req, res) {
 
     // Rebuild on a cold start (missing/evicted key), a stale build version, or — for MLB — a
     // dataset that predates the draft-board roto value (no ranked player carries zTotal yet).
-    const stale = !dataset || !dataset.players
+    //
+    // An EMPTY players array counts as stale. It is never a real answer — every wired sport
+    // has players — so it means a past build stored a failure. Without this an empty dataset
+    // is served forever: `!dataset.players` is false for [], so it never rebuilds itself out.
+    const stale = !dataset || !dataset.players || !dataset.players.length
       || (cfg.version != null && dataset.version !== cfg.version)
       || (cfg.needsValue && !dataset.players.some((p) => !p.searchOnly && typeof p.zTotal === 'number'));
     if (stale) {
