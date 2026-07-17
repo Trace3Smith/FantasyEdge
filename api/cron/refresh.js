@@ -11,6 +11,7 @@ import { buildNflDataset } from '../_lib/buildNflDataset.js';
 import { buildPgaDataset } from '../_lib/buildPgaDataset.js';
 import { enrichProspects } from '../_lib/enrichProspects.js';
 import { enrichForm } from '../_lib/enrichForm.js';
+import { enrichRolling } from '../_lib/enrichRolling.js';
 import { enrichNflProjections } from '../_lib/fantasyProjections.js';
 import { enrichNflAdp } from '../_lib/fantasyAdp.js';
 import { buildNflPickem } from '../_lib/nflPickem.js';
@@ -64,6 +65,14 @@ export default async function handler(req, res) {
       await enrichForm(dataset, { sport: 'mlb', season });
     } catch (err) {
       dataset.counts = { ...dataset.counts, formError: err.message };
+    }
+    // Rolling last-15 / last-30 team-game splits, with each player's games vs his team's
+    // as the playing-time signal. Five league-wide requests, no per-player fetches.
+    // Additive + failure-tolerant, and a no-op out of season.
+    try {
+      await enrichRolling(dataset, { season });
+    } catch (err) {
+      dataset.counts = { ...dataset.counts, rollingError: err.message };
     }
     await redis.set(DATASET_KEY, dataset);
 

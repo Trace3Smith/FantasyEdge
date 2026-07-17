@@ -65,7 +65,10 @@ async function espnGames(path, id, sport, pos) {
 
 // MLB Stats API game log -> [{date, value}]. Hitters and pitchers score differently.
 const ipToOuts = (ip) => { const [w, f] = String(ip ?? '0').split('.'); return (parseInt(w) || 0) * 3 + (parseInt(f) || 0); };
-function gameValueMlb(pos, s) {
+// Exported so enrichRolling scores its window aggregates on the identical scale — the
+// byDateRange stat line uses the same field names as a game log's, so the same function
+// reads both. Keeping one definition means a rolling total can never drift from HOT/COLD.
+export function gameValueMlb(pos, s) {
   if (pos === 'SP' || pos === 'RP') {
     return ipToOuts(s.inningsPitched) + 2 * num(s.strikeOuts) - 2 * num(s.earnedRuns) - num(s.hits) - num(s.baseOnBalls);
   }
