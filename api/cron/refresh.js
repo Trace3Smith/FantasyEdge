@@ -32,11 +32,21 @@ const SECONDARY = [
   { sport: 'pga', key: PGA_DATASET_KEY, build: buildPgaDataset },
 ];
 
-// Vercel Hobby caps a function at 60s (and defaults to 10s if unset), so we ask
-// for the full 60. The Phase 2 enrichment stays within that budget by generating
-// synopses in small per-run batches (see FIRST_SYNOPSIS_BATCH in enrichProspects):
-// the ~234-prospect backlog drains over several daily runs rather than in one.
-export const maxDuration = 60;
+// With fluid compute Hobby allows 300s, not the 60s this previously assumed — that was
+// the pre-fluid ceiling. This 300 is only legal WITH fluid (without it the build fails
+// on a Hobby ceiling of 60), and fluid's default lives in a dashboard toggle that nothing
+// in the repo can see — so vercel.json pins `"fluid": true`, which outranks the dashboard.
+// Change one and the other has to follow.
+//
+// Take the full 300: this is a once-daily job billed on active CPU, and it spends nearly
+// all its wall time waiting on I/O, so a higher ceiling buys headroom without buying
+// compute.
+//
+// The work is bounded by its own batching rather than by this timeout: enrichProspects
+// generates synopses FIRST_SYNOPSIS_BATCH at a time so the backlog drains over several
+// runs. With 5x the budget that batch size is now the thing to raise if the backlog
+// ever builds up again — not this number.
+export const maxDuration = 300;
 
 export default async function handler(req, res) {
   // Auth: the Bearer secret is the primary gate. Also accept Vercel's internal
