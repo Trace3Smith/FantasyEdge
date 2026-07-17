@@ -29,11 +29,6 @@
     --sport-accent-rgb: 212,160,23;   /* for translucent fills/borders */
     --sport-bg-image: none;           /* real photographic texture (url), behind everything */
     --sport-scrim: none;              /* dark overlay between the photo and the UI, for legibility */
-    /* Which part of the texture survives the background-size: cover crop. `center` suits a
-       texture whose subject sits mid-frame; a sport whose landmark sits near an edge overrides
-       this so the crop eats the empty side instead of the landmark. Only affects the photo —
-       the scrim is a gradient sized to cover, so it fills regardless of position. */
-    --sport-bg-position: center;
   }
   /* ⛳ Golf — manicured turf photo (generic, no venue) behind a dark green-tinted scrim. */
   body[data-sport="pga"] {
@@ -205,7 +200,7 @@
     background-image: var(--sport-scrim), var(--sport-bg-image);
     background-repeat: no-repeat;
     background-size: cover;
-    background-position: var(--sport-bg-position);
+    background-position: center;
     background-attachment: fixed;
     transition: background-image 0.45s ease;
   }
