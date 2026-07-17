@@ -359,13 +359,16 @@
   .search-only-row td { opacity: 0.78; }
   /* Phase 2 prospects */
   .tag-prospect { background: rgba(212,160,23,0.16); color: var(--gold-light); border: 1px solid rgba(212,160,23,0.4); cursor: pointer; }
-  .prospect-row { cursor: pointer; }
-  .prospect-row:hover td { background: rgba(212,160,23,0.05); }
-  .prospect-caret { display: inline-block; margin-left: 6px; font-size: 9px; color: var(--gold); transition: transform 0.15s; }
-  .prospect-row.open .prospect-caret { transform: rotate(90deg); }
-  .prospect-detail-row > td { padding: 0 18px 16px 18px; background: rgba(0,0,0,0.25); border-top: none; }
-  .prospect-detail-row { display: none; }
-  .prospect-detail-row.open { display: table-row; }
+  /* Expandable rows are generic: a prospect's MiLB lines and a player's rolling form both
+     ride in ONE detail row, since a row can carry both (a sub-PA hitter is searchOnly AND
+     may have played recently) and two sibling detail rows would break the toggle below. */
+  .row-expand { cursor: pointer; }
+  .row-expand:hover td { background: rgba(212,160,23,0.05); }
+  .row-caret { display: inline-block; margin-left: 6px; font-size: 9px; color: var(--gold); transition: transform 0.15s; }
+  .row-expand.open .row-caret { transform: rotate(90deg); }
+  .row-detail > td { padding: 0 18px 16px 18px; background: rgba(0,0,0,0.25); border-top: none; }
+  .row-detail { display: none; }
+  .row-detail.open { display: table-row; }
   .milb-wrap { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
   .milb-table { border-collapse: collapse; font-size: 11px; min-width: 380px; }
   .milb-table th { text-align: right; padding: 3px 8px; color: var(--gold); font-weight: 700; font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; border-bottom: 1px solid rgba(212,160,23,0.25); }
@@ -376,6 +379,25 @@
   .prospect-synopsis { flex: 1; min-width: 240px; max-width: 520px; font-size: 12px; line-height: 1.55; color: var(--white); background: rgba(212,160,23,0.06); border-left: 2px solid var(--gold); padding: 8px 12px; border-radius: 0 4px 4px 0; }
   .prospect-synopsis .synopsis-label { display: block; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--gold); margin-bottom: 4px; }
   .prospect-meta-bits { font-size: 10px; color: var(--gray); margin-top: 2px; }
+  /* Rolling last-15 / last-30 form (MLB). The GP line is the point of the feature: the gap
+     between a player's games and his team's is the playing-time signal, so it gets more
+     weight than the stat line it sits above. */
+  .tag-form { background: rgba(79,163,212,0.14); color: #9FD3EE; border: 1px solid rgba(79,163,212,0.4); cursor: pointer; }
+  .roll-wrap { display: flex; flex-wrap: wrap; gap: 14px; align-items: stretch; }
+  .roll-card { flex: 1; min-width: 250px; max-width: 380px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 5px; padding: 9px 12px; }
+  .roll-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }
+  .roll-title { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--gold); }
+  .roll-dates { font-size: 9px; color: var(--gray); margin-left: auto; white-space: nowrap; }
+  .roll-gp { font-size: 12px; color: var(--white); margin-bottom: 7px; }
+  .roll-gp b { color: var(--gold-light); }
+  .roll-gp .roll-note { display: block; font-size: 10px; color: var(--gray); margin-top: 1px; }
+  /* Only hitters get the low-playing-time warning: for a starter a low count is a normal
+     rotation turn, so colouring it red would cry wolf on every ace on the board. */
+  .roll-gp.thin b { color: var(--orange); }
+  .roll-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .roll-stat { font-size: 11px; color: var(--gray-light); }
+  .roll-stat b { color: var(--gold-light); font-weight: 600; font-size: 12px; margin-left: 3px; }
+  .roll-empty { font-size: 11px; color: var(--gray); font-style: italic; }
   .pos-badge { display: inline-block; padding: 4px 8px; border: 1px solid rgba(255,255,255,0.15); border-radius: 3px; font-size: 11px; font-weight: 600; color: var(--gray-light); min-width: 50px; text-align: center; }
   .td-stat { color: var(--gold-light); font-weight: 600; font-size: 13px; }
   .td-stat.muted { color: var(--gray); font-weight: 400; }
@@ -544,6 +566,7 @@
   let nflLeague = { teams: 12, starters: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 } };
   let searchTerm = '';
   let allPlayers = [];
+  let rollingWindows = null; // { l15: {start,end,tgMin,tgMax}, l30: {...} } — MLB only
 
   // AL/NL by team name — fallback when a player record predates the backend
   // `league` field (older cached dataset), so the toggle works immediately on
@@ -713,10 +736,21 @@
       // FV) and, when MiLB stats/synopsis exist, an expandable detail row. The
       // Phase 1 badge above is left untouched.
       const isProspect = so && !!p.prospect;
-      const hasDetail = isProspect && ((Array.isArray(p.milb) && p.milb.length) || p.synopsis);
+      const prospectDetail = (isProspect && ((Array.isArray(p.milb) && p.milb.length) || p.synopsis))
+        ? renderProspectDetail(p) : '';
+      // Rolling form rides in the SAME detail row as any prospect lines — one row per
+      // player, because the toggle below reads nextElementSibling.
+      const rollingDetail = renderRollingDetail(p);
+      const detailHtml = prospectDetail + rollingDetail;
+      const hasDetail = !!detailHtml;
       const chipText = ['PROSPECT', p.prospectRank != null ? '#' + p.prospectRank : '', p.fv != null ? 'FV ' + p.fv : ''].filter(Boolean).join(' · ');
       const prospectChip = isProspect
-        ? `<span class="tag-badge tag-prospect">${chipText}${hasDetail ? '<span class="prospect-caret">▶</span>' : ''}</span>`
+        ? `<span class="tag-badge tag-prospect">${chipText}${prospectDetail ? '<span class="row-caret">▶</span>' : ''}</span>`
+        : '';
+      // FORM chip advertises the rolling detail. Prospect rows already carry a caret, so
+      // don't offer a second one on the same row.
+      const formChip = (rollingDetail && !prospectDetail)
+        ? `<span class="tag-badge tag-form">FORM<span class="row-caret">▶</span></span>`
         : '';
       const muted = '<span class="td-stat muted">—</span>';
       // In a league view, show the within-league rank; in NFL Standard mode, the
@@ -724,10 +758,10 @@
       const dispRank = nflRank ? (nflRank.get(p.id) ?? '—') : leagueRank ? (leagueRank.get(p.id) ?? '—') : (p.rank ?? '—');
       // NFL: the FPTS column reflects the active scoring (PPR vs Standard).
       const s6disp = (isNfl && p.fpPpr != null) ? nflFp(p).toFixed(1) : p.s6;
-      const rowClass = [so ? 'search-only-row' : '', hasDetail ? 'prospect-row' : ''].filter(Boolean).join(' ');
-      const mainRow = `<tr class="${rowClass}"${hasDetail ? ' data-prospect="1"' : ''}>
+      const rowClass = [so ? 'search-only-row' : '', hasDetail ? 'row-expand' : ''].filter(Boolean).join(' ');
+      const mainRow = `<tr class="${rowClass}">
         <td class="td-rank">${dispRank}</td>
-        <td><div class="player-cell"><div class="player-avatar">${p.emoji||'⚾'}</div><div><div class="player-name">${p.name}${getTagHTML(p.tag)}${soBadge}${prospectChip}</div><div class="player-meta">${p.team}</div></div></div></td>
+        <td><div class="player-cell"><div class="player-avatar">${p.emoji||'⚾'}</div><div><div class="player-name">${p.name}${getTagHTML(p.tag)}${soBadge}${prospectChip}${formChip}</div><div class="player-meta">${p.team}</div></div></div></td>
         <td><span class="pos-badge">${p.pos||'—'}</span></td>
         <td style="color:var(--gray-light)">${p.team||'—'}</td>
         <td>${formatStat(p.s1, showInline ? p.statLabels?.[0] : null)}</td><td>${formatStat(p.s2, showInline ? p.statLabels?.[1] : null)}</td><td>${formatStat(p.s3, showInline ? p.statLabels?.[2] : null)}</td><td>${formatStat(p.s4, showInline ? p.statLabels?.[3] : null)}</td><td>${formatStat(p.s5, showInline ? p.statLabels?.[4] : null)}</td><td>${formatStat(s6disp, showInline ? p.statLabels?.[5] : null)}</td>
@@ -736,7 +770,7 @@
         <td>${so ? muted : getTrendHTML(p.trend, p.trendVal)}</td>
         <td class="own-pct">${so ? '—' : (p.own!=null?p.own+'%':'—')}</td>
       </tr>`;
-      return mainRow + (hasDetail ? `<tr class="prospect-detail-row"><td colspan="13">${renderProspectDetail(p)}</td></tr>` : '');
+      return mainRow + (hasDetail ? `<tr class="row-detail"><td colspan="15">${detailHtml}</td></tr>` : '');
     }).join('');
   }
 
@@ -769,6 +803,67 @@
     const hand = isPitcher ? (p.throws ? ' · Throws: ' + p.throws : '') : (p.bats ? ' · Bats: ' + p.bats : '');
     const eta = p.eta != null ? `<div class="prospect-meta-bits">Projected ETA: ${p.eta}${hand}</div>` : '';
     return `<div class="milb-wrap"><div>${milbTable}${eta}</div>${syn}</div>`;
+  }
+
+  // Rolling last-15 / last-30 form (MLB), shown in the expandable detail row.
+  //
+  // Every label comes from what was actually measured, never a hardcoded "15": teams don't
+  // play in lockstep, so an "L15" window spans a RANGE of team games (14-17 at the time of
+  // writing). Each player carries `tg` — his own team's games in the window — so the honest
+  // statement is "12 of 15 team games". rollingWindows (from the API) supplies the dates.
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function fmtWinDate(iso) {
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-').map(Number);
+    return (MONTHS[m - 1] || '') + ' ' + d;
+  }
+  // A pitcher appearing in 3 of his team's 15 games is a normal rotation turn, not a
+  // benching — so pitchers get their own phrasing and never the "thin" warning styling.
+  function rollingGp(p, line) {
+    const first = (p.pos || '').toUpperCase().split('/')[0].trim();
+    const tg = line.tg || 0;
+    const g = line.g || 0;
+    if (first === 'SP') {
+      return { html: `<b>${g}</b> start${g === 1 ? '' : 's'} in his team's ${tg} games`,
+               note: 'Starters take the ball roughly every fifth game.', thin: false };
+    }
+    if (first === 'RP' || first === 'P') {
+      return { html: `<b>${g}</b> appearance${g === 1 ? '' : 's'} in his team's ${tg} games`,
+               note: 'Relievers pitch on availability, not a fixed turn.', thin: false };
+    }
+    const thin = tg > 0 && g <= tg * 0.6;
+    return { html: `Played <b>${g}</b> of his team's ${tg} games`,
+             note: thin ? 'Sitting more than he starts — check for an injury or a platoon.' : '',
+             thin };
+  }
+  function rollingCard(p, key, line, win) {
+    const label = key === 'l15' ? 'Last 15 team games' : 'Last 30 team games';
+    const dates = win ? `${fmtWinDate(win.start)} – ${fmtWinDate(win.end)}` : '';
+    const gp = rollingGp(p, line);
+    const isPitcher = isPitcherPos(p);
+    const stats = isPitcher
+      ? [['IP', line.ip], ['ERA', line.era], ['WHIP', line.whip], ['K', line.k], ['W', line.w], ['SV', line.sv]]
+      : [['AVG', line.avg], ['OPS', line.ops], ['HR', line.hr], ['RBI', line.rbi], ['R', line.r], ['SB', line.sb]];
+    const cells = stats
+      .filter(([, v]) => v !== null && v !== undefined)
+      .map(([k, v]) => `<span class="roll-stat">${k}<b>${v}</b></span>`).join('');
+    return `<div class="roll-card">
+      <div class="roll-head"><span class="roll-title">${label}</span><span class="roll-dates">${dates}</span></div>
+      <div class="roll-gp${gp.thin ? ' thin' : ''}">${gp.html}${gp.note ? `<span class="roll-note">${gp.note}</span>` : ''}</div>
+      <div class="roll-stats">${cells || '<span class="roll-empty">No stat line recorded.</span>'}</div>
+    </div>`;
+  }
+  // Absent windows are normal, not an error: a player with no appearances in a stretch
+  // simply has no entry, and if enrichRolling failed upstream no player has `rolling` at
+  // all — in which case no caret is offered and the row renders exactly as before.
+  function renderRollingDetail(p) {
+    const r = p.rolling;
+    if (!r) return '';
+    const cards = ['l15', 'l30']
+      .filter(k => r[k])
+      .map(k => rollingCard(p, k, r[k], rollingWindows && rollingWindows[k]))
+      .join('');
+    return cards ? `<div class="roll-wrap">${cards}</div>` : '';
   }
 
   function updateStrip(players) {
@@ -817,6 +912,10 @@
       const data = await res.json();
       if (!data.players || !data.players.length) throw new Error('No players returned');
       allPlayers = data.players;
+      // Real measured bounds of the rolling windows (MLB only; null elsewhere, and null if
+      // the enrichment failed or the sport is out of season). Reset per load so a stale
+      // sport's dates can never label another's.
+      rollingWindows = data.rollingWindows || null;
       const now = new Date();
       document.getElementById('updateLabel').textContent = `Updated live · ${now.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}`;
       updateStrip(allPlayers);
@@ -956,15 +1055,16 @@
     renderTable(allPlayers);
   });
 
-  // Phase 2: expand/collapse a prospect's MiLB-stats + synopsis detail row.
-  // Delegated on the table body so it survives every re-render. Toggling .open on
-  // the clicked .prospect-row and its immediately following .prospect-detail-row
-  // sibling flips the caret (CSS) and reveals the detail (display:table-row).
+  // Expand/collapse a row's detail — a prospect's MiLB stats + synopsis, a player's
+  // rolling form, or both in the one row. Delegated on the table body so it survives
+  // every re-render. Toggling .open on the clicked .row-expand and its immediately
+  // following .row-detail sibling flips the caret (CSS) and reveals the detail
+  // (display:table-row) — which is why each player emits at most ONE detail row.
   document.getElementById('tableBody').addEventListener('click', e => {
-    const row = e.target.closest('.prospect-row');
+    const row = e.target.closest('.row-expand');
     if (!row) return;
     const detail = row.nextElementSibling;
-    if (!detail || !detail.classList.contains('prospect-detail-row')) return;
+    if (!detail || !detail.classList.contains('row-detail')) return;
     row.classList.toggle('open');
     detail.classList.toggle('open');
   });

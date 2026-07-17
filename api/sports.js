@@ -143,6 +143,10 @@ export default async function handler(req, res) {
       // which can lag dataset.builtAt on a graceful-degrade day — so it's the honest
       // "ADP last updated" signal for the draft board.
       adpBuiltAt: dataset.counts?.adp?.builtAt ?? null,
+      // Real bounds of the rolling windows (MLB only; null elsewhere), so the UI can label
+      // from what was actually measured. Teams don't play in lockstep, so an "L15" window
+      // spans a RANGE of team games — the client must not hardcode "15".
+      rollingWindows: dataset.counts?.rollingWindows ?? null,
     });
   } catch (err) {
     return res.status(500).json({ error: err.message, players: [] });
