@@ -12,12 +12,13 @@ import { buildPgaDataset } from '../_lib/buildPgaDataset.js';
 import { enrichProspects } from '../_lib/enrichProspects.js';
 import { enrichForm } from '../_lib/enrichForm.js';
 import { enrichRolling } from '../_lib/enrichRolling.js';
+import { buildBvp } from '../_lib/enrichBvp.js';
 import { enrichNflProjections } from '../_lib/fantasyProjections.js';
 import { enrichNflAdp } from '../_lib/fantasyAdp.js';
 import { buildNflPickem } from '../_lib/nflPickem.js';
 import { buildCfbBowl } from '../_lib/cfbBowl.js';
 import { buildMarchMadness } from '../_lib/marchMadness.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, MM_KEY, DATASET_VERSION } from '../_lib/kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, MM_KEY, BVP_KEY, DATASET_VERSION } from '../_lib/kv.js';
 
 // Secondary sports (ESPN-sourced, no prospects/enrichment). Each is built and
 // cached independently so one league's source failure can't drop another's
@@ -85,6 +86,22 @@ export default async function handler(req, res) {
       dataset.counts = { ...dataset.counts, rollingError: err.message };
     }
     await redis.set(DATASET_KEY, dataset);
+
+    // Batter-vs-pitcher lines for today's probable-pitcher matchups. Stored under its own
+    // key (not on the dataset), so it's built AFTER the dataset write above and can't delay
+    // it. Lives here rather than the autopilot cron so populating this display feature never
+    // rides the job that applies real lineup changes to users' ESPN accounts. 11:00 UTC is
+    // early enough: probable starters are posted the night before (a day's slate is ~94%
+    // named by the prior evening), so the 2-hour-earlier slot costs no coverage. Additive +
+    // failure-tolerant: on error the last good BvP payload stays in KV rather than dropping.
+    let bvp;
+    try {
+      const b = await buildBvp(dataset.players);
+      await redis.set(BVP_KEY, b);
+      bvp = b.counts;
+    } catch (err) {
+      bvp = { error: String(err.message || err) };
+    }
 
     const secondary = {};
     for (const s of SECONDARY) {
@@ -158,6 +175,7 @@ export default async function handler(req, res) {
       ok: true,
       builtAt: dataset.builtAt,
       counts: dataset.counts,
+      bvp,
       pickem,
       cfbBowl,
       marchMadness,

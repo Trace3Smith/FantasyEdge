@@ -8,7 +8,7 @@
 // Defensive by design: a single league failing never aborts the run, and if a
 // user's cookies have died we disable their autopilot (so we stop hammering a
 // broken account) until they reconnect. Protected by CRON_SECRET like the refresh cron.
-import { redis, DATASET_KEY, WNBA_DATASET_KEY, BVP_KEY } from '../_lib/kv.js';
+import { redis, DATASET_KEY, WNBA_DATASET_KEY } from '../_lib/kv.js';
 import {
   getCreds, getAutopilot, listAutopilotUsers, setAutopilotLeague,
   fetchLeagueRoster, setLineup, autopilotSportOf, EspnAuthError,
@@ -16,7 +16,6 @@ import {
 import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
 import { parseScoringSettings } from '../_lib/espnScoring.js';
 import { getWatch, setWatch, prospectIndex, reconcileWatch } from '../_lib/prospectWatch.js';
-import { buildBvp } from '../_lib/enrichBvp.js';
 
 export const maxDuration = 60;
 
@@ -28,22 +27,8 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const summary = { users: 0, leagues: 0, applied: 0, optimal: 0, expired: 0, errors: 0, noData: 0, callUps: 0, bvp: null };
+  const summary = { users: 0, leagues: 0, applied: 0, optimal: 0, expired: 0, errors: 0, noData: 0, callUps: 0 };
   try {
-    // Day-of batter-vs-pitcher lines, built ONCE for the whole board (not per user) before the
-    // user loop — probable starters are named by this cron's 13:00 UTC / ~9am ET slot. Stored
-    // under its own key so it never read-modify-writes the MLB dataset the refresh cron owns.
-    // Failure-tolerant: on any error the last good BvP payload stays in KV rather than dropping.
-    try {
-      const mlbDs = await redis.get(DATASET_KEY);
-      if (mlbDs?.players?.length) {
-        const bvp = await buildBvp(mlbDs.players);
-        await redis.set(BVP_KEY, bvp);
-        summary.bvp = bvp.counts;
-      }
-    } catch (err) {
-      summary.bvp = { error: String(err.message || err) };
-    }
     // Lazily load + cache each sport's dataset players (a dataset may be missing
     // off-season or unbuilt). Cached across users so we hit Redis once per sport per run.
     const playersCache = {};
