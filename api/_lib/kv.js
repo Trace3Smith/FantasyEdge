@@ -46,6 +46,12 @@ export const CFB_BOWL_KEY = 'pickem:cfb';
 // BPI) and served via api/sports.js (?feed=march-madness), premium-gated. Empty out of season
 // (the field only exists ~3 weeks each March).
 export const MM_KEY = 'bracket:mm';
+// Batter-vs-pitcher career lines, keyed by batter id, for the day's probable-pitcher
+// matchups. Built day-of by the autopilot cron (probable starters aren't named until the
+// morning), stored separately from the MLB dataset so it never read-modify-writes the key
+// the refresh cron owns. Served via api/sports.js for display; read in-run by the start-sit
+// logic. Shape: { date, builtAt, batters: { [id]: { oppSp:{id,name}, line:{ab,h,hr,rbi,avg,ops} } } }.
+export const BVP_KEY = 'bvp:mlb';
 
 export const redis = new Redis({
   url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL,

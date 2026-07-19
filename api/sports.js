@@ -12,7 +12,7 @@ import { buildNflPickem } from './_lib/nflPickem.js';
 import { buildCfbBowl } from './_lib/cfbBowl.js';
 import { buildMarchMadness } from './_lib/marchMadness.js';
 import { requirePremium, sendError } from './_lib/auth.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, MM_KEY, DATASET_VERSION } from './_lib/kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, MM_KEY, BVP_KEY, DATASET_VERSION } from './_lib/kv.js';
 
 // Per-sport dataset wiring: which KV key holds it and how to (re)build it on a
 // cold-start cache miss. Add a sport here + a frontend tab to light it up. A
@@ -135,6 +135,16 @@ export default async function handler(req, res) {
 
     const players = sport === 'pga' ? filterLivByField(dataset.players) : dataset.players;
 
+    // Batter-vs-pitcher lines for today's probable-pitcher matchups (MLB only). Its own key,
+    // built day-of by the autopilot cron, so it may be absent (off-season, before the first
+    // build, or a day with no games) — the client treats it as optional and keys by player id.
+    // Stale-day guard: only serve it if built for today, so yesterday's matchups never show.
+    let bvp = null;
+    if (sport === 'mlb') {
+      const b = await redis.get(BVP_KEY);
+      if (b && b.date === new Date().toISOString().slice(0, 10)) bvp = b;
+    }
+
     return res.json({
       players,
       sport,
@@ -147,6 +157,9 @@ export default async function handler(req, res) {
       // from what was actually measured. Teams don't play in lockstep, so an "L15" window
       // spans a RANGE of team games — the client must not hardcode "15".
       rollingWindows: dataset.counts?.rollingWindows ?? null,
+      // Today's BvP matchups keyed by batter id (MLB only, null otherwise/off-day):
+      // { date, builtAt, batters: { [id]: { oppSp, line } } }. Display shows any history.
+      bvp,
     });
   } catch (err) {
     return res.status(500).json({ error: err.message, players: [] });

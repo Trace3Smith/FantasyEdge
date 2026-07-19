@@ -393,6 +393,28 @@
   .roll-stat { font-size: 11px; color: var(--gray-light); }
   .roll-stat b { color: var(--gold-light); font-weight: 600; font-size: 12px; margin-left: 3px; }
   .roll-empty { font-size: 11px; color: var(--gray); font-style: italic; }
+  /* Batter vs today's probable pitcher (BvP). The chip carries the actionable call — a
+     start/sit lean, or a star's forced start — and is colour-coded like a traffic light so
+     Trace can scan the board for sit alerts. A thin-but-counted sample (3-5 AB) is called
+     out in the chip AND the card, since it met the floor but is low-confidence. */
+  .tag-bvp-start { background: rgba(76,175,80,0.16); color: #7Fc47f; border: 1px solid rgba(76,175,80,0.45); cursor: pointer; }
+  .tag-bvp-sit   { background: rgba(244,67,54,0.15); color: #e77; border: 1px solid rgba(244,67,54,0.45); cursor: pointer; }
+  .tag-bvp-star  { background: rgba(212,160,23,0.16); color: var(--gold-light); border: 1px solid rgba(212,160,23,0.45); cursor: pointer; }
+  .tag-thin { font-weight: 400; opacity: 0.85; font-style: italic; }
+  .bvp-card { flex: 1; min-width: 260px; max-width: 420px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 5px; padding: 9px 12px; }
+  .bvp-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+  .bvp-title { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--gold); }
+  .bvp-vs { font-size: 11px; color: var(--gray-light); margin-left: auto; }
+  .bvp-line { font-size: 15px; color: var(--white); font-weight: 600; margin-bottom: 3px; }
+  .bvp-line .bvp-ab { color: var(--gray-light); font-weight: 400; font-size: 12px; margin-left: 4px; }
+  .bvp-slash { font-size: 11px; color: var(--gray-light); margin-bottom: 7px; }
+  .bvp-call { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; padding: 2px 7px; border-radius: 3px; margin-bottom: 5px; }
+  .bvp-call.start { background: rgba(76,175,80,0.18); color: #8fd08f; }
+  .bvp-call.sit   { background: rgba(244,67,54,0.16); color: #ea8; }
+  .bvp-call.neutral { background: rgba(255,255,255,0.08); color: var(--gray-light); }
+  .bvp-call.star  { background: rgba(212,160,23,0.2); color: var(--gold-light); }
+  .bvp-reason { font-size: 12px; line-height: 1.5; color: var(--gray-light); }
+  .bvp-thin-flag { display: block; margin-top: 4px; font-size: 10px; color: var(--orange); }
   .pos-badge { display: inline-block; padding: 4px 8px; border: 1px solid rgba(255,255,255,0.15); border-radius: 3px; font-size: 11px; font-weight: 600; color: var(--gray-light); min-width: 50px; text-align: center; }
   .td-stat { color: var(--gold-light); font-weight: 600; font-size: 13px; }
   .td-stat.muted { color: var(--gray); font-weight: 400; }
@@ -562,6 +584,7 @@
   let searchTerm = '';
   let allPlayers = [];
   let rollingWindows = null; // { l15: {start,end,tgMin,tgMax}, l30: {...} } — MLB only
+  let bvpData = null;        // { date, builtAt, batters: { [id]: {oppSp, line, advice} } } — MLB only
 
   // AL/NL by team name — fallback when a player record predates the backend
   // `league` field (older cached dataset), so the toggle works immediately on
@@ -733,19 +756,28 @@
       const isProspect = so && !!p.prospect;
       const prospectDetail = (isProspect && ((Array.isArray(p.milb) && p.milb.length) || p.synopsis))
         ? renderProspectDetail(p) : '';
-      // Rolling form rides in the SAME detail row as any prospect lines — one row per
-      // player, because the toggle below reads nextElementSibling.
+      // Rolling form, prospect lines, AND today's BvP all ride in the SAME detail row — one
+      // row per player, because the toggle reads nextElementSibling.
       const rollingDetail = renderRollingDetail(p);
-      const detailHtml = prospectDetail + rollingDetail;
+      // BvP: the card shows whenever there's an actionable call, or when the row already opens
+      // for another reason (so a neutral matchup line still appears alongside form/prospect).
+      const bvpEntry = bvpEntryFor(p);
+      const bvpActionable = !!(bvpEntry && (bvpEntry.advice.star || bvpEntry.advice.counts));
+      const otherDetail = prospectDetail || rollingDetail;
+      const bvpDetail = (bvpEntry && (bvpActionable || otherDetail)) ? renderBvpDetail(bvpEntry) : '';
+      const detailHtml = prospectDetail + bvpDetail + rollingDetail;
       const hasDetail = !!detailHtml;
+      // Exactly one expand caret, on the first present chip (priority: prospect, BvP, form).
+      const caretOn = prospectDetail ? 'prospect' : bvpActionable ? 'bvp' : rollingDetail ? 'form' : null;
       const chipText = ['PROSPECT', p.prospectRank != null ? '#' + p.prospectRank : '', p.fv != null ? 'FV ' + p.fv : ''].filter(Boolean).join(' · ');
       const prospectChip = isProspect
-        ? `<span class="tag-badge tag-prospect">${chipText}${prospectDetail ? '<span class="row-caret">▶</span>' : ''}</span>`
+        ? `<span class="tag-badge tag-prospect">${chipText}${caretOn === 'prospect' ? '<span class="row-caret">▶</span>' : ''}</span>`
         : '';
-      // FORM chip advertises the rolling detail. Prospect rows already carry a caret, so
-      // don't offer a second one on the same row.
+      const bvpChip = bvpActionable ? bvpChipHtml(bvpEntry, caretOn === 'bvp') : '';
+      // FORM chip advertises the rolling detail. Suppressed when a prospect chip is already
+      // present (that one opens the same combined row), to avoid chip pile-up.
       const formChip = (rollingDetail && !prospectDetail)
-        ? `<span class="tag-badge tag-form">FORM<span class="row-caret">▶</span></span>`
+        ? `<span class="tag-badge tag-form">FORM${caretOn === 'form' ? '<span class="row-caret">▶</span>' : ''}</span>`
         : '';
       const muted = '<span class="td-stat muted">—</span>';
       // In a league view, show the within-league rank; in NFL Standard mode, the
@@ -756,7 +788,7 @@
       const rowClass = [so ? 'search-only-row' : '', hasDetail ? 'row-expand' : ''].filter(Boolean).join(' ');
       const mainRow = `<tr class="${rowClass}">
         <td class="td-rank">${dispRank}</td>
-        <td><div class="player-cell"><div class="player-avatar">${p.emoji||'⚾'}</div><div><div class="player-name">${p.name}${getTagHTML(p.tag)}${soBadge}${prospectChip}${formChip}</div><div class="player-meta">${p.team}</div></div></div></td>
+        <td><div class="player-cell"><div class="player-avatar">${p.emoji||'⚾'}</div><div><div class="player-name">${p.name}${getTagHTML(p.tag)}${soBadge}${prospectChip}${bvpChip}${formChip}</div><div class="player-meta">${p.team}</div></div></div></td>
         <td><span class="pos-badge">${p.pos||'—'}</span></td>
         <td style="color:var(--gray-light)">${p.team||'—'}</td>
         <td>${formatStat(p.s1, showInline ? p.statLabels?.[0] : null)}</td><td>${formatStat(p.s2, showInline ? p.statLabels?.[1] : null)}</td><td>${formatStat(p.s3, showInline ? p.statLabels?.[2] : null)}</td><td>${formatStat(p.s4, showInline ? p.statLabels?.[3] : null)}</td><td>${formatStat(p.s5, showInline ? p.statLabels?.[4] : null)}</td><td>${formatStat(s6disp, showInline ? p.statLabels?.[5] : null)}</td>
@@ -861,6 +893,43 @@
     return cards ? `<div class="roll-wrap">${cards}</div>` : '';
   }
 
+  // Batter vs today's probable pitcher. `bvpData` (from the API, MLB-only) is keyed by
+  // player id; a batter without an entry simply has no matchup today. The card shows the
+  // career line with the AB count prominent (per the spec, any history counts — even 1 AB),
+  // the traffic-light call, and the thin-sample flag when a 3-5 AB sample drove it.
+  function bvpEntryFor(p) {
+    return (bvpData && bvpData.batters) ? bvpData.batters[p.id] : null;
+  }
+  // The chip carries the ACTIONABLE call only: a start/sit lean, or a star's forced start.
+  // A neutral or sub-floor sample gets no chip (nothing to act on) — its line still shows in
+  // the card if the row is expanded for another reason.
+  function bvpChipHtml(entry, withCaret) {
+    const a = entry.advice, caret = withCaret ? '<span class="row-caret">▶</span>' : '';
+    const thin = a.thin ? '<span class="tag-thin"> (thin)</span>' : '';
+    if (a.star) return `<span class="tag-badge tag-bvp-star" title="Top-15 hitter — start regardless of matchup">START ★${caret}</span>`;
+    if (a.call === 'start') return `<span class="tag-badge tag-bvp-start">BvP START${thin}${caret}</span>`;
+    if (a.call === 'sit') return `<span class="tag-badge tag-bvp-sit">BvP SIT${thin}${caret}</span>`;
+    return '';
+  }
+  function renderBvpDetail(entry) {
+    const a = entry.advice, L = entry.line;
+    const callLabel = a.star ? 'Start ★' : a.call === 'start' ? 'Start' : a.call === 'sit' ? 'Sit' : 'No lean';
+    const callClass = a.star ? 'star' : a.call;
+    const slash = (L.avg != null || L.ops != null)
+      ? `${L.avg != null ? L.avg : '—'} AVG · ${L.ops != null ? L.ops : '—'} OPS · ${L.hr} HR · ${L.rbi} RBI`
+      : 'No plate appearances yet';
+    const thinFlag = a.thin
+      ? `<span class="bvp-thin-flag">⚠ Borderline: only ${L.ab} career AB — call is low-confidence.</span>`
+      : '';
+    return `<div class="bvp-card">
+      <div class="bvp-head"><span class="bvp-title">Vs Today's Starter</span><span class="bvp-vs">${entry.oppSp.name}</span></div>
+      <div class="bvp-line">${L.h}-for-${L.ab}<span class="bvp-ab">(${L.ab} career AB)</span></div>
+      <div class="bvp-slash">${slash}</div>
+      <div class="bvp-call ${callClass}">${callLabel}</div>
+      <div class="bvp-reason">${a.reason}${thinFlag}</div>
+    </div>`;
+  }
+
   function updateStrip(players) {
     document.getElementById('stripTotal').textContent = players.length;
     document.getElementById('stripHot').textContent = players.filter(p=>p.tag==='hot').length;
@@ -911,6 +980,9 @@
       // the enrichment failed or the sport is out of season). Reset per load so a stale
       // sport's dates can never label another's.
       rollingWindows = data.rollingWindows || null;
+      // Today's BvP matchups (MLB only; null off-day or other sports). Reset per load so a
+      // stale sport's data never leaks into another's rows.
+      bvpData = data.bvp || null;
       const now = new Date();
       document.getElementById('updateLabel').textContent = `Updated live · ${now.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}`;
       updateStrip(allPlayers);
