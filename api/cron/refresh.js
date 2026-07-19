@@ -12,6 +12,7 @@ import { buildPgaDataset } from '../_lib/buildPgaDataset.js';
 import { enrichProspects } from '../_lib/enrichProspects.js';
 import { enrichForm } from '../_lib/enrichForm.js';
 import { enrichRolling } from '../_lib/enrichRolling.js';
+import { enrichRollingEspn } from '../_lib/enrichRollingEspn.js';
 import { buildBvp } from '../_lib/enrichBvp.js';
 import { enrichNflProjections } from '../_lib/fantasyProjections.js';
 import { enrichNflAdp } from '../_lib/fantasyAdp.js';
@@ -111,6 +112,18 @@ export default async function handler(req, res) {
           await enrichForm(built, { sport: s.sport, season });
         } catch (err) {
           built.counts = { ...built.counts, formError: err.message };
+        }
+        // Rolling last-N team-game splits for the basketball/hockey boards (NBA L15/L30,
+        // WNBA L10/L20, NHL L15/L30). Per-player gamelog fetches over the top-150, no-op out
+        // of season. Additive + failure-tolerant. NFL is excluded on purpose — at one game a
+        // week a 15/30-game window is nearly a whole season, so it gets a per-game log
+        // (client-side on click) instead of a rolling window.
+        if (s.sport === 'nba' || s.sport === 'wnba' || s.sport === 'nhl') {
+          try {
+            await enrichRollingEspn(built, { sport: s.sport });
+          } catch (err) {
+            built.counts = { ...built.counts, rollingError: err.message };
+          }
         }
         // NFL: bolt on FantasyPros consensus projections for the draft cards.
         // Additive + failure-tolerant — falls back to the last good scrape in KV.

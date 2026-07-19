@@ -844,50 +844,63 @@
     const [y, m, d] = iso.split('-').map(Number);
     return (MONTHS[m - 1] || '') + ' ' + d;
   }
-  // A pitcher appearing in 3 of his team's 15 games is a normal rotation turn, not a
-  // benching — so pitchers get their own phrasing and never the "thin" warning styling.
+  // The games-played line, sport-aware. A role whose low count is NORMAL (an MLB pitcher's
+  // rotation turn, an NHL goalie's rotation) gets its own phrasing and never the "thin"
+  // warning; a skater/hitter/scorer sitting games is the real signal, so it's flagged.
   function rollingGp(p, line) {
     const first = (p.pos || '').toUpperCase().split('/')[0].trim();
-    const tg = line.tg || 0;
-    const g = line.g || 0;
-    if (first === 'SP') {
-      return { html: `<b>${g}</b> start${g === 1 ? '' : 's'} in his team's ${tg} games`,
-               note: 'Starters take the ball roughly every fifth game.', thin: false };
-    }
-    if (first === 'RP' || first === 'P') {
-      return { html: `<b>${g}</b> appearance${g === 1 ? '' : 's'} in his team's ${tg} games`,
-               note: 'Relievers pitch on availability, not a fixed turn.', thin: false };
-    }
+    const tg = line.tg || 0, g = line.g || 0;
+    if (first === 'SP') return { html: `<b>${g}</b> start${g === 1 ? '' : 's'} in his team's ${tg} games`,
+      note: 'Starters take the ball roughly every fifth game.', thin: false };
+    if (first === 'RP' || first === 'P') return { html: `<b>${g}</b> appearance${g === 1 ? '' : 's'} in his team's ${tg} games`,
+      note: 'Relievers pitch on availability, not a fixed turn.', thin: false };
+    if (currentSport === 'nhl' && first === 'G') return { html: `Started <b>${g}</b> of his team's ${tg} games`,
+      note: "Goalies rotate; a backup's lower count is expected.", thin: false };
     const thin = tg > 0 && g <= tg * 0.6;
-    return { html: `Played <b>${g}</b> of his team's ${tg} games`,
-             note: thin ? 'Sitting more than he starts — check for an injury or a platoon.' : '',
-             thin };
+    const note = !thin ? ''
+      : currentSport === 'mlb' ? 'Sitting more than he starts — check for an injury or a platoon.'
+      : 'Missing games — check for an injury or a rest stretch.';
+    return { html: `Played <b>${g}</b> of his team's ${tg} games`, note, thin };
+  }
+  // The per-window stat cells, by sport (and NHL role). MLB shows totals; NBA/WNBA/NHL-skater
+  // show per-game rates for counting cats, matching how each board reads. Goalies (a `gaa`
+  // field present) show rate stats instead.
+  function rollingStatCells(p, line) {
+    let stats;
+    if (currentSport === 'nba' || currentSport === 'wnba') {
+      stats = [['PTS', line.pts], ['REB', line.reb], ['AST', line.ast], ['STL', line.stl], ['BLK', line.blk]];
+    } else if (currentSport === 'nhl') {
+      stats = line.gaa !== undefined
+        ? [['W', line.w], ['GAA', line.gaa], ['SV%', line.svpct], ['SO', line.so]]
+        : [['G', line.gls], ['A', line.a], ['PTS', line.pts], ['+/-', line.pm], ['SOG', line.sog]];
+    } else {
+      stats = isPitcherPos(p)
+        ? [['IP', line.ip], ['ERA', line.era], ['WHIP', line.whip], ['K', line.k], ['W', line.w], ['SV', line.sv]]
+        : [['AVG', line.avg], ['OPS', line.ops], ['HR', line.hr], ['RBI', line.rbi], ['R', line.r], ['SB', line.sb]];
+    }
+    return stats.filter(([, v]) => v !== null && v !== undefined)
+      .map(([k, v]) => `<span class="roll-stat">${k}<b>${v}</b></span>`).join('');
   }
   function rollingCard(p, key, line, win) {
-    const label = key === 'l15' ? 'Last 15 team games' : 'Last 30 team games';
+    const n = key.replace(/\D/g, ''); // 'l15' -> '15'
+    const label = `Last ${n} team games`;
     const dates = win ? `${fmtWinDate(win.start)} – ${fmtWinDate(win.end)}` : '';
     const gp = rollingGp(p, line);
-    const isPitcher = isPitcherPos(p);
-    const stats = isPitcher
-      ? [['IP', line.ip], ['ERA', line.era], ['WHIP', line.whip], ['K', line.k], ['W', line.w], ['SV', line.sv]]
-      : [['AVG', line.avg], ['OPS', line.ops], ['HR', line.hr], ['RBI', line.rbi], ['R', line.r], ['SB', line.sb]];
-    const cells = stats
-      .filter(([, v]) => v !== null && v !== undefined)
-      .map(([k, v]) => `<span class="roll-stat">${k}<b>${v}</b></span>`).join('');
+    const cells = rollingStatCells(p, line);
     return `<div class="roll-card">
       <div class="roll-head"><span class="roll-title">${label}</span><span class="roll-dates">${dates}</span></div>
       <div class="roll-gp${gp.thin ? ' thin' : ''}">${gp.html}${gp.note ? `<span class="roll-note">${gp.note}</span>` : ''}</div>
       <div class="roll-stats">${cells || '<span class="roll-empty">No stat line recorded.</span>'}</div>
     </div>`;
   }
-  // Absent windows are normal, not an error: a player with no appearances in a stretch
-  // simply has no entry, and if enrichRolling failed upstream no player has `rolling` at
-  // all — in which case no caret is offered and the row renders exactly as before.
+  // Absent windows are normal, not an error. Window keys are read from the record itself so
+  // each sport's windows carry through (MLB/NBA/NHL l15/l30, WNBA l10/l20); a string sort of
+  // l10/l15/l20/l30 already orders them shorter-first. If rolling failed upstream no player
+  // has `rolling`, so no caret is offered and the row renders exactly as before.
   function renderRollingDetail(p) {
     const r = p.rolling;
     if (!r) return '';
-    const cards = ['l15', 'l30']
-      .filter(k => r[k])
+    const cards = Object.keys(r).filter(k => /^l\d+$/.test(k)).sort()
       .map(k => rollingCard(p, k, r[k], rollingWindows && rollingWindows[k]))
       .join('');
     return cards ? `<div class="roll-wrap">${cards}</div>` : '';
