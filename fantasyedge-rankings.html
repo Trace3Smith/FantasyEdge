@@ -415,6 +415,20 @@
   .bvp-call.star  { background: rgba(212,160,23,0.2); color: var(--gold-light); }
   .bvp-reason { font-size: 12px; line-height: 1.5; color: var(--gray-light); }
   .bvp-thin-flag { display: block; margin-top: 4px; font-size: 10px; color: var(--orange); }
+  /* Recent game log (MLB). Client-side only: fetched straight from the MLB Stats API in the
+     browser on first row-expand (zero server cost, no cron, nothing in the dataset), cached
+     for the session. Slate chip so it doesn't compete with the actionable FORM/BvP chips. */
+  .tag-log { background: rgba(255,255,255,0.06); color: var(--gray-light); border: 1px solid rgba(255,255,255,0.2); cursor: pointer; }
+  .gamelog-wrap { max-width: 460px; }
+  .gamelog-wrap:not(:first-child) { margin-top: 12px; }
+  .gamelog-head { margin-bottom: 5px; }
+  .gamelog-title { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--gold); }
+  .gamelog-table { border-collapse: collapse; font-size: 11px; width: 100%; }
+  .gamelog-table td { padding: 3px 8px; color: var(--gray-light); border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .gamelog-table tr:last-child td { border-bottom: none; }
+  .gl-date { color: var(--gray); white-space: nowrap; width: 1%; }
+  .gl-opp { color: var(--gray-light); white-space: nowrap; width: 1%; font-weight: 600; }
+  .gl-line { color: var(--white); }
   .pos-badge { display: inline-block; padding: 4px 8px; border: 1px solid rgba(255,255,255,0.15); border-radius: 3px; font-size: 11px; font-weight: 600; color: var(--gray-light); min-width: 50px; text-align: center; }
   .td-stat { color: var(--gold-light); font-weight: 600; font-size: 13px; }
   .td-stat.muted { color: var(--gray); font-weight: 400; }
@@ -585,6 +599,14 @@
   let allPlayers = [];
   let rollingWindows = null; // { l15: {start,end,tgMin,tgMax}, l30: {...} } — MLB only
   let bvpData = null;        // { date, builtAt, batters: { [id]: {oppSp, line, advice} } } — MLB only
+  // Recent game log (MLB) — a purely client-side feature: the browser hits the public MLB
+  // Stats API directly on row-expand, so it costs the backend nothing and lives in no dataset.
+  // Rendered HTML is memoised per player+role for the session so re-opens (and re-renders from
+  // sort/filter) are instant and make no second call. MLB team id → abbreviation for the
+  // "@LAD / vs SF" opponent label (the gameLog split carries opponent.id but no abbreviation).
+  const GAMELOG_N = 15;
+  const gamelogCache = {};
+  const MLB_TEAM_ABBR = {108:"LAA",109:"AZ",110:"BAL",111:"BOS",112:"CHC",113:"CIN",114:"CLE",115:"COL",116:"DET",117:"HOU",118:"KC",119:"LAD",120:"WSH",121:"NYM",133:"ATH",134:"PIT",135:"SD",136:"SEA",137:"SF",138:"STL",139:"TB",140:"TEX",141:"TOR",142:"MIN",143:"PHI",144:"ATL",145:"CWS",146:"MIA",147:"NYY",158:"MIL"};
 
   // AL/NL by team name — fallback when a player record predates the backend
   // `league` field (older cached dataset), so the toggle works immediately on
@@ -765,10 +787,14 @@
       const bvpActionable = !!(bvpEntry && (bvpEntry.advice.star || bvpEntry.advice.counts));
       const otherDetail = prospectDetail || rollingDetail;
       const bvpDetail = (bvpEntry && (bvpActionable || otherDetail)) ? renderBvpDetail(bvpEntry) : '';
-      const detailHtml = prospectDetail + bvpDetail + rollingDetail;
+      // Recent game log: MLB only, offered on any player carrying an MLB id. It rides in the
+      // same detail row as the others (loaded lazily on expand), so when the row already opens
+      // for a prospect/BvP/form reason the log just appears alongside them — no extra chip.
+      const gamelogDetail = (currentSport === 'mlb' && p.id != null) ? renderGamelogSection(p) : '';
+      const detailHtml = prospectDetail + bvpDetail + rollingDetail + gamelogDetail;
       const hasDetail = !!detailHtml;
-      // Exactly one expand caret, on the first present chip (priority: prospect, BvP, form).
-      const caretOn = prospectDetail ? 'prospect' : bvpActionable ? 'bvp' : rollingDetail ? 'form' : null;
+      // Exactly one expand caret, on the first present chip (priority: prospect, BvP, form, log).
+      const caretOn = prospectDetail ? 'prospect' : bvpActionable ? 'bvp' : rollingDetail ? 'form' : gamelogDetail ? 'gamelog' : null;
       const chipText = ['PROSPECT', p.prospectRank != null ? '#' + p.prospectRank : '', p.fv != null ? 'FV ' + p.fv : ''].filter(Boolean).join(' · ');
       const prospectChip = isProspect
         ? `<span class="tag-badge tag-prospect">${chipText}${caretOn === 'prospect' ? '<span class="row-caret">▶</span>' : ''}</span>`
@@ -779,6 +805,11 @@
       const formChip = (rollingDetail && !prospectDetail)
         ? `<span class="tag-badge tag-form">FORM${caretOn === 'form' ? '<span class="row-caret">▶</span>' : ''}</span>`
         : '';
+      // LOG chip appears only when the game log is the sole reason to open the row (caretOn ===
+      // 'gamelog'); otherwise the log rides along under whichever chip already carries the caret.
+      const gamelogChip = caretOn === 'gamelog'
+        ? `<span class="tag-badge tag-log">LOG<span class="row-caret">▶</span></span>`
+        : '';
       const muted = '<span class="td-stat muted">—</span>';
       // In a league view, show the within-league rank; in NFL Standard mode, the
       // re-ranked board position; otherwise the global rank.
@@ -788,7 +819,7 @@
       const rowClass = [so ? 'search-only-row' : '', hasDetail ? 'row-expand' : ''].filter(Boolean).join(' ');
       const mainRow = `<tr class="${rowClass}">
         <td class="td-rank">${dispRank}</td>
-        <td><div class="player-cell"><div class="player-avatar">${p.emoji||'⚾'}</div><div><div class="player-name">${p.name}${getTagHTML(p.tag)}${soBadge}${prospectChip}${bvpChip}${formChip}</div><div class="player-meta">${p.team}</div></div></div></td>
+        <td><div class="player-cell"><div class="player-avatar">${p.emoji||'⚾'}</div><div><div class="player-name">${p.name}${getTagHTML(p.tag)}${soBadge}${prospectChip}${bvpChip}${formChip}${gamelogChip}</div><div class="player-meta">${p.team}</div></div></div></td>
         <td><span class="pos-badge">${p.pos||'—'}</span></td>
         <td style="color:var(--gray-light)">${p.team||'—'}</td>
         <td>${formatStat(p.s1, showInline ? p.statLabels?.[0] : null)}</td><td>${formatStat(p.s2, showInline ? p.statLabels?.[1] : null)}</td><td>${formatStat(p.s3, showInline ? p.statLabels?.[2] : null)}</td><td>${formatStat(p.s4, showInline ? p.statLabels?.[3] : null)}</td><td>${formatStat(p.s5, showInline ? p.statLabels?.[4] : null)}</td><td>${formatStat(s6disp, showInline ? p.statLabels?.[5] : null)}</td>
@@ -941,6 +972,88 @@
       <div class="bvp-call ${callClass}">${callLabel}</div>
       <div class="bvp-reason">${a.reason}${thinFlag}</div>
     </div>`;
+  }
+
+  // Recent game log (MLB), a client-side-only feature. The section renders as a placeholder that
+  // the row-expand handler fills on first open — the browser fetches the MLB Stats API gameLog
+  // directly (CORS-open, zero backend cost), so nothing here touches /api or the cron dataset.
+  function renderGamelogSection(p) {
+    const kind = isPitcherPos(p) ? 'pitcher' : 'hitter';
+    return `<div class="gamelog-wrap" data-pid="${p.id}" data-kind="${kind}">
+      <div class="gamelog-head"><span class="gamelog-title">Game Log — last ${GAMELOG_N}</span></div>
+      <div class="gamelog-body"><span class="roll-empty">Loading game log…</span></div>
+    </div>`;
+  }
+  function fmtGlDate(iso) {
+    if (!iso) return '';
+    const [, m, d] = iso.split('-').map(Number);
+    return (MONTHS[m - 1] || '') + ' ' + d;
+  }
+  // A hitter's box line, compact: hits-for-AB, then only the categories that actually happened
+  // (so an 0-4 stays clean). A pitcher's line leads with the decision (W/L/SV/H) when there is one.
+  function hitterLine(st) {
+    const parts = [`${st.hits}-${st.atBats}`];
+    if (st.homeRuns) parts.push(st.homeRuns + ' HR');
+    if (st.rbi) parts.push(st.rbi + ' RBI');
+    if (st.runs) parts.push(st.runs + ' R');
+    if (st.stolenBases) parts.push(st.stolenBases + ' SB');
+    if (st.baseOnBalls) parts.push(st.baseOnBalls + ' BB');
+    if (st.strikeOuts) parts.push(st.strikeOuts + ' K');
+    return parts.join(', ');
+  }
+  function pitcherLine(st) {
+    const dec = st.wins ? 'W' : st.losses ? 'L' : st.saves ? 'SV' : st.holds ? 'H' : '';
+    const parts = [`${st.inningsPitched} IP`, `${st.earnedRuns} ER`, `${st.strikeOuts} K`];
+    if (st.baseOnBalls) parts.push(st.baseOnBalls + ' BB');
+    if (st.hits != null) parts.push(st.hits + ' H');
+    return (dec ? dec + ' · ' : '') + parts.join(', ');
+  }
+  function renderGamelogRows(splits, kind) {
+    if (!splits.length) return '<span class="roll-empty">No games recorded this season.</span>';
+    // Splits come oldest → newest; take the last N and show newest first.
+    const recent = splits.slice(-GAMELOG_N).reverse();
+    const rows = recent.map(g => {
+      const st = g.stat || {};
+      const opp = (g.isHome ? 'vs ' : '@ ') + (MLB_TEAM_ABBR[g.opponent && g.opponent.id] || '—');
+      const line = kind === 'pitcher' ? pitcherLine(st) : hitterLine(st);
+      return `<tr><td class="gl-date">${fmtGlDate(g.date)}</td><td class="gl-opp">${opp}</td><td class="gl-line">${line}</td></tr>`;
+    }).join('');
+    return `<table class="gamelog-table"><tbody>${rows}</tbody></table>`;
+  }
+  async function fetchGamelog(pid, group, year) {
+    const url = `https://statsapi.mlb.com/api/v1/people/${pid}/stats?stats=gameLog&group=${group}&season=${year}&gameType=R`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    return (data.stats && data.stats[0] && data.stats[0].splits) || [];
+  }
+  // Fill a game-log placeholder on first expand. Cached per player+role for the session; falls
+  // back to last season when the current one is empty (early spring / off-season), so the card
+  // still shows "recent games" year-round rather than an empty state.
+  async function loadGamelog(el) {
+    el.classList.add('loading');
+    const pid = el.dataset.pid, kind = el.dataset.kind;
+    const body = el.querySelector('.gamelog-body');
+    const cacheKey = pid + ':' + kind;
+    if (gamelogCache[cacheKey] != null) {
+      body.innerHTML = gamelogCache[cacheKey];
+      el.classList.remove('loading'); el.classList.add('loaded');
+      return;
+    }
+    try {
+      const group = kind === 'pitcher' ? 'pitching' : 'hitting';
+      const year = new Date().getFullYear();
+      let splits = await fetchGamelog(pid, group, year);
+      if (!splits.length) splits = await fetchGamelog(pid, group, year - 1);
+      const html = renderGamelogRows(splits, kind);
+      gamelogCache[cacheKey] = html;
+      body.innerHTML = html;
+      el.classList.add('loaded');
+    } catch (err) {
+      body.innerHTML = '<span class="roll-empty">Game log unavailable right now.</span>';
+    } finally {
+      el.classList.remove('loading');
+    }
   }
 
   function updateStrip(players) {
@@ -1147,6 +1260,11 @@
     if (!detail || !detail.classList.contains('row-detail')) return;
     row.classList.toggle('open');
     detail.classList.toggle('open');
+    // Lazy-load the game log the first time this row opens (MLB client-side fetch).
+    if (detail.classList.contains('open')) {
+      const gl = detail.querySelector('.gamelog-wrap:not(.loaded):not(.loading)');
+      if (gl) loadGamelog(gl);
+    }
   });
 
   // Auth resolves after first paint. If the user is sitting on a premium sport when
