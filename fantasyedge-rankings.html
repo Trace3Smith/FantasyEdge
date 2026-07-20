@@ -787,10 +787,13 @@
       const bvpActionable = !!(bvpEntry && (bvpEntry.advice.star || bvpEntry.advice.counts));
       const otherDetail = prospectDetail || rollingDetail;
       const bvpDetail = (bvpEntry && (bvpActionable || otherDetail)) ? renderBvpDetail(bvpEntry) : '';
-      // Recent game log: MLB only, offered on any player carrying an MLB id. It rides in the
-      // same detail row as the others (loaded lazily on expand), so when the row already opens
-      // for a prospect/BvP/form reason the log just appears alongside them — no extra chip.
-      const gamelogDetail = (currentSport === 'mlb' && p.id != null) ? renderGamelogSection(p) : '';
+      // Recent game log: MLB (statsapi) and NFL (ESPN), offered on any player carrying a real
+      // athlete id — NFL D/ST have a synthetic 'dst-' id and no athlete gamelog, so they're
+      // excluded. It rides in the same detail row as the others (loaded lazily on expand), so
+      // when the row already opens for a prospect/BvP/form reason the log just appears alongside.
+      const gamelogSupported = p.id != null &&
+        (currentSport === 'mlb' || (currentSport === 'nfl' && (p.pos || '').toUpperCase() !== 'DST'));
+      const gamelogDetail = gamelogSupported ? renderGamelogSection(p) : '';
       const detailHtml = prospectDetail + bvpDetail + rollingDetail + gamelogDetail;
       const hasDetail = !!detailHtml;
       // Exactly one expand caret, on the first present chip (priority: prospect, BvP, form, log).
@@ -974,13 +977,16 @@
     </div>`;
   }
 
-  // Recent game log (MLB), a client-side-only feature. The section renders as a placeholder that
-  // the row-expand handler fills on first open — the browser fetches the MLB Stats API gameLog
-  // directly (CORS-open, zero backend cost), so nothing here touches /api or the cron dataset.
+  // Recent game log, a client-side-only feature (MLB via the MLB Stats API, NFL via ESPN). The
+  // section renders as a placeholder that the row-expand handler fills on first open — the browser
+  // fetches the source directly (both CORS-open, verified), so nothing here touches /api or the
+  // cron dataset. data-sport routes the lazy load; MLB also carries data-kind (pitcher/hitter).
   function renderGamelogSection(p) {
-    const kind = isPitcherPos(p) ? 'pitcher' : 'hitter';
-    return `<div class="gamelog-wrap" data-pid="${p.id}" data-kind="${kind}">
-      <div class="gamelog-head"><span class="gamelog-title">Game Log — last ${GAMELOG_N}</span></div>
+    const sport = currentSport;
+    const kind = sport === 'mlb' ? (isPitcherPos(p) ? 'pitcher' : 'hitter') : '';
+    const title = sport === 'mlb' ? `Game Log — last ${GAMELOG_N}` : 'Game Log';
+    return `<div class="gamelog-wrap" data-pid="${p.id}" data-sport="${sport}" data-kind="${kind}">
+      <div class="gamelog-head"><span class="gamelog-title">${title}</span></div>
       <div class="gamelog-body"><span class="roll-empty">Loading game log…</span></div>
     </div>`;
   }
@@ -1027,27 +1033,107 @@
     const data = await res.json();
     return (data.stats && data.stats[0] && data.stats[0].splits) || [];
   }
-  // Fill a game-log placeholder on first expand. Cached per player+role for the session; falls
-  // back to last season when the current one is empty (early spring / off-season), so the card
-  // still shows "recent games" year-round rather than an empty state.
+  // MLB loader: current season, falling back to last season when it's empty (early spring /
+  // off-season) so the card shows recent games year-round rather than an empty state. Returns
+  // { html } only — the MLB title is fixed ("last N") and set by the placeholder.
+  async function loadMlbGamelog(pid, kind) {
+    const group = kind === 'pitcher' ? 'pitching' : 'hitting';
+    const year = new Date().getFullYear();
+    let splits = await fetchGamelog(pid, group, year);
+    if (!splits.length) splits = await fetchGamelog(pid, group, year - 1);
+    return { html: renderGamelogRows(splits, kind) };
+  }
+
+  // NFL loader (ESPN athlete gamelog). ESPN returns the latest season that has data — so in the
+  // off-season it naturally serves last year's log, no explicit season param or fallback needed.
+  // The season label comes from the seasonType displayName ("2025 Regular Season").
+  async function fetchNflGamelog(pid) {
+    const res = await fetch(`https://site.web.api.espn.com/apis/common/v3/sports/football/nfl/athletes/${pid}/gamelog`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const gl = await res.json();
+    // ESPN answers 200 with an error body ({code,message}) when it has no data for the athlete.
+    if (gl && typeof gl.code === 'number' && gl.code >= 400) throw new Error('ESPN ' + gl.code);
+    const names = gl.names || [], events = gl.events || {};
+    const st = (gl.seasonTypes || []).find(s => /regular season/i.test(s.displayName || ''));
+    if (!st) return { names, rows: [], season: null };
+    const season = (String(st.displayName).match(/\d{4}/) || [])[0] || null;
+    const rows = [];
+    for (const cat of st.categories || []) for (const ev of cat.events || []) {
+      const meta = events[ev.eventId] || {};
+      if (!meta.gameDate) continue;
+      rows.push({ date: meta.gameDate.slice(0, 10), atVs: meta.atVs || '',
+        opp: (meta.opponent && meta.opponent.abbreviation) || '—', stats: ev.stats || [] });
+    }
+    rows.sort((a, b) => a.date < b.date ? 1 : -1); // newest first
+    return { names, rows, season };
+  }
+  // A game's line, assembled from whichever stat categories the athlete actually has — so it works
+  // for every skill position without a per-position table: QBs get passing (+ rushing), RBs rushing
+  // + receiving, WR/TE receiving, kickers FG/XP. Only non-zero segments show, like the MLB line.
+  function nflLine(names, stats) {
+    const idx = {}; names.forEach((n, i) => idx[n] = i);
+    const has = n => idx[n] != null;
+    const v = n => stats[idx[n]];
+    const nz = s => s != null && s !== '' && s !== '0' && s !== '0-0';
+    const seg = [];
+    if (has('passingAttempts') && nz(v('passingAttempts'))) {
+      let s = `${v('completions')}/${v('passingAttempts')}, ${v('passingYards')} Yd`;
+      if (nz(v('passingTouchdowns'))) s += `, ${v('passingTouchdowns')} TD`;
+      if (nz(v('interceptions'))) s += `, ${v('interceptions')} INT`;
+      seg.push(s);
+    }
+    if (has('rushingAttempts') && nz(v('rushingAttempts'))) {
+      let s = `${v('rushingAttempts')}-${v('rushingYards')} rush`;
+      if (nz(v('rushingTouchdowns'))) s += `, ${v('rushingTouchdowns')} TD`;
+      seg.push(s);
+    }
+    if (has('receptions') && nz(v('receptions'))) {
+      let s = `${v('receptions')}/${v('receivingTargets')} rec, ${v('receivingYards')} Yd`;
+      if (nz(v('receivingTouchdowns'))) s += `, ${v('receivingTouchdowns')} TD`;
+      seg.push(s);
+    }
+    if (has('totalKickingPoints')) {
+      const parts = [];
+      if (nz(v('fieldGoalsMade-fieldGoalAttempts'))) parts.push('FG ' + v('fieldGoalsMade-fieldGoalAttempts'));
+      if (nz(v('extraPointsMade-extraPointAttempts'))) parts.push('XP ' + v('extraPointsMade-extraPointAttempts'));
+      parts.push((v('totalKickingPoints') || '0') + ' Pt');
+      seg.push(parts.join(', '));
+    }
+    return seg.join(' · ') || '—';
+  }
+  function renderNflGamelogRows(names, rows) {
+    if (!rows.length) return '<span class="roll-empty">No games recorded this season.</span>';
+    const recent = rows.slice(0, GAMELOG_N);
+    const tr = recent.map(g => {
+      const opp = (g.atVs ? g.atVs + ' ' : '') + g.opp;
+      return `<tr><td class="gl-date">${fmtGlDate(g.date)}</td><td class="gl-opp">${opp}</td><td class="gl-line">${nflLine(names, g.stats)}</td></tr>`;
+    }).join('');
+    return `<table class="gamelog-table"><tbody>${tr}</tbody></table>`;
+  }
+  async function loadNflGamelog(pid) {
+    const gl = await fetchNflGamelog(pid);
+    return { title: gl.season ? `Game Log — ${gl.season} season` : 'Game Log — recent games',
+      html: renderNflGamelogRows(gl.names, gl.rows) };
+  }
+
+  // Fill a game-log placeholder on first expand, routed by sport. Cached per sport+player+role for
+  // the session so re-opens (and re-renders from sort/filter) are instant and make no second call.
   async function loadGamelog(el) {
     el.classList.add('loading');
-    const pid = el.dataset.pid, kind = el.dataset.kind;
+    const pid = el.dataset.pid, sport = el.dataset.sport, kind = el.dataset.kind;
     const body = el.querySelector('.gamelog-body');
-    const cacheKey = pid + ':' + kind;
+    const titleEl = el.querySelector('.gamelog-title');
+    const cacheKey = sport + ':' + pid + ':' + kind;
+    const apply = r => { body.innerHTML = r.html; if (r.title) titleEl.textContent = r.title; };
     if (gamelogCache[cacheKey] != null) {
-      body.innerHTML = gamelogCache[cacheKey];
+      apply(gamelogCache[cacheKey]);
       el.classList.remove('loading'); el.classList.add('loaded');
       return;
     }
     try {
-      const group = kind === 'pitcher' ? 'pitching' : 'hitting';
-      const year = new Date().getFullYear();
-      let splits = await fetchGamelog(pid, group, year);
-      if (!splits.length) splits = await fetchGamelog(pid, group, year - 1);
-      const html = renderGamelogRows(splits, kind);
-      gamelogCache[cacheKey] = html;
-      body.innerHTML = html;
+      const r = sport === 'nfl' ? await loadNflGamelog(pid) : await loadMlbGamelog(pid, kind);
+      gamelogCache[cacheKey] = r;
+      apply(r);
       el.classList.add('loaded');
     } catch (err) {
       body.innerHTML = '<span class="roll-empty">Game log unavailable right now.</span>';
