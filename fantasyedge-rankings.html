@@ -442,6 +442,11 @@
   .gamelog-table td.pga-ev { color: var(--gray-light); }
   .gamelog-table td.pga-res { text-align: right; white-space: nowrap; color: var(--white); font-weight: 600; }
   .gamelog-table td.pga-res.pga-mc { color: var(--gray); font-weight: 400; font-style: italic; }
+  /* Tour tag on each finish (merged PGA + DP World Tour + LIV history). */
+  .pga-tour { display: inline-block; font-size: 8px; font-weight: 700; letter-spacing: .5px; padding: 1px 4px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+  .pga-tour-pga  { background: rgba(255,255,255,0.08); color: var(--gray-light); }
+  .pga-tour-dpwt { background: rgba(79,163,212,0.18); color: #9FD3EE; }
+  .pga-tour-liv  { background: rgba(212,160,23,0.18); color: var(--gold-light); }
   .pos-badge { display: inline-block; padding: 4px 8px; border: 1px solid rgba(255,255,255,0.15); border-radius: 3px; font-size: 11px; font-weight: 600; color: var(--gray-light); min-width: 50px; text-align: center; }
   .td-stat { color: var(--gold-light); font-weight: 600; font-size: 13px; }
   .td-stat.muted { color: var(--gray); font-weight: 400; }
@@ -1246,13 +1251,21 @@
     });
   });
 
-  // ── PGA recent tournament finishes ─────────────────────────────────────────────────────────
-  // PGA is name-keyed (golfers carry an 'owgr-<rank>-<name>' id, not an ESPN athlete id), so this
+  // ── Golf recent tournament finishes (PGA Tour + DP World Tour + LIV) ────────────────────────
+  // Golfers are name-keyed (they carry an 'owgr-<rank>-<name>' id, not an ESPN athlete id), so this
   // does NOT use the ESPN_GAMELOG registry. It mirrors the server's buildRecentForm: fetch the last
-  // N completed PGA Tour scoreboards ONCE per session (shared across every golfer — not per-golfer),
-  // then each golfer's row-expand is a pure name lookup. Zero backend cost, no dataset changes.
-  const PGA_EVENTS_N = 10;
-  let pgaEventsCache = null; // [{ name, date, field: Map(nkey -> {madeCut, pos, score}) }], newest first
+  // N completed event boards for EACH tour ONCE per session (shared across every golfer — not
+  // per-golfer), merge them newest-first, then each row-expand is a pure name lookup across the
+  // merged pool. Zero backend cost, no dataset changes. Every finish is tagged with its tour.
+  const GOLF_EVENTS_N = 10;   // recent completed events pulled per tour
+  const GOLF_SHOW_N = 12;     // finishes shown per golfer (keeps a cross-tour card tidy)
+  // hasCut: PGA/DP World Tour cut after 36 holes; LIV is 54-hole no-cut, so it never shows Missed Cut.
+  const GOLF_TOURS = [
+    { key: 'pga', tag: 'PGA',  hasCut: true },
+    { key: 'eur', tag: 'DPWT', hasCut: true },
+    { key: 'liv', tag: 'LIV',  hasCut: false },
+  ];
+  let golfEventsCache = null; // [{ tour, name, date, field: Map(nkey -> {madeCut, pos, score}) }], newest first
 
   // The same normalization the PGA board already uses to join OWGR names to ESPN names.
   function normName(s) {
@@ -1268,17 +1281,17 @@
   const ymd = iso => { const d = new Date(iso); return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`; };
   const escHtml = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
-  // Turn one completed event's leaderboard into { name, date, field: nkey -> result }. Missed Cut is
-  // read from linescores: a 4-round event cuts after 36 holes, so a player with 1-2 played rounds
-  // missed it (0 rounds = data gap, shown as a finish rather than a false MC). Tie-aware finish
-  // positions (T4) come from grouping made-cut players by final score.
-  function pgaEventField(ev, endDate) {
+  // Turn one completed event's leaderboard into a Map(nkey -> result). Missed Cut is read from
+  // linescores: a cut tour's 4-round event cuts after 36 holes, so a player with 1-2 played rounds
+  // missed it (0 rounds = data gap, shown as a finish rather than a false MC). LIV has no cut, so
+  // its field is never flagged MC. Tie-aware positions (T4) come from grouping made players by score.
+  function golfEventField(ev, tour) {
     const cs = (ev.competitions && ev.competitions[0] && ev.competitions[0].competitors) || [];
     const maxRounds = cs.reduce((m, c) => Math.max(m, Array.isArray(c.linescores) ? c.linescores.length : 0), 0);
     const recs = cs.map(c => {
       const nm = c.athlete && (c.athlete.displayName || c.athlete.fullName);
       const rounds = Array.isArray(c.linescores) ? c.linescores.filter(x => Number(x && x.value) > 0).length : 0;
-      const madeCut = maxRounds >= 4 ? (rounds >= 3 || rounds === 0) : true;
+      const madeCut = (tour.hasCut && maxRounds >= 4) ? (rounds >= 3 || rounds === 0) : true;
       return { nkey: normName(nm), order: c.order, score: c.score, madeCut };
     }).filter(r => r.nkey);
     // Tie labels: group made-cut players by final score; position = min order in the group, T if shared.
@@ -1291,34 +1304,45 @@
     }
     const field = new Map();
     for (const r of recs) field.set(r.nkey, { madeCut: r.madeCut, pos: r.pos || String(r.order), score: r.score });
-    return { name: ev.name || ev.shortName || '', date: endDate, field };
+    return field;
   }
 
-  // Fetch the last N completed PGA Tour event boards once per session, in parallel. Failure-tolerant:
-  // a missing event just shrinks the sample. All CORS-open (site.api.espn.com), zero backend.
-  async function fetchPgaEvents() {
-    if (pgaEventsCache) return pgaEventsCache;
-    const sbRes = await fetch('https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard');
-    if (!sbRes.ok) throw new Error('HTTP ' + sbRes.status);
+  // Fetch one tour's last N completed event boards. Failure-tolerant (a missing event just shrinks
+  // the sample); skips events with no field (e.g. LIV events that were postponed). CORS-open.
+  async function fetchTourEvents(tour) {
+    const sbRes = await fetch(`https://site.api.espn.com/apis/site/v2/sports/golf/${tour.key}/scoreboard`);
+    if (!sbRes.ok) return [];
     const sb = await sbRes.json();
     const cal = (sb.leagues && sb.leagues[0] && sb.leagues[0].calendar) || [];
     const now = Date.now();
     const done = cal.filter(c => c.endDate && new Date(c.endDate).getTime() < now)
       .sort((a, b) => new Date(b.endDate) - new Date(a.endDate))
-      .slice(0, PGA_EVENTS_N);
-    const events = new Array(done.length);
-    await Promise.all(done.map(async (c, i) => {
+      .slice(0, GOLF_EVENTS_N);
+    const events = await Promise.all(done.map(async c => {
       try {
-        const r = await fetch(`https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard?dates=${ymd(c.startDate || c.endDate)}`);
-        if (!r.ok) return;
+        const r = await fetch(`https://site.api.espn.com/apis/site/v2/sports/golf/${tour.key}/scoreboard?dates=${ymd(c.startDate || c.endDate)}`);
+        if (!r.ok) return null;
         const board = await r.json();
         // The dates query can return multiple events that week (opposite-field); match by id.
         const ev = (board.events || []).find(e => e.id === c.id) || (board.events || [])[0];
-        if (ev) events[i] = pgaEventField(ev, c.endDate);
-      } catch { /* skip a missing event */ }
+        if (!ev) return null;
+        // Only completed events (STATUS_FINAL). Explicitly skips LIV's postponed/empty weeks, whose
+        // feed carries a past endDate but no results — otherwise they'd waste a slot.
+        if (!(ev.status && ev.status.type && ev.status.type.completed)) return null;
+        const field = golfEventField(ev, tour);
+        if (!field.size) return null; // empty field (belt-and-suspenders with the status check)
+        return { tour: tour.tag, name: ev.name || ev.shortName || '', date: c.endDate, field };
+      } catch { return null; }
     }));
-    pgaEventsCache = events.filter(Boolean); // `done` was newest-first, so order is preserved
-    return pgaEventsCache;
+    return events.filter(Boolean);
+  }
+
+  // Fetch every tour once per session and merge newest-first. One tour failing doesn't sink the rest.
+  async function fetchGolfEvents() {
+    if (golfEventsCache) return golfEventsCache;
+    const perTour = await Promise.all(GOLF_TOURS.map(t => fetchTourEvents(t).catch(() => [])));
+    golfEventsCache = perTour.flat().sort((a, b) => new Date(b.date) - new Date(a.date));
+    return golfEventsCache;
   }
 
   function renderPgaResultsRows(nkey, events) {
@@ -1326,10 +1350,12 @@
     for (const ev of events) {
       const r = ev.field.get(nkey);
       if (!r) continue; // golfer wasn't in this event's field
+      if (rows.length >= GOLF_SHOW_N) break; // events are newest-first, so this keeps the most recent
       const result = r.madeCut ? `${r.pos}${r.score ? ', ' + r.score : ''}` : 'Missed Cut';
-      rows.push(`<tr><td class="gl-date">${fmtGlDate(String(ev.date).slice(0, 10))}</td><td class="pga-ev">${escHtml(ev.name)}</td><td class="pga-res${r.madeCut ? '' : ' pga-mc'}">${result}</td></tr>`);
+      const tag = `<span class="pga-tour pga-tour-${ev.tour.toLowerCase()}">${ev.tour}</span>`;
+      rows.push(`<tr><td class="gl-date">${fmtGlDate(String(ev.date).slice(0, 10))}</td><td class="pga-ev">${tag}${escHtml(ev.name)}</td><td class="pga-res${r.madeCut ? '' : ' pga-mc'}">${result}</td></tr>`);
     }
-    if (!rows.length) return '<span class="roll-empty">No recent PGA Tour starts found.</span>';
+    if (!rows.length) return '<span class="roll-empty">No recent tournament starts found.</span>';
     return `<table class="gamelog-table"><tbody>${rows.join('')}</tbody></table>`;
   }
   function renderPgaResultsSection(p) {
@@ -1342,7 +1368,7 @@
     el.classList.add('loading');
     const body = el.querySelector('.gamelog-body');
     try {
-      const events = await fetchPgaEvents();
+      const events = await fetchGolfEvents();
       body.innerHTML = renderPgaResultsRows(el.dataset.nkey, events);
       el.classList.add('loaded');
     } catch (err) {
