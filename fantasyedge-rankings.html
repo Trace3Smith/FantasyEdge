@@ -609,8 +609,13 @@
   // Rendered HTML is memoised per player+role for the session so re-opens (and re-renders from
   // sort/filter) are instant and make no second call. MLB team id → abbreviation for the
   // "@LAD / vs SF" opponent label (the gameLog split carries opponent.id but no abbreviation).
-  const GAMELOG_WINDOWS = [15, 30]; // individual-game windows the L15/L30 toggle offers
-  let gamelogN = 15;                // active window, sticky across rows for the session
+  // Individual-game-log toggle windows, per sport — each sport uses its own rolling convention
+  // (WNBA's 44-game season is L10/L20, like its rolling stats; MLB/NFL are L15/L30). The active
+  // window is sticky per board (an L20 pick on WNBA is remembered for WNBA, independent of MLB).
+  const GAMELOG_WINDOWS_BY_SPORT = { mlb: [15, 30], nfl: [15, 30], wnba: [10, 20] };
+  const gamelogWinsFor = s => GAMELOG_WINDOWS_BY_SPORT[s] || [15, 30];
+  const gamelogWin = {};            // sport -> active window; defaults to that sport's smaller window
+  const activeGamelogWin = s => gamelogWin[s] ?? gamelogWinsFor(s)[0];
   const gamelogCache = {};          // sport:pid:kind -> RAW games (full season), re-sliced on toggle
   const MLB_TEAM_ABBR = {108:"LAA",109:"AZ",110:"BAL",111:"BOS",112:"CHC",113:"CIN",114:"CLE",115:"COL",116:"DET",117:"HOU",118:"KC",119:"LAD",120:"WSH",121:"NYM",133:"ATH",134:"PIT",135:"SD",136:"SEA",137:"SF",138:"STL",139:"TB",140:"TEX",141:"TOR",142:"MIN",143:"PHI",144:"ATL",145:"CWS",146:"MIA",147:"NYY",158:"MIL"};
 
@@ -798,7 +803,8 @@
       // excluded. It rides in the same detail row as the others (loaded lazily on expand), so
       // when the row already opens for a prospect/BvP/form reason the log just appears alongside.
       const gamelogSupported = p.id != null &&
-        (currentSport === 'mlb' || (currentSport === 'nfl' && (p.pos || '').toUpperCase() !== 'DST'));
+        (currentSport === 'mlb' || currentSport === 'wnba' ||
+         (currentSport === 'nfl' && (p.pos || '').toUpperCase() !== 'DST'));
       const gamelogDetail = gamelogSupported ? renderGamelogSection(p) : '';
       const detailHtml = prospectDetail + bvpDetail + rollingDetail + gamelogDetail;
       const hasDetail = !!detailHtml;
@@ -990,8 +996,9 @@
   function renderGamelogSection(p) {
     const sport = currentSport;
     const kind = sport === 'mlb' ? (isPitcherPos(p) ? 'pitcher' : 'hitter') : '';
-    const win = GAMELOG_WINDOWS.map(n =>
-      `<button class="gl-win-btn${n === gamelogN ? ' active' : ''}" data-n="${n}">L${n}</button>`).join('');
+    const active = activeGamelogWin(sport);
+    const win = gamelogWinsFor(sport).map(n =>
+      `<button class="gl-win-btn${n === active ? ' active' : ''}" data-n="${n}">L${n}</button>`).join('');
     return `<div class="gamelog-wrap" data-pid="${p.id}" data-sport="${sport}" data-kind="${kind}">
       <div class="gamelog-head"><span class="gamelog-title">Game Log</span><span class="gamelog-win">${win}</span></div>
       <div class="gamelog-body"><span class="roll-empty">Loading game log…</span></div>
@@ -1051,11 +1058,13 @@
     return { sport: 'mlb', kind, splits };
   }
 
-  // NFL loader (ESPN athlete gamelog). ESPN returns the latest season that has data — so in the
-  // off-season it naturally serves last year's log, no explicit season param or fallback needed.
-  // The season label comes from the seasonType displayName ("2025 Regular Season").
-  async function fetchNflGamelog(pid) {
-    const res = await fetch(`https://site.web.api.espn.com/apis/common/v3/sports/football/nfl/athletes/${pid}/gamelog`);
+  // ESPN athlete-gamelog sports (NFL, WNBA) share one fetch + one row renderer — the JSON envelope
+  // is identical (names/events/seasonTypes, atVs + opponent.abbreviation per event). They differ
+  // ONLY in the per-game line, so each sport supplies a line formatter (no separate rendering path).
+  // ESPN returns the latest season that has data, so off-season it serves last year's log with no
+  // season param or fallback needed. The season label comes from the seasonType displayName.
+  async function fetchEspnGamelog(path, pid) {
+    const res = await fetch(`https://site.web.api.espn.com/apis/common/v3/sports/${path}/athletes/${pid}/gamelog`);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const gl = await res.json();
     // ESPN answers 200 with an error body ({code,message}) when it has no data for the athlete.
@@ -1074,9 +1083,9 @@
     rows.sort((a, b) => a.date < b.date ? 1 : -1); // newest first
     return { names, rows, season };
   }
-  // A game's line, assembled from whichever stat categories the athlete actually has — so it works
-  // for every skill position without a per-position table: QBs get passing (+ rushing), RBs rushing
-  // + receiving, WR/TE receiving, kickers FG/XP. Only non-zero segments show, like the MLB line.
+  // NFL line: assembled from whichever stat categories the athlete actually has, so one function
+  // covers every skill position — QBs passing (+ rushing), RBs rushing + receiving, WR/TE receiving,
+  // kickers FG/XP. Only non-zero segments show, like the MLB line.
   function nflLine(names, stats) {
     const idx = {}; names.forEach((n, i) => idx[n] = i);
     const has = n => idx[n] != null;
@@ -1108,34 +1117,54 @@
     }
     return seg.join(' · ') || '—';
   }
-  function renderNflGamelogRows(names, rows, n) {
+  // WNBA line: the board's counting cats (PTS/REB/AST, plus STL/BLK when they happened), then the
+  // shooting splits as made-attempted (FG / 3PT / FT). Same "just what happened" style as the rest.
+  function wnbaLine(names, stats) {
+    const idx = {}; names.forEach((n, i) => idx[n] = i);
+    const v = n => stats[idx[n]];
+    const nz = s => s != null && s !== '' && s !== '0' && s !== '0-0';
+    const core = [`${v('points')} PTS`, `${v('totalRebounds')} REB`, `${v('assists')} AST`];
+    if (nz(v('steals'))) core.push(`${v('steals')} STL`);
+    if (nz(v('blocks'))) core.push(`${v('blocks')} BLK`);
+    const shot = [];
+    if (nz(v('fieldGoalsMade-fieldGoalsAttempted'))) shot.push(`${v('fieldGoalsMade-fieldGoalsAttempted')} FG`);
+    if (nz(v('threePointFieldGoalsMade-threePointFieldGoalsAttempted'))) shot.push(`${v('threePointFieldGoalsMade-threePointFieldGoalsAttempted')} 3PT`);
+    if (nz(v('freeThrowsMade-freeThrowsAttempted'))) shot.push(`${v('freeThrowsMade-freeThrowsAttempted')} FT`);
+    return [core.join(', '), shot.join(', ')].filter(Boolean).join(' · ') || '—';
+  }
+  // Per-sport ESPN gamelog config: API sport path + that sport's line formatter.
+  const ESPN_GAMELOG = { nfl: { path: 'football/nfl', line: nflLine }, wnba: { path: 'basketball/wnba', line: wnbaLine } };
+  function renderEspnGamelogRows(names, rows, n, lineFn) {
     if (!rows.length) return '<span class="roll-empty">No games recorded this season.</span>';
     const recent = rows.slice(0, n);
     const tr = recent.map(g => {
       const opp = (g.atVs ? g.atVs + ' ' : '') + g.opp;
-      return `<tr><td class="gl-date">${fmtGlDate(g.date)}</td><td class="gl-opp">${opp}</td><td class="gl-line">${nflLine(names, g.stats)}</td></tr>`;
+      return `<tr><td class="gl-date">${fmtGlDate(g.date)}</td><td class="gl-opp">${opp}</td><td class="gl-line">${lineFn(names, g.stats)}</td></tr>`;
     }).join('');
     return `<table class="gamelog-table"><tbody>${tr}</tbody></table>`;
   }
-  async function fetchNflRaw(pid) {
-    const gl = await fetchNflGamelog(pid);
-    return { sport: 'nfl', names: gl.names, rows: gl.rows, season: gl.season };
+  async function fetchEspnRaw(sport, pid) {
+    const gl = await fetchEspnGamelog(ESPN_GAMELOG[sport].path, pid);
+    return { sport, names: gl.names, rows: gl.rows, season: gl.season };
   }
 
-  // Render a card's body + title + active-button state from its cached RAW games at the current
-  // window. Called on first load AND on every L15/L30 toggle — the toggle is purely this re-slice,
-  // no refetch. MLB title is neutral (the buttons carry the window); NFL adds its season label.
+  // Render a card's body + title + active-button state from its cached RAW games at the sport's
+  // current window. Called on first load AND on every L-window toggle — the toggle is purely this
+  // re-slice, no refetch. ESPN sports (NFL/WNBA) add their season label; MLB's title is neutral
+  // (the buttons carry the window).
   function drawGamelog(el, raw) {
     const body = el.querySelector('.gamelog-body');
     const titleEl = el.querySelector('.gamelog-title');
-    if (raw.sport === 'nfl') {
-      body.innerHTML = renderNflGamelogRows(raw.names, raw.rows, gamelogN);
+    const n = activeGamelogWin(raw.sport);
+    const espn = ESPN_GAMELOG[raw.sport];
+    if (espn) {
+      body.innerHTML = renderEspnGamelogRows(raw.names, raw.rows, n, espn.line);
       titleEl.textContent = raw.season ? `Game Log · ${raw.season}` : 'Game Log';
     } else {
-      body.innerHTML = renderGamelogRows(raw.splits, raw.kind, gamelogN);
+      body.innerHTML = renderGamelogRows(raw.splits, raw.kind, n);
       titleEl.textContent = 'Game Log';
     }
-    el.querySelectorAll('.gl-win-btn').forEach(b => b.classList.toggle('active', Number(b.dataset.n) === gamelogN));
+    el.querySelectorAll('.gl-win-btn').forEach(b => b.classList.toggle('active', Number(b.dataset.n) === n));
   }
 
   // Fill a game-log placeholder on first expand, routed by sport. The RAW games are cached per
@@ -1147,7 +1176,7 @@
     if (gamelogCache[cacheKey] != null) { drawGamelog(el, gamelogCache[cacheKey]); el.classList.add('loaded'); return; }
     el.classList.add('loading');
     try {
-      const raw = sport === 'nfl' ? await fetchNflRaw(pid) : await fetchMlbRaw(pid, kind);
+      const raw = ESPN_GAMELOG[sport] ? await fetchEspnRaw(sport, pid) : await fetchMlbRaw(pid, kind);
       gamelogCache[cacheKey] = raw;
       drawGamelog(el, raw);
       el.classList.add('loaded');
@@ -1157,15 +1186,15 @@
       el.classList.remove('loading');
     }
   }
-  // L15/L30 toggle: sticky for the session, applied to every already-loaded card at once — all from
-  // cache, zero refetch. Delegated on the table body so it survives re-renders. (The button lives in
-  // the .row-detail row, not a .row-expand row, so this never collides with the row expand/collapse.)
+  // Game-log window toggle: sticky per board (its sport), applied to every already-loaded card at
+  // once — all from cache, zero refetch. Delegated on the table body so it survives re-renders. (The
+  // button lives in the .row-detail row, not a .row-expand row, so it never collides with expand.)
   document.getElementById('tableBody').addEventListener('click', e => {
     const btn = e.target.closest('.gl-win-btn');
     if (!btn) return;
     const n = Number(btn.dataset.n);
-    if (n === gamelogN) return;
-    gamelogN = n;
+    if (n === activeGamelogWin(currentSport)) return;
+    gamelogWin[currentSport] = n;
     document.querySelectorAll('.gamelog-wrap.loaded').forEach(el => {
       const raw = gamelogCache[el.dataset.sport + ':' + el.dataset.pid + ':' + el.dataset.kind];
       if (raw) drawGamelog(el, raw);
