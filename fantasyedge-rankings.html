@@ -612,7 +612,7 @@
   // Individual-game-log toggle windows, per sport — each sport uses its own rolling convention
   // (WNBA's 44-game season is L10/L20, like its rolling stats; MLB/NFL are L15/L30). The active
   // window is sticky per board (an L20 pick on WNBA is remembered for WNBA, independent of MLB).
-  const GAMELOG_WINDOWS_BY_SPORT = { mlb: [15, 30], nfl: [15, 30], wnba: [10, 20] };
+  const GAMELOG_WINDOWS_BY_SPORT = { mlb: [15, 30], nfl: [15, 30], nba: [15, 30], nhl: [15, 30], wnba: [10, 20] };
   const gamelogWinsFor = s => GAMELOG_WINDOWS_BY_SPORT[s] || [15, 30];
   const gamelogWin = {};            // sport -> active window; defaults to that sport's smaller window
   const activeGamelogWin = s => gamelogWin[s] ?? gamelogWinsFor(s)[0];
@@ -798,13 +798,13 @@
       const bvpActionable = !!(bvpEntry && (bvpEntry.advice.star || bvpEntry.advice.counts));
       const otherDetail = prospectDetail || rollingDetail;
       const bvpDetail = (bvpEntry && (bvpActionable || otherDetail)) ? renderBvpDetail(bvpEntry) : '';
-      // Recent game log: MLB (statsapi) and NFL (ESPN), offered on any player carrying a real
-      // athlete id — NFL D/ST have a synthetic 'dst-' id and no athlete gamelog, so they're
-      // excluded. It rides in the same detail row as the others (loaded lazily on expand), so
-      // when the row already opens for a prospect/BvP/form reason the log just appears alongside.
+      // Recent game log: MLB (statsapi) and the ESPN sports (NFL/NBA/NHL/WNBA), offered on any
+      // player carrying a real athlete id — NFL D/ST have a synthetic 'dst-' id and no athlete
+      // gamelog, so they're excluded. It rides in the same detail row as the others (loaded lazily
+      // on expand), so when the row already opens for a prospect/BvP/form reason the log appears alongside.
       const gamelogSupported = p.id != null &&
-        (currentSport === 'mlb' || currentSport === 'wnba' ||
-         (currentSport === 'nfl' && (p.pos || '').toUpperCase() !== 'DST'));
+        (currentSport === 'mlb' ||
+         (ESPN_GAMELOG[currentSport] && !(currentSport === 'nfl' && (p.pos || '').toUpperCase() === 'DST')));
       const gamelogDetail = gamelogSupported ? renderGamelogSection(p) : '';
       const detailHtml = prospectDetail + bvpDetail + rollingDetail + gamelogDetail;
       const hasDetail = !!detailHtml;
@@ -1072,7 +1072,8 @@
     const names = gl.names || [], events = gl.events || {};
     const st = (gl.seasonTypes || []).find(s => /regular season/i.test(s.displayName || ''));
     if (!st) return { names, rows: [], season: null };
-    const season = (String(st.displayName).match(/\d{4}/) || [])[0] || null;
+    // "2025-26 Regular Season" (NBA/NHL) -> "2025-26"; "2026 Regular Season" (WNBA/NFL) -> "2026".
+    const season = (String(st.displayName).match(/\d{4}(?:-\d{2})?/) || [])[0] || null;
     const rows = [];
     for (const cat of st.categories || []) for (const ev of cat.events || []) {
       const meta = events[ev.eventId] || {};
@@ -1117,9 +1118,10 @@
     }
     return seg.join(' · ') || '—';
   }
-  // WNBA line: the board's counting cats (PTS/REB/AST, plus STL/BLK when they happened), then the
-  // shooting splits as made-attempted (FG / 3PT / FT). Same "just what happened" style as the rest.
-  function wnbaLine(names, stats) {
+  // Basketball line (NBA + WNBA share identical stat names): the board's counting cats
+  // (PTS/REB/AST, plus STL/BLK when they happened), then the shooting splits as made-attempted
+  // (FG / 3PT / FT). Same "just what happened" style as the rest.
+  function bballLine(names, stats) {
     const idx = {}; names.forEach((n, i) => idx[n] = i);
     const v = n => stats[idx[n]];
     const nz = s => s != null && s !== '' && s !== '0' && s !== '0-0';
@@ -1132,8 +1134,36 @@
     if (nz(v('freeThrowsMade-freeThrowsAttempted'))) shot.push(`${v('freeThrowsMade-freeThrowsAttempted')} FT`);
     return [core.join(', '), shot.join(', ')].filter(Boolean).join(' · ') || '—';
   }
-  // Per-sport ESPN gamelog config: API sport path + that sport's line formatter.
-  const ESPN_GAMELOG = { nfl: { path: 'football/nfl', line: nflLine }, wnba: { path: 'basketball/wnba', line: wnbaLine } };
+  // NHL line, role-aware like the rolling stats: a goalie (has save stats) shows decision + SV/GA/
+  // SV%; a skater shows G/A then +/-, SOG, and PP points when non-zero. One game per row either way.
+  function nhlLine(names, stats) {
+    const idx = {}; names.forEach((n, i) => idx[n] = i);
+    const has = n => idx[n] != null;
+    const v = n => stats[idx[n]];
+    const num = n => { const x = parseFloat(v(n)); return isFinite(x) ? x : 0; };
+    const nz = s => s != null && s !== '' && s !== '0' && s !== '0.00' && s !== '0-0';
+    if (has('saves') || has('savePct')) {
+      const dec = num('wins') ? 'W' : num('losses') ? 'L' : num('overtimeLosses') ? 'OTL' : '';
+      const parts = [`${v('saves')} SV`, `${v('goalsAgainst')} GA`];
+      if (nz(v('savePct'))) parts.push(v('savePct').replace(/^0/, '') + ' SV%');
+      if (num('shutouts')) parts.push('SO');
+      return (dec ? dec + ' · ' : '') + parts.join(', ');
+    }
+    const core = [`${v('goals')} G`, `${v('assists')} A`];
+    const extra = [];
+    const pm = num('plusMinus'); if (pm) extra.push((pm > 0 ? '+' : '') + pm);
+    if (nz(v('shotsTotal'))) extra.push(`${v('shotsTotal')} SOG`);
+    const pp = num('powerPlayGoals') + num('powerPlayAssists'); if (pp) extra.push(`${pp} PPP`);
+    return [core.join(', '), extra.join(' · ')].filter(Boolean).join(' · ');
+  }
+  // Per-sport ESPN gamelog config: API sport path + that sport's line formatter. NBA + WNBA share
+  // the basketball line (identical stat names); NFL and NHL have their own.
+  const ESPN_GAMELOG = {
+    nfl:  { path: 'football/nfl',   line: nflLine },
+    nba:  { path: 'basketball/nba', line: bballLine },
+    wnba: { path: 'basketball/wnba', line: bballLine },
+    nhl:  { path: 'hockey/nhl',     line: nhlLine },
+  };
   function renderEspnGamelogRows(names, rows, n, lineFn) {
     if (!rows.length) return '<span class="roll-empty">No games recorded this season.</span>';
     const recent = rows.slice(0, n);
