@@ -434,6 +434,14 @@
   .gl-date { color: var(--gray); white-space: nowrap; width: 1%; }
   .gl-opp { color: var(--gray-light); white-space: nowrap; width: 1%; font-weight: 600; }
   .gl-line { color: var(--white); }
+  /* PGA recent tournament finishes — reuses the game-log table shell; the event name is the wide
+     column and the result (T4, -12 / Missed Cut) is right-aligned. Name-keyed, no window toggle. */
+  .tag-results { background: rgba(255,255,255,0.06); color: var(--gray-light); border: 1px solid rgba(255,255,255,0.2); cursor: pointer; }
+  .pga-results-wrap { max-width: 460px; }
+  .pga-results-wrap:not(:first-child) { margin-top: 12px; }
+  .gamelog-table td.pga-ev { color: var(--gray-light); }
+  .gamelog-table td.pga-res { text-align: right; white-space: nowrap; color: var(--white); font-weight: 600; }
+  .gamelog-table td.pga-res.pga-mc { color: var(--gray); font-weight: 400; font-style: italic; }
   .pos-badge { display: inline-block; padding: 4px 8px; border: 1px solid rgba(255,255,255,0.15); border-radius: 3px; font-size: 11px; font-weight: 600; color: var(--gray-light); min-width: 50px; text-align: center; }
   .td-stat { color: var(--gold-light); font-weight: 600; font-size: 13px; }
   .td-stat.muted { color: var(--gray); font-weight: 400; }
@@ -806,10 +814,13 @@
         (currentSport === 'mlb' ||
          (ESPN_GAMELOG[currentSport] && !(currentSport === 'nfl' && (p.pos || '').toUpperCase() === 'DST')));
       const gamelogDetail = gamelogSupported ? renderGamelogSection(p) : '';
-      const detailHtml = prospectDetail + bvpDetail + rollingDetail + gamelogDetail;
+      // PGA recent tournament finishes — a separate, name-keyed path (golfers carry no athlete id),
+      // NOT the gamelog registry. Rides the same detail row / expansion as everything else.
+      const pgaResultsDetail = (isPga && p.name) ? renderPgaResultsSection(p) : '';
+      const detailHtml = prospectDetail + bvpDetail + rollingDetail + gamelogDetail + pgaResultsDetail;
       const hasDetail = !!detailHtml;
-      // Exactly one expand caret, on the first present chip (priority: prospect, BvP, form, log).
-      const caretOn = prospectDetail ? 'prospect' : bvpActionable ? 'bvp' : rollingDetail ? 'form' : gamelogDetail ? 'gamelog' : null;
+      // Exactly one expand caret, on the first present chip (priority: prospect, BvP, form, log, results).
+      const caretOn = prospectDetail ? 'prospect' : bvpActionable ? 'bvp' : rollingDetail ? 'form' : gamelogDetail ? 'gamelog' : pgaResultsDetail ? 'pga' : null;
       const chipText = ['PROSPECT', p.prospectRank != null ? '#' + p.prospectRank : '', p.fv != null ? 'FV ' + p.fv : ''].filter(Boolean).join(' · ');
       const prospectChip = isProspect
         ? `<span class="tag-badge tag-prospect">${chipText}${caretOn === 'prospect' ? '<span class="row-caret">▶</span>' : ''}</span>`
@@ -825,6 +836,10 @@
       const gamelogChip = caretOn === 'gamelog'
         ? `<span class="tag-badge tag-log">LOG<span class="row-caret">▶</span></span>`
         : '';
+      // PGA golfers get a RESULTS chip opening their recent tournament finishes.
+      const pgaChip = caretOn === 'pga'
+        ? `<span class="tag-badge tag-results">RESULTS<span class="row-caret">▶</span></span>`
+        : '';
       const muted = '<span class="td-stat muted">—</span>';
       // In a league view, show the within-league rank; in NFL Standard mode, the
       // re-ranked board position; otherwise the global rank.
@@ -834,7 +849,7 @@
       const rowClass = [so ? 'search-only-row' : '', hasDetail ? 'row-expand' : ''].filter(Boolean).join(' ');
       const mainRow = `<tr class="${rowClass}">
         <td class="td-rank">${dispRank}</td>
-        <td><div class="player-cell"><div class="player-avatar">${p.emoji||'⚾'}</div><div><div class="player-name">${p.name}${getTagHTML(p.tag)}${soBadge}${prospectChip}${bvpChip}${formChip}${gamelogChip}</div><div class="player-meta">${p.team}</div></div></div></td>
+        <td><div class="player-cell"><div class="player-avatar">${p.emoji||'⚾'}</div><div><div class="player-name">${p.name}${getTagHTML(p.tag)}${soBadge}${prospectChip}${bvpChip}${formChip}${gamelogChip}${pgaChip}</div><div class="player-meta">${p.team}</div></div></div></td>
         <td><span class="pos-badge">${p.pos||'—'}</span></td>
         <td style="color:var(--gray-light)">${p.team||'—'}</td>
         <td>${formatStat(p.s1, showInline ? p.statLabels?.[0] : null)}</td><td>${formatStat(p.s2, showInline ? p.statLabels?.[1] : null)}</td><td>${formatStat(p.s3, showInline ? p.statLabels?.[2] : null)}</td><td>${formatStat(p.s4, showInline ? p.statLabels?.[3] : null)}</td><td>${formatStat(p.s5, showInline ? p.statLabels?.[4] : null)}</td><td>${formatStat(s6disp, showInline ? p.statLabels?.[5] : null)}</td>
@@ -1231,6 +1246,112 @@
     });
   });
 
+  // ── PGA recent tournament finishes ─────────────────────────────────────────────────────────
+  // PGA is name-keyed (golfers carry an 'owgr-<rank>-<name>' id, not an ESPN athlete id), so this
+  // does NOT use the ESPN_GAMELOG registry. It mirrors the server's buildRecentForm: fetch the last
+  // N completed PGA Tour scoreboards ONCE per session (shared across every golfer — not per-golfer),
+  // then each golfer's row-expand is a pure name lookup. Zero backend cost, no dataset changes.
+  const PGA_EVENTS_N = 10;
+  let pgaEventsCache = null; // [{ name, date, field: Map(nkey -> {madeCut, pos, score}) }], newest first
+
+  // The same normalization the PGA board already uses to join OWGR names to ESPN names.
+  function normName(s) {
+    return String(s || '')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .replace(/\([^)]*\)/g, ' ')
+      .replace(/\b(jr|sr|ii|iii|iv)\b/g, '')
+      .replace(/[^a-z\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  const ymd = iso => { const d = new Date(iso); return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`; };
+  const escHtml = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+  // Turn one completed event's leaderboard into { name, date, field: nkey -> result }. Missed Cut is
+  // read from linescores: a 4-round event cuts after 36 holes, so a player with 1-2 played rounds
+  // missed it (0 rounds = data gap, shown as a finish rather than a false MC). Tie-aware finish
+  // positions (T4) come from grouping made-cut players by final score.
+  function pgaEventField(ev, endDate) {
+    const cs = (ev.competitions && ev.competitions[0] && ev.competitions[0].competitors) || [];
+    const maxRounds = cs.reduce((m, c) => Math.max(m, Array.isArray(c.linescores) ? c.linescores.length : 0), 0);
+    const recs = cs.map(c => {
+      const nm = c.athlete && (c.athlete.displayName || c.athlete.fullName);
+      const rounds = Array.isArray(c.linescores) ? c.linescores.filter(x => Number(x && x.value) > 0).length : 0;
+      const madeCut = maxRounds >= 4 ? (rounds >= 3 || rounds === 0) : true;
+      return { nkey: normName(nm), order: c.order, score: c.score, madeCut };
+    }).filter(r => r.nkey);
+    // Tie labels: group made-cut players by final score; position = min order in the group, T if shared.
+    const byScore = new Map();
+    for (const r of recs) if (r.madeCut) { if (!byScore.has(r.score)) byScore.set(r.score, []); byScore.get(r.score).push(r); }
+    for (const grp of byScore.values()) {
+      const minOrder = Math.min(...grp.map(g => g.order));
+      const prefix = grp.length > 1 ? 'T' : '';
+      for (const g of grp) g.pos = prefix + minOrder;
+    }
+    const field = new Map();
+    for (const r of recs) field.set(r.nkey, { madeCut: r.madeCut, pos: r.pos || String(r.order), score: r.score });
+    return { name: ev.name || ev.shortName || '', date: endDate, field };
+  }
+
+  // Fetch the last N completed PGA Tour event boards once per session, in parallel. Failure-tolerant:
+  // a missing event just shrinks the sample. All CORS-open (site.api.espn.com), zero backend.
+  async function fetchPgaEvents() {
+    if (pgaEventsCache) return pgaEventsCache;
+    const sbRes = await fetch('https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard');
+    if (!sbRes.ok) throw new Error('HTTP ' + sbRes.status);
+    const sb = await sbRes.json();
+    const cal = (sb.leagues && sb.leagues[0] && sb.leagues[0].calendar) || [];
+    const now = Date.now();
+    const done = cal.filter(c => c.endDate && new Date(c.endDate).getTime() < now)
+      .sort((a, b) => new Date(b.endDate) - new Date(a.endDate))
+      .slice(0, PGA_EVENTS_N);
+    const events = new Array(done.length);
+    await Promise.all(done.map(async (c, i) => {
+      try {
+        const r = await fetch(`https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard?dates=${ymd(c.startDate || c.endDate)}`);
+        if (!r.ok) return;
+        const board = await r.json();
+        // The dates query can return multiple events that week (opposite-field); match by id.
+        const ev = (board.events || []).find(e => e.id === c.id) || (board.events || [])[0];
+        if (ev) events[i] = pgaEventField(ev, c.endDate);
+      } catch { /* skip a missing event */ }
+    }));
+    pgaEventsCache = events.filter(Boolean); // `done` was newest-first, so order is preserved
+    return pgaEventsCache;
+  }
+
+  function renderPgaResultsRows(nkey, events) {
+    const rows = [];
+    for (const ev of events) {
+      const r = ev.field.get(nkey);
+      if (!r) continue; // golfer wasn't in this event's field
+      const result = r.madeCut ? `${r.pos}${r.score ? ', ' + r.score : ''}` : 'Missed Cut';
+      rows.push(`<tr><td class="gl-date">${fmtGlDate(String(ev.date).slice(0, 10))}</td><td class="pga-ev">${escHtml(ev.name)}</td><td class="pga-res${r.madeCut ? '' : ' pga-mc'}">${result}</td></tr>`);
+    }
+    if (!rows.length) return '<span class="roll-empty">No recent PGA Tour starts found.</span>';
+    return `<table class="gamelog-table"><tbody>${rows.join('')}</tbody></table>`;
+  }
+  function renderPgaResultsSection(p) {
+    return `<div class="pga-results-wrap" data-nkey="${normName(p.name)}">
+      <div class="gamelog-head"><span class="gamelog-title">Recent Finishes</span></div>
+      <div class="gamelog-body"><span class="roll-empty">Loading results…</span></div>
+    </div>`;
+  }
+  async function loadPgaResults(el) {
+    el.classList.add('loading');
+    const body = el.querySelector('.gamelog-body');
+    try {
+      const events = await fetchPgaEvents();
+      body.innerHTML = renderPgaResultsRows(el.dataset.nkey, events);
+      el.classList.add('loaded');
+    } catch (err) {
+      body.innerHTML = '<span class="roll-empty">Results unavailable right now.</span>';
+    } finally {
+      el.classList.remove('loading');
+    }
+  }
+
   function updateStrip(players) {
     document.getElementById('stripTotal').textContent = players.length;
     document.getElementById('stripHot').textContent = players.filter(p=>p.tag==='hot').length;
@@ -1435,10 +1556,12 @@
     if (!detail || !detail.classList.contains('row-detail')) return;
     row.classList.toggle('open');
     detail.classList.toggle('open');
-    // Lazy-load the game log the first time this row opens (MLB client-side fetch).
+    // Lazy-load the game log (MLB/ESPN sports) or PGA recent finishes the first time this row opens.
     if (detail.classList.contains('open')) {
       const gl = detail.querySelector('.gamelog-wrap:not(.loaded):not(.loading)');
       if (gl) loadGamelog(gl);
+      const pr = detail.querySelector('.pga-results-wrap:not(.loaded):not(.loading)');
+      if (pr) loadPgaResults(pr);
     }
   });
 
