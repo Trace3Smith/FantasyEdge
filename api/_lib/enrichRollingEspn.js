@@ -15,6 +15,11 @@
 // ~5-10 players per team, so the UNION of the pool's events reconstructs each team's game
 // calendar with no extra calls. That calendar gives the tg denominator.
 //
+// FIXED-COUNT WINDOWS. The window is each team's OWN last-N games by COUNT (its Nth-most-recent
+// game date onward), not a shared calendar range — so the denominator is exactly N, and the
+// numerator stays the games the player actually appeared in (a rested player reads below N).
+// Still zero extra calls: it all comes off the reconstructed per-team calendar above.
+//
 // Additive + failure-tolerant + a no-op out of season, exactly like enrichForm/enrichRolling.
 
 import { getJson } from './espn.js';
@@ -105,9 +110,9 @@ function teamCalendars(allGames) {
   return out;
 }
 
-// League window start for N team games: the median team's Nth-most-recent game date, so the
-// window is "the last ~N team games" league-wide; per-team tg then records each team's own
-// count since that date. Mirrors MLB's enrichRolling.
+// Representative window start for the card's date SUBTITLE only (the real per-team windows are
+// fixed-count, computed in enrichRollingEspn). The median team's Nth-most-recent game date gives a
+// sensible "these are roughly the last-N-game windows" range without implying one shared boundary.
 function windowStart(cal, n) {
   const dates = [];
   for (const arr of cal.values()) { const d = arr[Math.min(n, arr.length) - 1]; if (d) dates.push(d); }
@@ -144,13 +149,19 @@ export async function enrichRollingEspn(dataset, { sport }) {
 
   const cal = teamCalendars(pool);
   const end = pool.reduce((m, g) => (g.date > m ? g.date : m), '0000-00-00');
-  const windows = {}; // key -> { start, tgByTeam: Map }
+  // Per-team fixed-COUNT windows: each team's OWN last-N games (by count, not a shared date), so the
+  // denominator is exactly N. boundaryByTeam holds the date of a team's Nth-most-recent game; tgByTeam
+  // is that count (N mid-season, fewer early on). The window is [boundary, latest game].
+  const windows = {}; // key -> { n, boundaryByTeam: Map, tgByTeam: Map }
   for (const [key, n] of Object.entries(cfg.windows)) {
-    const start = windowStart(cal, n);
-    if (!start) continue;
-    const tgByTeam = new Map();
-    for (const [tid, arr] of cal) tgByTeam.set(tid, arr.filter((d) => d >= start).length);
-    windows[key] = { start, tgByTeam };
+    const boundaryByTeam = new Map(), tgByTeam = new Map();
+    for (const [tid, arr] of cal) {
+      if (!arr.length) continue;
+      const count = Math.min(n, arr.length);
+      boundaryByTeam.set(tid, arr[count - 1]);
+      tgByTeam.set(tid, count);
+    }
+    if (boundaryByTeam.size) windows[key] = { n, boundaryByTeam, tgByTeam };
   }
   if (!Object.keys(windows).length) { dataset.counts = { ...dataset.counts, rollingActive: false }; return; }
 
@@ -161,23 +172,25 @@ export async function enrichRollingEspn(dataset, { sport }) {
     const teamId = games[games.length - 1].teamId; // his current team (last game's)
     const rolling = {};
     for (const [key, w] of Object.entries(windows)) {
-      const inWin = games.filter((g) => g.date >= w.start);
+      const start = teamId != null ? w.boundaryByTeam.get(teamId) : null;
+      if (!start) continue; // his team isn't in the reconstructed calendar — skip this window
+      const inWin = games.filter((g) => g.date >= start); // games he ACTUALLY played in the window
       if (!inWin.length) continue;
-      // tg is reconstructed from the top-N pool, so it can undercount a thinly-covered team,
-      // and a player traded mid-window has games from two teams while tg is only his current
-      // one's — either can make g exceed tg. Clamp so the denominator is never below the
-      // numerator (no "played 17 of 15"); the rare clamp reads as "played every game".
-      const rawTg = teamId != null ? (w.tgByTeam.get(teamId) ?? inWin.length) : inWin.length;
-      const tg = Math.max(rawTg, inWin.length);
+      // tg is his team's own game count in the window (N). Clamp up only if his own appearances
+      // somehow exceed it — a mid-window trade brings games from two teams, or a thin pool undercounts
+      // the calendar. It never bumps a RESTED player up to N, so "played 12 of 15" stays honest.
+      const tg = Math.max(w.tgByTeam.get(teamId) ?? inWin.length, inWin.length);
       rolling[key] = { g: inWin.length, tg, ...windowLine(sport, isGoalie, inWin) };
     }
     if (Object.keys(rolling).length) { p.rolling = rolling; touched++; }
   }
 
+  // Subtitle date range only: a representative (median-team) window start, same as the card showed
+  // before. Denominators above are now exact per team, so tgMin/tgMax collapses toward N.
   const meta = {};
   for (const [key, w] of Object.entries(windows)) {
     const counts = [...w.tgByTeam.values()].filter((x) => x > 0);
-    meta[key] = { start: w.start, end, tgMin: counts.length ? Math.min(...counts) : 0, tgMax: counts.length ? Math.max(...counts) : 0 };
+    meta[key] = { start: windowStart(cal, w.n), end, tgMin: counts.length ? Math.min(...counts) : 0, tgMax: counts.length ? Math.max(...counts) : 0 };
   }
   dataset.counts = { ...dataset.counts, rollingActive: true, rollingPlayers: touched, rollingWindows: meta };
 }
