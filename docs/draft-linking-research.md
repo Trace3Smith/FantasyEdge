@@ -1,6 +1,6 @@
 # Draft-linking research — live in-progress draft APIs
 
-**Date:** 2026-07-09 · **Status:** Sleeper shipped; ESPN spike deferred to ~August; Yahoo held.
+**Date:** 2026-07-09 (updated 2026-07-22) · **Status:** Sleeper shipped; ESPN auth-reuse **confirmed against our code**, live-data spike still deferred to ~August; Yahoo held.
 
 Research done before writing any provider-linking code, per the Draft Mode guardrail
 ("don't assume ESPN/Yahoo work like the roster cookies — report findings first"). This
@@ -12,7 +12,7 @@ that needs, so we don't re-derive it later.
 | Provider | Live picks mid-draft? | Auth | Player identity in picks | Verdict |
 |----------|----------------------|------|--------------------------|---------|
 | **Sleeper** | Yes (public feed) | None (public) | name + pos + team metadata | **Shipped** — client-side poll |
-| **ESPN** | **Unverified** (likely post-draft only) | Same `espn_s2`/`SWID` cookies we store | numeric `playerId` only | Spike first, ~August |
+| **ESPN** | **Unverified** (likely post-draft only) | **Reuses Team Manager's stored cookie** — no new auth, no new function | numeric `playerId` only | Auth solved; spike the live-data question, ~August |
 | **Yahoo** | Yes, mid-draft | **New OAuth 2.0** (3-legged) | numeric player id | Deferred (heaviest lift) |
 
 ## Sleeper — shipped (client-side, no new serverless function)
@@ -34,6 +34,33 @@ that needs, so we don't re-derive it later.
 - Endpoint: `…/apis/v3/games/ffl/seasons/<yr>/segments/0/leagues/<id>?view=mDraftDetail`
   on `lm-api-reads.fantasy.espn.com` — the **same `espn_s2`/`SWID` cookies** we already
   store for roster reads. No new auth type.
+
+### Auth reuse — CONFIRMED against our code (2026-07-22)
+
+Verified in `api/espn/index.js` + `api/_lib/espnFantasy.js`: the draft view rides the exact
+same authenticated session Team Manager already uses, so **every hard piece already exists** —
+we reuse the stored cookie, don't re-prompt the user, and add **no new Vercel function**.
+
+| Piece a live ESPN draft linker needs | Already built (for Team Manager) |
+|--------------------------------------|----------------------------------|
+| Cookie capture + one-time connect | `connect` action |
+| Cookie storage, per Clerk `userId` | Redis via `getCreds(redis, userId)` |
+| Authenticated ESPN GET client | `espnGet(url, creds)` — sets `Cookie:` server-side |
+| Read domain | `lm-api-reads.fantasy.espn.com/.../segments/0/leagues/{id}?view=…` (same `v3Read`) |
+| Numeric `playerId` → player crosswalk | `view=kona_player_info` (already used for free agents) |
+
+- **Wiring:** `api/espn/index.js` is a single function that routes on `req.body.action`
+  (`status`/`connect`/`leagues`/`apply`/…). A live linker is one more case, e.g.
+  `case 'draftPicks'` — fetch `?view=mDraftDetail` via `espnGet` with the user's `getCreds`,
+  map ids through `kona_player_info`, return picks. **Stays at 11/12 functions.**
+- **BUT it is NOT client-side like Sleeper.** ESPN's cookie can only be sent server-side
+  (the browser won't attach ESPN's cross-site cookies, and `Cookie` is a forbidden `fetch`
+  header). So an ESPN poll is **browser → our `/api/espn` function → ESPN**, every ~10s per
+  active drafter — real per-poll invocation cost during drafts, unlike Sleeper's free
+  browser-direct model. No new function, but not zero-cost either.
+- **ToS/rate posture is unchanged from today:** we'd read the user's OWN league with the
+  user's OWN stored cookie — identical to the roster reads Team Manager already does. A ~10s
+  poll is trivial volume; the standing risk is ESPN changing/blocking, same as now.
 - Response shape (confirmed from the `espn-api` library parser; a live JSON sample was not
   obtainable — ESPN now `401`s virtually all leagues to non-members, including the old
   public example league):
@@ -84,9 +111,15 @@ that needs, so we don't re-derive it later.
 
 ## Decision
 
-Ship **Sleeper** now (public, client-side, no new function — stays at 11/12). **ESPN** is
-auth-compatible but carries real risk the REST view is post-draft-only → live spike before
-any code. **Yahoo** deferred (new OAuth stack).
+Ship **Sleeper** now (public, client-side, no new function — stays at 11/12). **ESPN**: auth is
+**solved and confirmed** (reuses Team Manager's stored cookie, adds only a `draftPicks` case to
+the existing function — no new auth, no new function, no re-prompt). The **only** thing gating it
+is the live-data question — does `mDraftDetail` populate picks mid-draft or only at close — which
+needs a live spike once a real ESPN draft exists (~August). If the spike passes, it's roughly a
+half-day feature; if it's post-draft-only, the REST path can't power a live linker (socket path =
+much bigger, likely not worth it). **Yahoo** deferred — wholly separate OAuth 2.0 stack, likely a
+new function (→ 12/12, our last slot), for the smallest slice of users; ESPN + Sleeper cover the
+dominant platforms. Build neither today; run the ESPN spike first in August.
 
 ## Sources
 
