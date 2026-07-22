@@ -1,7 +1,15 @@
 # Scoring-aware AI Coach in Draft Mode — scoping
 
-**Date:** 2026-07-22 · **Status:** Scoped, not built. Recommendation: ship Phase 1 (NFL, all
-three input sources); defer Phase 2 (roto categories) until there's demand for non-standard leagues.
+**Date:** 2026-07-22 (verified against Draft Mode same day) · **Status:** Phase 1 **already ships**
+for the two sources that exist in Draft Mode — **Sleeper (auto-detect) + manual (toggle)**, confirmed
+end-to-end in `fantasyedge-draft.html`. **ESPN is the only unbuilt source and is deferred** to ride
+with the August ESPN draft-linking work (it needs a *new Draft Mode entry point*, not just wiring).
+Phase 2 (roto categories) held until there's demand for non-standard leagues.
+
+> **Verification note (2026-07-22):** review of `fantasyedge-draft.html` found NFL scoring detection
+> for Sleeper and manual is already live and wired to the Coach — see "Phase 1 — current state" below.
+> The remaining Phase 1 work is ESPN only, and it is larger than "wire a detected value in" because
+> ESPN has zero presence in Draft Mode today.
 
 Goal: make the Draft Mode Coach's advice reflect the league's actual scoring, with **auto-detection
 as the primary path** (ESPN/Sleeper connections) and **manual entry as the fallback** (offline /
@@ -75,16 +83,23 @@ already-live draft linking:
 
 ## Proposed plan (phased)
 
-### Phase 1 — NFL scoring auto-detect → existing `settings.scoring` (small, high-value)
+### Phase 1 — current state (verified 2026-07-22)
 
-- ESPN-connected: reuse `mSettings` / `statId 53` via the existing `api/espn` function → `ppr` / `half`
-  / `standard`.
-- Sleeper-connected: read `draft.metadata.scoring_type` from the already-linked object (zero extra
-  call); optional `/league/<id>` for roster positions. Client-side, zero-backend.
-- Manual: the existing PPR/Half/Standard toggle is the fallback; detection just pre-selects it.
-- Because `recommendNfl` and the NFL prompt **already** consume `settings.scoring`, this is mostly
-  *wiring the detected value in and defaulting to the toggle* — the Coach becomes scoring-aware for
-  NFL immediately. **No new Vercel function.**
+- **Sleeper — DONE.** `sleeperConnect`/`sleeperStart` read `d.metadata.scoring_type` →
+  `SLEEPER_SCORING` (`ppr`, `half_ppr`→`half`, `std`/`standard`→`standard`) → `state.settings.scoring`,
+  shown in the detected line ("· PPR"). Flows to the Coach via `advise` (`settings: state.settings`)
+  and to board ADP/fpts. (`fantasyedge-draft.html:1022,1084,1104,799,897`)
+- **Manual (offline) — DONE.** `#scoringSel` PPR/Half/Standard toggle → `settings.scoring`.
+  (`fantasyedge-draft.html:625,929`)
+- **ESPN — NOT built; deferred.** Draft Mode has *zero* ESPN presence (`grep -c espn draft.html` → 0).
+  This is not "wire a detected value in": it needs a **new ESPN entry point** in Draft Mode —
+  an "import from your ESPN league" picker (reusing Team Manager's stored cookie via the `api/espn`
+  `leagues` action), **extending that action to NFL** (`ffl` — today it's scoped to the in-season
+  engine sports MLB/WNBA), and deriving the PPR bucket from `scoringRaw` (`statId 53`, logic already
+  present in `espnFantasy.js`). It **couples naturally to the deferred ESPN draft-linking** (same
+  cookie, same new surface), so build the two together in August rather than a standalone ESPN picker.
+- Because `recommendNfl` and the NFL prompt already consume `settings.scoring`, the value/prompt side
+  needs nothing new — only the ESPN *source* is missing. **No new Vercel function** for any of it.
 
 ### Phase 2 — roto category-awareness (bigger; defer unless demand)
 
@@ -96,11 +111,12 @@ already-live draft linking:
 
 ## Decision
 
-Ship **Phase 1** — NFL scoring-aware Coach across ESPN (existing detection, existing function),
-Sleeper (public read off the linked draft), and manual (existing toggle). It's a one-path add because
-auto and manual converge on `settings.scoring`, which already flows end-to-end, and it needs no new
-backend function. **Hold Phase 2** (roto) — it's a real value-model project gated on parameterizing
-categories, not on data access, and only pays off for non-standard roto leagues.
+**Phase 1 is effectively shipped** for the sources Draft Mode has today — Sleeper (auto-detect) and
+manual (toggle) both flow into `settings.scoring` end-to-end. The **only remaining Phase 1 item is
+ESPN**, and it's deferred to be built **with** the August ESPN draft-linking work (same cookie, same
+new Draft Mode surface — building an ESPN picker twice is wasteful). Sleeper + manual already cover
+the large majority of NFL drafters in the meantime. **Hold Phase 2** (roto) — a real value-model
+project gated on parameterizing categories, not on data access, worth it only for non-standard leagues.
 
 ## Sources / code references
 
