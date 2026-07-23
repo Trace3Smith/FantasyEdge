@@ -200,6 +200,20 @@ function wireUpgradeButton(modal) {
   });
 }
 
+// Landing-page primary CTA ("Get The Edge — Free"): open Clerk sign-up, or send an
+// already-signed-in user into the app. These buttons carried no handler at all before
+// (dead on every platform). `.btn-primary` exists only on the homepage, so binding it
+// globally is safe; wired after Clerk loads so openSignUp is ready.
+function wireCtaButtons() {
+  document.querySelectorAll('.btn-primary').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (clerk?.user) { window.location.href = '/fantasyedge-dashboard.html'; return; }
+      (clerk?.openSignUp || clerk?.openSignIn)?.call(clerk);
+    });
+  });
+}
+
 function applyState(modal) {
   document.body.classList.toggle('is-premium', isPremium());
   renderSidebar();
@@ -220,6 +234,7 @@ async function boot() {
 
   const modal = buildPricingModal();
   applyState(modal);
+  wireCtaButtons(); // wire the homepage "Get The Edge — Free" CTA now that Clerk is ready
   // Re-render on auth/subscription changes (sign in/out, metadata refresh).
   clerk.addListener(() => applyState(modal));
 
