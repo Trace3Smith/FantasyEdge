@@ -537,69 +537,6 @@
   }
   .price-btn-gold:hover { background: var(--gold-light); box-shadow: 0 8px 30px rgba(212,160,23,0.3); }
 
-  /* HOT PLAYERS */
-  .trending-section {
-    padding: 120px 60px;
-    background: var(--dark);
-  }
-
-  .trending-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
-    margin-top: 50px;
-  }
-
-  .trend-card {
-    background: var(--dark2);
-    padding: 28px 24px;
-    border: 1px solid rgba(212,160,23,0.08);
-    position: relative;
-    overflow: hidden;
-    transition: all 0.3s;
-    cursor: none;
-  }
-  .trend-card:hover {
-    border-color: rgba(212,160,23,0.25);
-    transform: translateY(-4px);
-  }
-
-  .trend-sport {
-    font-family: 'Barlow Condensed', sans-serif;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 3px;
-    color: var(--gold);
-    text-transform: uppercase;
-    margin-bottom: 12px;
-  }
-
-  .trend-name {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 24px;
-    letter-spacing: 1px;
-    color: var(--white);
-    margin-bottom: 4px;
-  }
-  .trend-team { font-size: 12px; color: var(--gray); margin-bottom: 16px; }
-
-  .trend-stats { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
-  .trend-stat-row { display: flex; justify-content: space-between; align-items: center; }
-  .trend-stat-key { font-size: 11px; color: var(--gray); letter-spacing: 1px; text-transform: uppercase; }
-  .trend-stat-val { font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 700; color: var(--white); }
-
-  .trend-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 1px;
-    padding: 5px 12px;
-  }
-  .trend-hot { background: rgba(76,175,80,0.15); color: #4CAF50; }
-  .trend-fire { background: rgba(255,152,0,0.15); color: #FF9800; }
-
   /* CTA */
   .cta-section {
     padding: 160px 60px;
@@ -712,7 +649,6 @@
   <div class="nav-logo">Fantasy<span>Edge</span></div>
   <ul class="nav-links">
     <li><a href="fantasyedge-rankings.html">Sports</a></li>
-    <li><a href="fantasyedge-trending.html">Trending</a></li>
     <li><a href="fantasyedge-dashboard.html">Pricing</a></li>
     <li><a href="fantasyedge-dashboard.html" class="nav-cta">Start Free</a></li>
   </ul>
@@ -872,61 +808,6 @@
 </section>
 
 
-<!-- TRENDING -->
-<section class="trending-section" id="trending">
-  <div class="section-label reveal">Hot Right Now</div>
-  <h2 class="section-title reveal">PLAYERS ON FIRE<br>ACROSS EVERY SPORT</h2>
-
-  <div class="trending-grid reveal">
-    <div class="trend-card">
-      <div class="trend-sport">⚾ MLB</div>
-      <div class="trend-name">Yordan Alvarez</div>
-      <div class="trend-team">1B/OF · Houston Astros</div>
-      <div class="trend-stats">
-        <div class="trend-stat-row"><span class="trend-stat-key">Last 10 AVG</span><span class="trend-stat-val">.380</span></div>
-        <div class="trend-stat-row"><span class="trend-stat-key">HR (10 days)</span><span class="trend-stat-val">5</span></div>
-        <div class="trend-stat-row"><span class="trend-stat-key">RBI</span><span class="trend-stat-val">14</span></div>
-      </div>
-      <span class="trend-badge trend-fire">🔥 Must Start</span>
-    </div>
-
-    <div class="trend-card">
-      <div class="trend-sport">🏒 NHL</div>
-      <div class="trend-name">Connor McDavid</div>
-      <div class="trend-team">C · Edmonton Oilers</div>
-      <div class="trend-stats">
-        <div class="trend-stat-row"><span class="trend-stat-key">Points (7 days)</span><span class="trend-stat-val">9</span></div>
-        <div class="trend-stat-row"><span class="trend-stat-key">PP Points</span><span class="trend-stat-val">5</span></div>
-        <div class="trend-stat-row"><span class="trend-stat-key">+/-</span><span class="trend-stat-val">+7</span></div>
-      </div>
-      <span class="trend-badge trend-fire">🔥 Must Start</span>
-    </div>
-
-    <div class="trend-card">
-      <div class="trend-sport">⛳ PGA</div>
-      <div class="trend-name">Scottie Scheffler</div>
-      <div class="trend-team">World Rank #1</div>
-      <div class="trend-stats">
-        <div class="trend-stat-row"><span class="trend-stat-key">SG: Total</span><span class="trend-stat-val">+4.2</span></div>
-        <div class="trend-stat-row"><span class="trend-stat-key">Top 10s (3 events)</span><span class="trend-stat-val">3</span></div>
-        <div class="trend-stat-row"><span class="trend-stat-key">Course Fit</span><span class="trend-stat-val">A+</span></div>
-      </div>
-      <span class="trend-badge trend-hot">✓ High Value</span>
-    </div>
-
-    <div class="trend-card">
-      <div class="trend-sport">🏀 NBA</div>
-      <div class="trend-name">Jayson Tatum</div>
-      <div class="trend-team">SF · Boston Celtics</div>
-      <div class="trend-stats">
-        <div class="trend-stat-row"><span class="trend-stat-key">PPG (March)</span><span class="trend-stat-val">34.1</span></div>
-        <div class="trend-stat-row"><span class="trend-stat-key">30+ Pt Streak</span><span class="trend-stat-val">8</span></div>
-        <div class="trend-stat-row"><span class="trend-stat-key">Usage %</span><span class="trend-stat-val">38%</span></div>
-      </div>
-      <span class="trend-badge trend-fire">🔥 Must Start</span>
-    </div>
-  </div>
-</section>
 
 <!-- PRICING -->
 <section class="pricing-section" id="pricing">
