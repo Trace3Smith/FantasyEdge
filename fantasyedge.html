@@ -386,146 +386,6 @@
   }
   .sport-card:hover .sport-card-corner { opacity: 1; }
 
-  /* ROSTER ANALYZER SECTION */
-  .analyzer-section {
-    padding: 120px 60px;
-    background: var(--dark);
-    position: relative;
-    overflow: hidden;
-  }
-
-  .analyzer-section::before {
-    content: '';
-    position: absolute;
-    top: -200px; right: -200px;
-    width: 600px; height: 600px;
-    background: radial-gradient(circle, rgba(212,160,23,0.06) 0%, transparent 70%);
-  }
-
-  .analyzer-layout {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 80px;
-    align-items: center;
-  }
-
-  .analyzer-ui {
-    background: var(--dark2);
-    border: 1px solid rgba(212,160,23,0.15);
-    position: relative;
-  }
-
-  .analyzer-header {
-    background: var(--dark3);
-    padding: 16px 24px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    border-bottom: 1px solid rgba(212,160,23,0.1);
-  }
-  .dot { width: 10px; height: 10px; border-radius: 50%; }
-  .dot-r { background: #FF5F57; }
-  .dot-y { background: #FFBD2E; }
-  .dot-g { background: #28C840; }
-
-  .analyzer-title-bar {
-    font-family: 'Barlow Condensed', sans-serif;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 3px;
-    color: var(--gray);
-    text-transform: uppercase;
-    margin-left: 8px;
-  }
-
-  .analyzer-body { padding: 24px; }
-
-  .analyzer-sport-tabs {
-    display: flex;
-    gap: 4px;
-    margin-bottom: 20px;
-  }
-  .a-tab {
-    padding: 8px 16px;
-    font-family: 'Barlow Condensed', sans-serif;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    color: var(--gray);
-    border: 1px solid var(--dark3);
-    background: none;
-    cursor: none;
-    transition: all 0.2s;
-  }
-  .a-tab.active {
-    color: var(--black);
-    background: var(--gold);
-    border-color: var(--gold);
-  }
-
-  .player-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
-  .player-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    background: var(--dark3);
-    border-left: 3px solid transparent;
-    transition: all 0.2s;
-  }
-  .player-row.hot { border-left-color: #4CAF50; }
-  .player-row.cold { border-left-color: #F44336; }
-  .player-row.neutral { border-left-color: var(--gold); }
-
-  .player-info { display: flex; flex-direction: column; gap: 2px; }
-  .player-name { font-size: 13px; font-weight: 600; color: var(--white); }
-  .player-pos { font-size: 11px; color: var(--gray); letter-spacing: 1px; }
-
-  .player-right { display: flex; align-items: center; gap: 12px; }
-  .player-stat { font-family: 'Barlow Condensed', sans-serif; font-size: 16px; font-weight: 700; color: var(--gold); }
-  .recommendation {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    padding: 3px 10px;
-    text-transform: uppercase;
-  }
-  .rec-hold { background: rgba(212,160,23,0.15); color: var(--gold); }
-  .rec-add { background: rgba(76,175,80,0.15); color: #4CAF50; }
-  .rec-drop { background: rgba(244,67,54,0.15); color: #F44336; }
-
-  .analyzer-input {
-    display: flex;
-    gap: 8px;
-  }
-  .a-input {
-    flex: 1;
-    background: var(--dark3);
-    border: 1px solid rgba(212,160,23,0.2);
-    color: var(--white);
-    padding: 12px 16px;
-    font-family: 'Barlow', sans-serif;
-    font-size: 13px;
-    outline: none;
-  }
-  .a-input::placeholder { color: var(--gray); }
-  .a-btn {
-    background: var(--gold);
-    color: var(--black);
-    border: none;
-    padding: 12px 20px;
-    font-family: 'Barlow Condensed', sans-serif;
-    font-size: 13px;
-    font-weight: 800;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    cursor: none;
-    transition: background 0.2s;
-    white-space: nowrap;
-  }
-  .a-btn:hover { background: var(--gold-light); }
-
   /* STATS SECTION */
   .stats-section {
     padding: 100px 60px;
@@ -852,7 +712,6 @@
   <div class="nav-logo">Fantasy<span>Edge</span></div>
   <ul class="nav-links">
     <li><a href="fantasyedge-rankings.html">Sports</a></li>
-    <li><a href="fantasyedge-analyzer.html">Analyzer</a></li>
     <li><a href="fantasyedge-trending.html">Trending</a></li>
     <li><a href="fantasyedge-dashboard.html">Pricing</a></li>
     <li><a href="fantasyedge-dashboard.html" class="nav-cta">Start Free</a></li>
@@ -1012,103 +871,6 @@
   </div>
 </section>
 
-<!-- ANALYZER -->
-<section class="analyzer-section" id="analyzer">
-  <div class="analyzer-layout">
-    <div>
-      <div class="section-label reveal">Roster Analyzer</div>
-      <h2 class="section-title reveal">PLUG IN YOUR<br>TEAM. GET<br><span style="color:var(--gold)">YOUR ANSWER.</span></h2>
-      <p class="section-sub reveal">Stop guessing who to add or drop. Input your roster, tell us your league settings, and FantasyEdge gives you instant, data-backed recommendations tailored to your specific team needs.</p>
-      <ul style="list-style:none; display:flex; flex-direction:column; gap:16px;" class="reveal">
-        <li style="display:flex; align-items:flex-start; gap:16px;">
-          <span style="color:var(--gold); font-family:'Bebas Neue'; font-size:24px; line-height:1; flex-shrink:0;">01</span>
-          <div>
-            <div style="font-weight:600; margin-bottom:4px;">Input your roster</div>
-            <div style="color:var(--gray); font-size:14px; font-weight:300;">Paste your players or search by name across any sport</div>
-          </div>
-        </li>
-        <li style="display:flex; align-items:flex-start; gap:16px;">
-          <span style="color:var(--gold); font-family:'Bebas Neue'; font-size:24px; line-height:1; flex-shrink:0;">02</span>
-          <div>
-            <div style="font-weight:600; margin-bottom:4px;">We analyze your weaknesses</div>
-            <div style="color:var(--gray); font-size:14px; font-weight:300;">Compare your stats vs. league leaders to find gaps</div>
-          </div>
-        </li>
-        <li style="display:flex; align-items:flex-start; gap:16px;">
-          <span style="color:var(--gold); font-family:'Bebas Neue'; font-size:24px; line-height:1; flex-shrink:0;">03</span>
-          <div>
-            <div style="font-weight:600; margin-bottom:4px;">Get your add/drop/hold list</div>
-            <div style="color:var(--gray); font-size:14px; font-weight:300;">Ranked recommendations with reasoning for each move</div>
-          </div>
-        </li>
-      </ul>
-    </div>
-
-    <div class="analyzer-ui reveal">
-      <div class="analyzer-header">
-        <div class="dot dot-r"></div>
-        <div class="dot dot-y"></div>
-        <div class="dot dot-g"></div>
-        <span class="analyzer-title-bar">Roster Analyzer</span>
-      </div>
-      <div class="analyzer-body">
-        <div class="analyzer-sport-tabs">
-          <button class="a-tab active">MLB</button>
-          <button class="a-tab">NHL</button>
-          <button class="a-tab">NBA</button>
-          <button class="a-tab">PGA</button>
-          <button class="a-tab">NFL</button>
-        </div>
-        <div class="player-list">
-          <div class="player-row hot">
-            <div class="player-info">
-              <span class="player-name">Shohei Ohtani</span>
-              <span class="player-pos">SP/OF · LAD</span>
-            </div>
-            <div class="player-right">
-              <span class="player-stat">.412</span>
-              <span class="recommendation rec-hold">Hold</span>
-            </div>
-          </div>
-          <div class="player-row cold">
-            <div class="player-info">
-              <span class="player-name">Max Fried</span>
-              <span class="player-pos">SP · NYY</span>
-            </div>
-            <div class="player-right">
-              <span class="player-stat">6.84 ERA</span>
-              <span class="recommendation rec-drop">Drop</span>
-            </div>
-          </div>
-          <div class="player-row neutral">
-            <div class="player-info">
-              <span class="player-name">Gunnar Henderson</span>
-              <span class="player-pos">SS · BAL</span>
-            </div>
-            <div class="player-right">
-              <span class="player-stat">.284</span>
-              <span class="recommendation rec-hold">Hold</span>
-            </div>
-          </div>
-          <div class="player-row hot">
-            <div class="player-info">
-              <span class="player-name">Jackson Chourio</span>
-              <span class="player-pos">OF · MIL</span>
-            </div>
-            <div class="player-right">
-              <span class="player-stat">8 SB</span>
-              <span class="recommendation rec-add">Add</span>
-            </div>
-          </div>
-        </div>
-        <div class="analyzer-input">
-          <input class="a-input" placeholder="Search a player to add..." />
-          <button class="a-btn">Analyze</button>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
 
 <!-- TRENDING -->
 <section class="trending-section" id="trending">
@@ -1261,13 +1023,6 @@
   }, { threshold: 0.1 });
   reveals.forEach(el => observer.observe(el));
 
-  // SPORT TABS
-  document.querySelectorAll('.a-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.a-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-    });
-  });
 
   // NAV SHRINK
   window.addEventListener('scroll', () => {
