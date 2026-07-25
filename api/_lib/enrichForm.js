@@ -49,13 +49,29 @@ const fmt3 = (x) => x.toFixed(3).replace(/^0/, ''); // 0.367 -> ".367"
 const sum = (arr, k) => arr.reduce((t, g) => t + g[k], 0);
 
 const ELITE_P = 0.80, WEAK_P = 0.20; // league percentile bars
-const HIT_WINDOW = 15, HIT_MIN_APPEAR = 10;  // team's last 15 games; must have played >= 10
+const HIT_WINDOW = 15, HIT_MIN_APPEAR = 6, HIT_GAP_DAYS = 14; // player's own last 15 games played; reset the window at any >14-day inactivity gap (IL/demotion), so stale pre-absence games don't count; still need >= 6 appearances since returning
 const SP_WINDOW = 8, SP_MIN = 5;             // last 8 starts; need >= 5
 const RP_WINDOW = 15, RP_MIN = 8;            // last 15 relief appearances; need >= 8
 const POOL_MIN = 20;                          // season games/starts to count toward the bars
 const MLB_TOP_N = 75;                         // evaluate the top-75 ranked
 
 function pctl(arr, p) { const a = [...arr].sort((x, y) => x - y); if (!a.length) return 0; const i = p * (a.length - 1), lo = Math.floor(i), hi = Math.ceil(i); return a[lo] + (a[hi] - a[lo]) * (i - lo); }
+
+// Player's recent-appearance window with an inactivity guard: walk back from the most recent game,
+// taking up to `window` appearances, but STOP at the first gap longer than `gapDays` between
+// consecutive games — an IL stint or demotion resets the window so pre-absence games don't count
+// toward current form. Returns fewer than `window` games for a just-returned player. `games` must be
+// newest-first with an ISO `date`.
+const dayGap = (a, b) => Math.round((new Date(a) - new Date(b)) / 864e5);
+function recentWindow(games, window, gapDays) {
+  if (!games.length) return [];
+  const win = [games[0]];
+  for (let i = 1; i < games.length && win.length < window; i++) {
+    if (dayGap(games[i - 1].date, games[i].date) > gapDays) break;
+    win.push(games[i]);
+  }
+  return win;
+}
 
 // Per-category rate over a set of games.
 const rHR = (g) => (g.length ? sum(g, 'hr') / g.length : 0);
@@ -143,25 +159,9 @@ async function pitcherBars(season) {
   };
 }
 
-// --- team's last-15-game boundary date per team (from the schedule) ---
-const isoDay = (d) => d.toISOString().slice(0, 10);
-async function teamBoundaries() {
-  const end = isoDay(new Date());
-  const start = isoDay(new Date(Date.now() - 45 * 864e5)); // 45 days safely covers 15 games
-  const j = await getJson(`${MLB_API}/schedule?sportId=1&gameType=R&startDate=${start}&endDate=${end}`);
-  const byTeam = new Map();
-  for (const d of j.dates || []) for (const g of d.games || []) {
-    if (g.status?.detailedState !== 'Final') continue;
-    for (const side of ['home', 'away']) { const id = g.teams?.[side]?.team?.id; if (id == null) continue; if (!byTeam.has(id)) byTeam.set(id, []); byTeam.get(id).push(d.date); }
-  }
-  const b = new Map();
-  for (const [id, arr] of byTeam) { arr.sort().reverse(); b.set(id, arr[Math.min(HIT_WINDOW, arr.length) - 1]); }
-  return b; // teamId -> boundary date; window = the player's games on/after it
-}
-
 async function enrichMlbForm(dataset, season) {
   const top = dataset.players.filter((p) => !p.searchOnly && p.rank != null).sort((a, b) => a.rank - b.rank).slice(0, MLB_TOP_N);
-  const [hBars, pBars, boundaries] = await Promise.all([hitterBars(season), pitcherBars(season), teamBoundaries()]);
+  const [hBars, pBars] = await Promise.all([hitterBars(season), pitcherBars(season)]);
   let hot = 0, cold = 0;
   await mapLimit(top, 8, async (p) => {
     try {
@@ -176,13 +176,10 @@ async function enrichMlbForm(dataset, season) {
         bars = pBars;
       } else {
         const g = await mlbHitGames(p.id, season);
-        g.sort((a, b) => (a.date < b.date ? 1 : -1));
-        const teamId = g.length ? g[0].teamId : null;
-        const boundary = teamId != null ? boundaries.get(teamId) : null;
-        if (!boundary) return;
-        win = g.filter((x) => x.date >= boundary);
-        if (win.length < HIT_MIN_APPEAR) return; // too few of the team's last 15 games played
-        cats = HIT_CATS; bars = hBars; wlabel = `last ${HIT_WINDOW}`;
+        g.sort((a, b) => (a.date < b.date ? 1 : -1)); // newest first
+        win = recentWindow(g, HIT_WINDOW, HIT_GAP_DAYS); // last 15 games played, reset at any >14-day gap
+        if (win.length < HIT_MIN_APPEAR) return; // too few appearances since returning from an absence
+        cats = HIT_CATS; bars = hBars; wlabel = `last ${win.length}`;
       }
       const b = badgeFrom(win, cats, bars);
       if (!b) return;
