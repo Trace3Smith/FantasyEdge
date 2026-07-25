@@ -436,6 +436,11 @@
   .gl-date { color: var(--gray); white-space: nowrap; width: 1%; }
   .gl-opp { color: var(--gray-light); white-space: nowrap; width: 1%; font-weight: 600; }
   .gl-line { color: var(--white); }
+  /* MLB box-score game log: every roto category per game, zeros muted. */
+  .gamelog-table.gamelog-box th { color: var(--gold); font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 3px 6px; border-bottom: 1px solid rgba(212,160,23,0.25); }
+  .gamelog-table td.gl-stat, .gamelog-table th.gl-stat { text-align: center; white-space: nowrap; padding: 3px 6px; color: var(--white); }
+  .gamelog-table td.gl-stat.gl-z { color: var(--gray); }
+  .gamelog-table td.gl-stat.gl-qs { color: var(--green); font-weight: 700; font-size: 9px; }
   /* PGA recent tournament finishes — reuses the game-log table shell; the event name is the wide
      column and the result (T4, -12 / Missed Cut) is right-aligned. Name-keyed, no window toggle. */
   .tag-results { background: rgba(255,255,255,0.06); color: var(--gray-light); border: 1px solid rgba(255,255,255,0.2); cursor: pointer; }
@@ -1035,34 +1040,37 @@
   }
   // A hitter's box line, compact: hits-for-AB, then only the categories that actually happened
   // (so an 0-4 stays clean). A pitcher's line leads with the decision (W/L/SV/H) when there is one.
-  function hitterLine(st) {
-    const parts = [`${st.hits}-${st.atBats}`];
-    if (st.homeRuns) parts.push(st.homeRuns + ' HR');
-    if (st.rbi) parts.push(st.rbi + ' RBI');
-    if (st.runs) parts.push(st.runs + ' R');
-    if (st.stolenBases) parts.push(st.stolenBases + ' SB');
-    if (st.baseOnBalls) parts.push(st.baseOnBalls + ' BB');
-    if (st.strikeOuts) parts.push(st.strikeOuts + ' K');
-    return parts.join(', ');
-  }
-  function pitcherLine(st) {
-    const dec = st.wins ? 'W' : st.losses ? 'L' : st.saves ? 'SV' : st.holds ? 'H' : '';
-    const parts = [`${st.inningsPitched} IP`, `${st.earnedRuns} ER`, `${st.strikeOuts} K`];
-    if (st.baseOnBalls) parts.push(st.baseOnBalls + ' BB');
-    if (st.hits != null) parts.push(st.hits + ' H');
-    return (dec ? dec + ' · ' : '') + parts.join(', ');
-  }
+  const glV = (v) => Number(v) || 0;
+  const ipToDec = (ip) => { const [w, o] = String(ip ?? '0').split('.'); return (parseInt(w) || 0) + (parseInt(o) || 0) / 3; };
+  // MLB game log as a box score — every roto category per game, even 0 (muted). Hitters:
+  // AB/H/HR/R/RBI/SB/BB; pitchers: IP/ER/K/W/SV/HD + QS (6+ IP & <=3 ER, computed here like the
+  // backend's form model). Kept to the fetched window (L15/L30), newest first.
   function renderGamelogRows(splits, kind, n) {
     if (!splits.length) return '<span class="roll-empty">No games recorded this season.</span>';
-    // Splits come oldest → newest; take the last n and show newest first.
     const recent = splits.slice(-n).reverse();
+    const isPit = kind === 'pitcher';
+    const cols = isPit ? ['IP', 'ER', 'K', 'W', 'SV', 'HD', 'QS'] : ['AB', 'H', 'HR', 'R', 'RBI', 'SB', 'BB'];
+    const cell = (v, muted) => `<td class="gl-stat${muted ? ' gl-z' : ''}">${v}</td>`;
+    const head = `<tr class="gl-head"><th class="gl-date"></th><th class="gl-opp"></th>${cols.map((c) => `<th class="gl-stat">${c}</th>`).join('')}</tr>`;
     const rows = recent.map(g => {
-      const st = g.stat || {};
+      const s = g.stat || {};
       const opp = (g.isHome ? 'vs ' : '@ ') + (MLB_TEAM_ABBR[g.opponent && g.opponent.id] || '—');
-      const line = kind === 'pitcher' ? pitcherLine(st) : hitterLine(st);
-      return `<tr><td class="gl-date">${fmtGlDate(g.date)}</td><td class="gl-opp">${opp}</td><td class="gl-line">${line}</td></tr>`;
+      let cells;
+      if (isPit) {
+        const ip = s.inningsPitched ?? '0.0';
+        // IP first (never muted), then counting cats (0 muted), then the QS flag.
+        const vals = [glV(s.earnedRuns), glV(s.strikeOuts), glV(s.wins), glV(s.saves), glV(s.holds)];
+        const qs = ipToDec(ip) >= 6 && glV(s.earnedRuns) <= 3;
+        cells = cell(ip, false) + vals.map((v) => cell(v, v === 0)).join('')
+          + (qs ? '<td class="gl-stat gl-qs">QS</td>' : cell('—', true));
+      } else {
+        // AB/H always shown; the rest muted when 0.
+        cells = cell(glV(s.atBats), false) + cell(glV(s.hits), false)
+          + [glV(s.homeRuns), glV(s.runs), glV(s.rbi), glV(s.stolenBases), glV(s.baseOnBalls)].map((v) => cell(v, v === 0)).join('');
+      }
+      return `<tr><td class="gl-date">${fmtGlDate(g.date)}</td><td class="gl-opp">${opp}</td>${cells}</tr>`;
     }).join('');
-    return `<table class="gamelog-table"><tbody>${rows}</tbody></table>`;
+    return `<table class="gamelog-table gamelog-box"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
   }
   async function fetchGamelog(pid, group, year) {
     const url = `https://statsapi.mlb.com/api/v1/people/${pid}/stats?stats=gameLog&group=${group}&season=${year}&gameType=R`;
