@@ -1,34 +1,210 @@
-// Recent-form HOT/COLD badges. Replaces the old rank-based fire/trending/slump
-// tags (which were cosmetic, not real). A player is HOT/COLD when his recent
-// games beat/trail his own season average; otherwise no badge.
+// Recent-form HOT/COLD badges.
 //
-// Gating (the user's rules):
-//   • Only when the sport is ACTIVELY being played — detected from the data: a
-//     sport's regular season is in progress when the league leader's games played
-//     is below a full season. Offseason datasets carry the last completed season
-//     at full game count, so this naturally suppresses badges out of season.
-//   • Only when the player has a meaningful sample (min games per sport).
+// MLB (in-season) uses a LEAGUE-BASELINE, per-category model: a player is HOT/COLD when his recent
+// window rate in a category sits in the league's ELITE / WEAK tier (top / bottom 20% of qualified
+// regulars), not merely above/below his OWN average — so a weak hitter's lucky stretch that's still
+// short of league-elite is not flagged. Hitters score on AVG, HR, OBP; starters on ERA, QS, K/9,
+// WHIP; relievers on ERA, K/9, WHIP (ERA/WHIP inverted — lower is better/hotter). A SINGLE category
+// clearing its bar earns the badge, guarded by a drop-best-game consistency check so one outlier
+// game can't drive it. The badge carries a `formReason` (e.g. ".367 AVG, 6 HR · last 15").
 //
-// Cost control: game logs are per-player fetches, so we only enrich the top
-// TOP_N ranked players of each in-season sport, in the daily cron (not on the
-// cold-start request path). Failure-tolerant per player and overall.
+// The OTHER sports (NBA/NHL/WNBA/NFL) still use the older recent-vs-own-average model (unchanged)
+// until they're ported.
+//
+// Cost control + gating: top-N ranked players, in-season only (detected from the data), daily cron.
+// Failure-tolerant per player and overall.
 
 import { getJson } from './espn.js';
 
-const FORM = {
-  mlb:  { minGames: 15, full: 162, recent: 7, src: 'mlb' },
-  nba:  { minGames: 10, full: 82,  recent: 5, src: 'espn', path: 'basketball/nba' },
-  wnba: { minGames: 10, full: 44,  recent: 5, src: 'espn', path: 'basketball/wnba' },
-  nhl:  { minGames: 10, full: 82,  recent: 5, src: 'espn', path: 'hockey/nhl' },
-  nfl:  { minGames: 4,  full: 17,  recent: 3, src: 'espn', path: 'football/nfl' },
-};
-const TOP_N = 75;
-const HOT = 1.20;  // recent avg >= 120% of season avg
-const COLD = 0.80; // recent avg <= 80% of season avg
-
 const num = (v) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isFinite(n) ? n : 0; };
 
-// ---- per-game fantasy value from a stat line (per sport) --------------------
+// Small batched-parallel helper (cap concurrent fetches).
+async function mapLimit(items, limit, fn) {
+  const out = [];
+  for (let i = 0; i < items.length; i += limit) {
+    out.push(...(await Promise.all(items.slice(i, i + limit).map(fn))));
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared: MLB per-game fantasy value (exported — enrichRolling scores its window aggregates on the
+// identical scale, so a rolling total can never drift from a badge). Kept even though the new MLB
+// form model below is per-category, because enrichRolling still imports it.
+const ipToOuts = (ip) => { const [w, f] = String(ip ?? '0').split('.'); return (parseInt(w) || 0) * 3 + (parseInt(f) || 0); };
+export function gameValueMlb(pos, s) {
+  if (pos === 'SP' || pos === 'RP') {
+    return ipToOuts(s.inningsPitched) + 2 * num(s.strikeOuts) - 2 * num(s.earnedRuns) - num(s.hits) - num(s.baseOnBalls);
+  }
+  const tb = num(s.hits) + num(s.doubles) + 2 * num(s.triples) + 3 * num(s.homeRuns);
+  return tb + num(s.runs) + num(s.rbi) + num(s.baseOnBalls) + num(s.stolenBases);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// NEW: MLB league-baseline per-category HOT/COLD
+// ════════════════════════════════════════════════════════════════════════════
+const MLB_API = 'https://statsapi.mlb.com/api/v1';
+const ipDec = (ip) => { const [w, o] = String(ip ?? '0').split('.'); return (parseInt(w) || 0) + (parseInt(o) || 0) / 3; };
+const fmt3 = (x) => x.toFixed(3).replace(/^0/, ''); // 0.367 -> ".367"
+const sum = (arr, k) => arr.reduce((t, g) => t + g[k], 0);
+
+const ELITE_P = 0.80, WEAK_P = 0.20; // league percentile bars
+const HIT_WINDOW = 15, HIT_MIN_APPEAR = 10;  // team's last 15 games; must have played >= 10
+const SP_WINDOW = 8, SP_MIN = 5;             // last 8 starts; need >= 5
+const RP_WINDOW = 15, RP_MIN = 8;            // last 15 relief appearances; need >= 8
+const POOL_MIN = 20;                          // season games/starts to count toward the bars
+const MLB_TOP_N = 75;                         // evaluate the top-75 ranked
+
+function pctl(arr, p) { const a = [...arr].sort((x, y) => x - y); if (!a.length) return 0; const i = p * (a.length - 1), lo = Math.floor(i), hi = Math.ceil(i); return a[lo] + (a[hi] - a[lo]) * (i - lo); }
+
+// Per-category rate over a set of games.
+const rHR = (g) => (g.length ? sum(g, 'hr') / g.length : 0);
+const rAVG = (g) => { const ab = sum(g, 'ab'); return ab ? sum(g, 'h') / ab : 0; };
+const rOBP = (g) => { const pa = sum(g, 'pa'); return pa ? (sum(g, 'h') + sum(g, 'bb') + sum(g, 'hbp')) / pa : 0; };
+const rERA = (g) => { const ip = sum(g, 'ip'); return ip ? sum(g, 'er') * 9 / ip : 0; };
+const rWHIP = (g) => { const ip = sum(g, 'ip'); return ip ? (sum(g, 'h') + sum(g, 'bb')) / ip : 0; };
+const rK9 = (g) => { const ip = sum(g, 'ip'); return ip ? sum(g, 'k') * 9 / ip : 0; };
+const rQS = (g) => (g.length ? sum(g, 'qs') / g.length : 0);
+
+const HIT_CATS = [
+  { key: 'AVG', inv: false, rate: rAVG, disp: (g) => fmt3(rAVG(g)) + ' AVG' },
+  { key: 'HR', inv: false, rate: rHR, disp: (g) => sum(g, 'hr') + ' HR' },
+  { key: 'OBP', inv: false, rate: rOBP, disp: (g) => fmt3(rOBP(g)) + ' OBP' },
+];
+const SP_CATS = [
+  { key: 'ERA', inv: true, rate: rERA, disp: (g) => rERA(g).toFixed(2) + ' ERA' },
+  { key: 'WHIP', inv: true, rate: rWHIP, disp: (g) => rWHIP(g).toFixed(2) + ' WHIP' },
+  { key: 'K', inv: false, rate: rK9, disp: (g) => rK9(g).toFixed(1) + ' K/9' },
+  { key: 'QS', inv: false, rate: rQS, disp: (g) => Math.round(rQS(g) * 100) + '% QS' },
+];
+const RP_CATS = SP_CATS.filter((c) => c.key !== 'QS');
+
+// Classify one category for a window vs the league bar, with the drop-best-game consistency guard:
+// the flag must survive removing the single game that most supports it.
+function classifyCat(win, cat, bar) {
+  if (!bar) return { elite: false, weak: false };
+  const inv = cat.inv, r = cat.rate(win);
+  const eliteRaw = inv ? r <= bar.elite : r >= bar.elite;
+  const weakRaw = inv ? r >= bar.weak : r <= bar.weak;
+  let elite = eliteRaw, weak = weakRaw;
+  if (win.length > 1) {
+    const outs = win.map((_, i) => cat.rate(win.filter((__, j) => j !== i)));
+    if (eliteRaw) { const worst = inv ? Math.max(...outs) : Math.min(...outs); elite = inv ? worst <= bar.elite : worst >= bar.elite; }
+    if (weakRaw) { const best = inv ? Math.min(...outs) : Math.max(...outs); weak = inv ? best >= bar.weak : best <= bar.weak; }
+  }
+  return { elite, weak };
+}
+
+// A single category clearing its bar is enough; the winning side (elite vs weak) sets the badge.
+function badgeFrom(win, cats, bars) {
+  const E = [], W = [];
+  for (const c of cats) { const f = classifyCat(win, c, bars[c.key]); if (f.elite) E.push(c); else if (f.weak) W.push(c); }
+  if (E.length && E.length > W.length) return { tag: 'hot', reason: E.map((c) => c.disp(win)).join(', ') };
+  if (W.length && W.length > E.length) return { tag: 'cold', reason: W.map((c) => c.disp(win)).join(', ') };
+  return null;
+}
+
+// --- game logs (rich, per category) ---
+async function mlbHitGames(id, season) {
+  const j = await getJson(`${MLB_API}/people/${id}/stats?stats=gameLog&season=${season}&group=hitting&gameType=R`);
+  return (j.stats?.[0]?.splits || []).map((sp) => { const s = sp.stat || {}; return {
+    date: sp.date || '', teamId: sp.team?.id ?? null,
+    ab: num(s.atBats), h: num(s.hits), hr: num(s.homeRuns), bb: num(s.baseOnBalls), hbp: num(s.hitByPitch), pa: num(s.plateAppearances),
+  }; });
+}
+async function mlbPitchGames(id, season) {
+  const j = await getJson(`${MLB_API}/people/${id}/stats?stats=gameLog&season=${season}&group=pitching&gameType=R`);
+  return (j.stats?.[0]?.splits || []).map((sp) => { const s = sp.stat || {}; const ip = ipDec(s.inningsPitched); return {
+    date: sp.date || '', ip, er: num(s.earnedRuns), k: num(s.strikeOuts), h: num(s.hits), bb: num(s.baseOnBalls),
+    gs: num(s.gamesStarted), qs: (ip >= 6 && num(s.earnedRuns) <= 3) ? 1 : 0,
+  }; });
+}
+
+// --- league bars from qualified regulars' season rates (per-game for HR, ratios otherwise) ---
+async function hitterBars(season) {
+  const j = await getJson(`${MLB_API}/stats?stats=season&group=hitting&season=${season}&sportId=1&playerPool=qualified&limit=500`);
+  const rows = (j.stats?.[0]?.splits || []).map((sp) => { const t = sp.stat || {}; const G = num(t.gamesPlayed), ab = num(t.atBats), h = num(t.hits), bb = num(t.baseOnBalls), hbp = num(t.hitByPitch), pa = num(t.plateAppearances);
+    return { G, HR: G ? num(t.homeRuns) / G : 0, AVG: ab ? h / ab : 0, OBP: pa ? (h + bb + hbp) / pa : 0 }; }).filter((r) => r.G >= POOL_MIN);
+  const bar = (k) => ({ elite: pctl(rows.map((r) => r[k]), ELITE_P), weak: pctl(rows.map((r) => r[k]), WEAK_P) });
+  return { AVG: bar('AVG'), HR: bar('HR'), OBP: bar('OBP') };
+}
+async function pitcherBars(season) {
+  const j = await getJson(`${MLB_API}/stats?stats=season&group=pitching&season=${season}&sportId=1&playerPool=qualified&limit=500`);
+  const sp = (j.stats?.[0]?.splits || []).map((s) => { const t = s.stat || {}; return { id: s.player?.id, gs: num(t.gamesStarted), ERA: num(t.era), WHIP: num(t.whip), K: num(t.strikeoutsPer9Inn) }; }).filter((r) => r.gs >= POOL_MIN / 2);
+  // Season pitching stats don't expose Quality Starts, so the QS-rate distribution comes from each
+  // qualified starter's game log (concurrency-capped). ERA/WHIP inverted: elite = low = P20 bar.
+  const qsRates = [];
+  await mapLimit(sp, 8, async (r) => { try { const g = (await mlbPitchGames(r.id, season)).filter((x) => x.gs > 0); if (g.length) qsRates.push(g.reduce((t, x) => t + x.qs, 0) / g.length); } catch { /* skip */ } });
+  return {
+    ERA: { elite: pctl(sp.map((r) => r.ERA), WEAK_P), weak: pctl(sp.map((r) => r.ERA), ELITE_P) },
+    WHIP: { elite: pctl(sp.map((r) => r.WHIP), WEAK_P), weak: pctl(sp.map((r) => r.WHIP), ELITE_P) },
+    K: { elite: pctl(sp.map((r) => r.K), ELITE_P), weak: pctl(sp.map((r) => r.K), WEAK_P) },
+    QS: { elite: pctl(qsRates, ELITE_P), weak: pctl(qsRates, WEAK_P) },
+  };
+}
+
+// --- team's last-15-game boundary date per team (from the schedule) ---
+const isoDay = (d) => d.toISOString().slice(0, 10);
+async function teamBoundaries() {
+  const end = isoDay(new Date());
+  const start = isoDay(new Date(Date.now() - 45 * 864e5)); // 45 days safely covers 15 games
+  const j = await getJson(`${MLB_API}/schedule?sportId=1&gameType=R&startDate=${start}&endDate=${end}`);
+  const byTeam = new Map();
+  for (const d of j.dates || []) for (const g of d.games || []) {
+    if (g.status?.detailedState !== 'Final') continue;
+    for (const side of ['home', 'away']) { const id = g.teams?.[side]?.team?.id; if (id == null) continue; if (!byTeam.has(id)) byTeam.set(id, []); byTeam.get(id).push(d.date); }
+  }
+  const b = new Map();
+  for (const [id, arr] of byTeam) { arr.sort().reverse(); b.set(id, arr[Math.min(HIT_WINDOW, arr.length) - 1]); }
+  return b; // teamId -> boundary date; window = the player's games on/after it
+}
+
+async function enrichMlbForm(dataset, season) {
+  const top = dataset.players.filter((p) => !p.searchOnly && p.rank != null).sort((a, b) => a.rank - b.rank).slice(0, MLB_TOP_N);
+  const [hBars, pBars, boundaries] = await Promise.all([hitterBars(season), pitcherBars(season), teamBoundaries()]);
+  let hot = 0, cold = 0;
+  await mapLimit(top, 8, async (p) => {
+    try {
+      const first = (p.pos || '').split('/')[0].trim();
+      const isPit = first === 'SP' || first === 'RP';
+      let win, cats, wlabel, bars;
+      if (isPit) {
+        const g = await mlbPitchGames(p.id, season);
+        g.sort((a, b) => (a.date < b.date ? 1 : -1)); // newest first
+        if (first === 'SP') { win = g.filter((x) => x.gs > 0).slice(0, SP_WINDOW); if (win.length < SP_MIN) return; wlabel = `last ${win.length} starts`; cats = SP_CATS; }
+        else { win = g.slice(0, RP_WINDOW); if (win.length < RP_MIN) return; wlabel = `last ${win.length} appearances`; cats = RP_CATS; }
+        bars = pBars;
+      } else {
+        const g = await mlbHitGames(p.id, season);
+        g.sort((a, b) => (a.date < b.date ? 1 : -1));
+        const teamId = g.length ? g[0].teamId : null;
+        const boundary = teamId != null ? boundaries.get(teamId) : null;
+        if (!boundary) return;
+        win = g.filter((x) => x.date >= boundary);
+        if (win.length < HIT_MIN_APPEAR) return; // too few of the team's last 15 games played
+        cats = HIT_CATS; bars = hBars; wlabel = `last ${HIT_WINDOW}`;
+      }
+      const b = badgeFrom(win, cats, bars);
+      if (!b) return;
+      p.tag = b.tag; p.trend = b.tag === 'hot' ? 'up' : 'down'; p.trendVal = '';
+      p.formReason = `${b.reason} · ${wlabel}`;
+      if (b.tag === 'hot') hot++; else cold++;
+    } catch { /* per-player failure is non-fatal */ }
+  });
+  dataset.counts = { ...dataset.counts, formActive: true, formHot: hot, formCold: cold, formChecked: top.length };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// LEGACY: recent-vs-own-average model (NBA / NHL / WNBA / NFL — unchanged)
+// ════════════════════════════════════════════════════════════════════════════
+const FORM = {
+  nba: { minGames: 10, full: 82, recent: 5, path: 'basketball/nba' },
+  wnba: { minGames: 10, full: 44, recent: 5, path: 'basketball/wnba' },
+  nhl: { minGames: 10, full: 82, recent: 5, path: 'hockey/nhl' },
+  nfl: { minGames: 4, full: 17, recent: 3, path: 'football/nfl' },
+};
+const HOT = 1.20, COLD = 0.80;
+
 function gameValueEspn(sport, pos, v) {
   if (sport === 'nba' || sport === 'wnba')
     return v('points') + 1.2 * v('totalRebounds') + 1.5 * v('assists') + 3 * v('steals') + 3 * v('blocks') - v('turnovers');
@@ -42,91 +218,54 @@ function gameValueEspn(sport, pos, v) {
       + v('receptions') + v('receivingYards') * 0.1 + v('receivingTouchdowns') * 6 - v('fumblesLost') * 2;
   return 0;
 }
-
-// ESPN per-athlete game log -> [{date, value}] for the CURRENT regular season.
 async function espnGames(path, id, sport, pos) {
   const gl = await getJson(`https://site.web.api.espn.com/apis/common/v3/sports/${path}/athletes/${id}/gamelog`);
-  const names = gl.names || [];
-  const idx = new Map(names.map((n, i) => [n, i]));
+  const idx = new Map((gl.names || []).map((n, i) => [n, i]));
   const events = gl.events || {};
-  // ESPN lists the current season first; take the first Regular Season block.
   const st = (gl.seasonTypes || []).find((s) => /regular season/i.test(s.displayName || ''));
   if (!st) return [];
   const games = [];
-  for (const cat of st.categories || []) {
-    for (const ev of cat.events || []) {
-      const v = (name) => num(ev.stats?.[idx.get(name)]);
-      const d = events[ev.eventId]?.gameDate;
-      games.push({ date: d ? new Date(d).getTime() : 0, value: gameValueEspn(sport, pos, v) });
-    }
+  for (const cat of st.categories || []) for (const ev of cat.events || []) {
+    const v = (name) => num(ev.stats?.[idx.get(name)]);
+    const d = events[ev.eventId]?.gameDate;
+    games.push({ date: d ? new Date(d).getTime() : 0, value: gameValueEspn(sport, pos, v) });
   }
   return games;
 }
-
-// MLB Stats API game log -> [{date, value}]. Hitters and pitchers score differently.
-const ipToOuts = (ip) => { const [w, f] = String(ip ?? '0').split('.'); return (parseInt(w) || 0) * 3 + (parseInt(f) || 0); };
-// Exported so enrichRolling scores its window aggregates on the identical scale — the
-// byDateRange stat line uses the same field names as a game log's, so the same function
-// reads both. Keeping one definition means a rolling total can never drift from HOT/COLD.
-export function gameValueMlb(pos, s) {
-  if (pos === 'SP' || pos === 'RP') {
-    return ipToOuts(s.inningsPitched) + 2 * num(s.strikeOuts) - 2 * num(s.earnedRuns) - num(s.hits) - num(s.baseOnBalls);
-  }
-  const tb = num(s.hits) + num(s.doubles) + 2 * num(s.triples) + 3 * num(s.homeRuns);
-  return tb + num(s.runs) + num(s.rbi) + num(s.baseOnBalls) + num(s.stolenBases);
-}
-async function mlbGames(id, pos, season) {
-  const group = pos === 'SP' || pos === 'RP' ? 'pitching' : 'hitting';
-  const j = await getJson(`https://statsapi.mlb.com/api/v1/people/${id}/stats?stats=gameLog&season=${season}&group=${group}&gameType=R`);
-  const splits = j.stats?.[0]?.splits || [];
-  return splits.map((sp) => ({ date: sp.date ? new Date(sp.date).getTime() : 0, value: gameValueMlb(pos, sp.stat || {}) }));
-}
-
-// Small batched-parallel helper (cap concurrent fetches).
-async function mapLimit(items, limit, fn) {
-  const out = [];
-  for (let i = 0; i < items.length; i += limit) {
-    out.push(...(await Promise.all(items.slice(i, i + limit).map(fn))));
-  }
-  return out;
-}
-
-// Mutates dataset.players: sets tag 'hot'|'cold' (+ trend/trendVal) on the top
-// players whose recent form diverges from their season average; leaves the rest
-// with no badge. No-op (and no fetches) when the sport is out of season.
-export async function enrichForm(dataset, { sport, season }) {
+async function enrichFormLegacy(dataset, { sport }) {
   const cfg = FORM[sport];
-  if (!cfg || !Array.isArray(dataset.players)) return;
-  const maxGames = sport === 'mlb' ? dataset.counts?.teamGames : dataset.counts?.maxGames;
-  // Offseason / regular season complete -> no badges at all.
-  if (maxGames == null || maxGames >= cfg.full) {
-    dataset.counts = { ...dataset.counts, formActive: false };
-    return;
-  }
-
-  const top = dataset.players
-    .filter((p) => !p.searchOnly && p.rank != null)
-    .sort((a, b) => a.rank - b.rank)
-    .slice(0, TOP_N);
-
+  if (!cfg) return;
+  const maxGames = dataset.counts?.maxGames;
+  if (maxGames == null || maxGames >= cfg.full) { dataset.counts = { ...dataset.counts, formActive: false }; return; }
+  const top = dataset.players.filter((p) => !p.searchOnly && p.rank != null).sort((a, b) => a.rank - b.rank).slice(0, MLB_TOP_N);
   let hot = 0, cold = 0;
   await mapLimit(top, 8, async (p) => {
     try {
-      const games = cfg.src === 'mlb'
-        ? await mlbGames(p.id, p.pos, season)
-        : await espnGames(cfg.path, p.id, sport, p.pos);
-      if (games.length < cfg.minGames) return; // sample too small
-      games.sort((a, b) => b.date - a.date); // newest first
+      const games = await espnGames(cfg.path, p.id, sport, p.pos);
+      if (games.length < cfg.minGames) return;
+      games.sort((a, b) => b.date - a.date);
       const recent = games.slice(0, cfg.recent);
       const seasonAvg = games.reduce((a, g) => a + g.value, 0) / games.length;
       const recentAvg = recent.reduce((a, g) => a + g.value, 0) / recent.length;
-      if (seasonAvg <= 0) return; // avoid noise on near-zero producers
+      if (seasonAvg <= 0) return;
       const ratio = recentAvg / seasonAvg;
       if (ratio >= HOT) { p.tag = 'hot'; p.trend = 'up'; p.trendVal = '+' + Math.round((ratio - 1) * 100) + '%'; hot++; }
       else if (ratio <= COLD) { p.tag = 'cold'; p.trend = 'down'; p.trendVal = '-' + Math.round((1 - ratio) * 100) + '%'; cold++; }
-    } catch {
-      /* per-player failure is non-fatal */
-    }
+    } catch { /* non-fatal */ }
   });
   dataset.counts = { ...dataset.counts, formActive: true, formHot: hot, formCold: cold, formChecked: top.length };
+}
+
+// Mutates dataset.players: sets tag 'hot'|'cold' (+ trend, formReason for MLB) on the top players.
+// No-op (and no fetches) when the sport is out of season.
+export async function enrichForm(dataset, { sport, season }) {
+  if (!Array.isArray(dataset.players)) return;
+  if (sport === 'mlb') {
+    const teamGames = dataset.counts?.teamGames;
+    if (teamGames == null || teamGames >= 162) { dataset.counts = { ...dataset.counts, formActive: false }; return; }
+    try { await enrichMlbForm(dataset, season); }
+    catch (err) { dataset.counts = { ...dataset.counts, formActive: false, formError: String(err?.message || err) }; }
+    return;
+  }
+  return enrichFormLegacy(dataset, { sport, season });
 }
