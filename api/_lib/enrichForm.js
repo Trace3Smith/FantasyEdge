@@ -57,7 +57,9 @@ const HIT_WINDOW = 15, HIT_MIN_APPEAR = 6, HIT_GAP_DAYS = 14; // player's own la
 const SP_WINDOW = 8, SP_MIN = 5;             // last 8 starts; need >= 5
 const RP_WINDOW = 15, RP_MIN = 8;            // last 15 relief appearances; need >= 8
 const POOL_MIN = 20;                          // season games/starts to count toward the bars
-const MLB_TOP_N = 75;                         // evaluate the top-75 ranked
+const MLB_TOP_N = 75;                         // legacy ESPN sports (NBA/NHL/WNBA/NFL) still cap at top-75 ranked
+const MLB_FORM_CONC = 10;                     // concurrent statsapi game-log fetches (verified well under any throttle)
+const MLB_FORM_SOFT_MS = 90000;               // soft time budget for the MLB form step — stop launching new work past it, so full-roster form can never dominate the shared 300s cron
 
 function pctl(arr, p) { const a = [...arr].sort((x, y) => x - y); if (!a.length) return 0; const i = p * (a.length - 1), lo = Math.floor(i), hi = Math.ceil(i); return a[lo] + (a[hi] - a[lo]) * (i - lo); }
 
@@ -170,11 +172,33 @@ async function pitcherBars(season) {
   };
 }
 
+// Active-roster player IDs across all 30 clubs (~780). Cross-referencing the dataset against this both
+// defines full-roster coverage AND limits form to currently-active players, so IL/optioned players
+// (whose recent game logs are weeks stale) are never badged. ~30 cheap calls.
+async function activeRosterIds(season) {
+  const j = await getJson(`${MLB_API}/teams?sportId=1&season=${season}`);
+  const ids = new Set();
+  await mapLimit(j.teams || [], 10, async (t) => {
+    try {
+      const r = await getJson(`${MLB_API}/teams/${t.id}/roster?rosterType=active`);
+      for (const m of r.roster || []) if (m.person?.id != null) ids.add(m.person.id);
+    } catch { /* a failed team just means its players fall back to unbadged */ }
+  });
+  return ids;
+}
+
 async function enrichMlbForm(dataset, season) {
-  const top = dataset.players.filter((p) => !p.searchOnly && p.rank != null).sort((a, b) => a.rank - b.rank).slice(0, MLB_TOP_N);
-  const pBars = await pitcherBars(season); // hitters use fixed absolute bars; only pitchers need league percentiles
-  let hot = 0, cold = 0;
-  await mapLimit(top, 8, async (p) => {
+  const [pBars, activeIds] = await Promise.all([pitcherBars(season), activeRosterIds(season)]);
+  // Full-roster coverage: every dataset player on an active MLB roster. Sorted by rank so that if the
+  // soft time guard trips, the most fantasy-relevant players are already done (graceful degradation).
+  const targets = dataset.players
+    .filter((p) => !p.searchOnly && p.id != null && activeIds.has(p.id))
+    .sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
+  const deadline = Date.now() + MLB_FORM_SOFT_MS;
+  let hot = 0, cold = 0, checked = 0, skipped = 0;
+  await mapLimit(targets, MLB_FORM_CONC, async (p) => {
+    if (Date.now() > deadline) { skipped++; return; } // past the soft budget — leave the rest unbadged this run
+    checked++;
     try {
       const first = (p.pos || '').split('/')[0].trim();
       const isPit = first === 'SP' || first === 'RP';
@@ -200,7 +224,7 @@ async function enrichMlbForm(dataset, season) {
       if (b.tag === 'hot') hot++; else cold++;
     } catch { /* per-player failure is non-fatal */ }
   });
-  dataset.counts = { ...dataset.counts, formActive: true, formHot: hot, formCold: cold, formChecked: top.length };
+  dataset.counts = { ...dataset.counts, formActive: true, formHot: hot, formCold: cold, formChecked: checked, formTargets: targets.length, formSkipped: skipped };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
