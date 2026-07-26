@@ -9,11 +9,7 @@ the territory.
 
 - Provider linking (live draft picks) — `draft-linking-research.md`
 - Coach scoring-awareness — `coach-scoring-scoping.md`
-
-> Not a Draft Mode item, but relevant: the Player Rankings run (`player-rankings-changelog.md`) reworked
-> the shared `buildDataset` valuation the draft board also draws from — a pitcher innings gate now trims
-> tiny-sample arms from the draftable pool, and two-way players (Ohtani) carry a `twoWay` guard so they
-> stay a single draftable player.
+- Shared valuation engine (also drives the draft board) — `player-rankings-changelog.md`
 
 ## Shipped
 
@@ -21,6 +17,11 @@ the territory.
 - **Sleeper NFL scoring auto-detect** — reads `metadata.scoring_type` → `settings.scoring`,
   end-to-end into the Coach's advice + board valuation.
 - **Manual (offline) NFL scoring** — the PPR/Half/Standard toggle in `fantasyedge-draft.html`.
+- **Shared valuation-engine changes that reach the draft pool** — from the Player Rankings run
+  (`player-rankings-changelog.md`). The pitcher **innings gate** now trims tiny-sample arms out of the
+  shared `buildDataset` pool the draft board draws from, and **two-way players** (Ohtani) carry a
+  `twoWay` guard so they stay a single draftable player. (The pitcher z-sum reorders the *rankings*
+  board only; draft *values* use `zTotal`, which is unchanged.)
 
 ## Remaining roadmap
 
