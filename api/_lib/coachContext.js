@@ -158,7 +158,7 @@ export function buildContextFromDatasets(text, datasets) {
     const d = datasets.find((x) => x.sport === s);
     if (!d) continue;
     const top = (d.data.players || [])
-      .filter((p) => !p.searchOnly && p.rank != null)
+      .filter((p) => !p.searchOnly && p.rank != null && !p.twoWay) // skip two-way pitcher clones (list a player once)
       .sort((a, b) => a.rank - b.rank)
       .slice(0, TOP_N);
     if (!top.length) continue;

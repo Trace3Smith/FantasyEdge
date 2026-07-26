@@ -295,12 +295,30 @@ export async function buildDataset({ season = new Date().getFullYear() } = {}) {
     else if (pitById.has(id)) assignPitching(rec, pitById.get(id).stat || {});
   }
 
+  // 5b. Two-way players (e.g. Ohtani): assigned as a hitter above, but also a real pitcher. Emit a
+  // SECOND record so they rank independently in the Pitchers pool too. Same MLB id (enrichers key per
+  // entry by position, and the frontend fetches game logs by id), added OUTSIDE the id-keyed `records`
+  // map so it never overwrites the hitter entry. `twoWay` lets single-listing consumers (draft board,
+  // coach) skip the clone, so a two-way player is drafted once but ranked in both pools.
+  const twoWayPitchers = [];
+  for (const rec of records.values()) {
+    if (rec.group !== 'hitting') continue;
+    const ps = pitById.get(rec.id)?.stat;
+    if (!ps || parseIp(ps.inningsPitched) < 20) continue; // a real starter/reliever, not a position-player mop-up cameo
+    const prec = {
+      id: rec.id, name: rec.name, team: rec.team, league: rec.league,
+      posType: 'Pitcher', rostered: rec.rostered, hasStats: false, twoWay: true,
+    };
+    assignPitching(prec, ps);
+    twoWayPitchers.push(prec);
+  }
+
   // 6. Rank the table.
   //   Hitters: gate by 2.0 PA per team game, then order by multi-category
   //   z-score value. Sub-threshold hitters fall to searchOnly (kept stats, but
   //   out of the ranked list) so small samples don't float to the top.
   //   Pitchers: K desc, as before. searchOnly: statless roster players too.
-  const all = [...records.values()];
+  const all = [...records.values(), ...twoWayPitchers];
   const paThreshold = Math.round(2.0 * teamGames);
   const allHitters = all.filter((r) => r.hasStats && r.group === 'hitting');
   const qualHitters = allHitters.filter((r) => r._h.pa >= paThreshold);

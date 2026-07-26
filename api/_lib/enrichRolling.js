@@ -164,8 +164,10 @@ export async function enrichRolling(dataset, { season }) {
   }
   const results = await mapLimit(jobs, 6, async (j) => ({ ...j, splits: await windowSplits(j.group, j.start, end, season) }));
 
+  // id -> [records]. Usually one, but a two-way player (Ohtani) has both a hitter and a pitcher record
+  // under the same MLB id; each takes the split from its own group below.
   const byId = new Map();
-  for (const p of dataset.players) if (p.id != null) byId.set(String(p.id), p);
+  for (const p of dataset.players) if (p.id != null) { const k = String(p.id); const a = byId.get(k); if (a) a.push(p); else byId.set(k, [p]); }
 
   const touchedIds = new Set();
   for (const { key, group, start, splits } of results) {
@@ -174,20 +176,22 @@ export async function enrichRolling(dataset, { season }) {
     for (const sp of splits) {
       const teamId = sp.team?.id;
       if (teamId == null || !teams.has(teamId)) continue; // this call is the wrong window for him
-      const p = byId.get(String(sp.player?.id));
-      if (!p) continue;
-      // Take each player from the group matching his listed position, so a two-way player
-      // gets one line rather than hitting silently overwritten by pitching.
-      const isPitcher = p.pos === 'SP' || p.pos === 'RP';
-      if (isPitcher !== (group === 'pitching')) continue;
+      const recs = byId.get(String(sp.player?.id));
+      if (!recs) continue;
       // tg is his team's game count in the window (N). Clamp up only if his own gamesPlayed exceeds
       // it (a mid-window trade counts games from two teams) — never bumps a rested player up to N.
       const g = num((sp.stat || {}).gamesPlayed);
       const tg = Math.max(w.tgByTeam.get(teamId) ?? 0, g);
       const line = group === 'pitching' ? pitchLine(sp.stat || {}, tg) : hitLine(sp.stat || {}, tg);
-      if (!p.rolling) p.rolling = {};
-      p.rolling[key] = line;
-      touchedIds.add(p.id);
+      // Apply to the record(s) matching this stat group — a two-way player's hitter record gets the
+      // hitting split and his pitcher record the pitching split; a normal player has just the one.
+      for (const p of recs) {
+        const isPitcher = p.pos === 'SP' || p.pos === 'RP';
+        if (isPitcher !== (group === 'pitching')) continue;
+        if (!p.rolling) p.rolling = {};
+        p.rolling[key] = line;
+        touchedIds.add(p.id);
+      }
     }
   }
   const touched = touchedIds.size;

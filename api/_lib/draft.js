@@ -83,7 +83,9 @@ export async function loadPlayers(sport = 'nfl') {
     if (cfg.version != null) dataset.version = cfg.version;
     await redis.set(cfg.key, dataset);
   }
-  return (dataset.players || []).filter((p) => !p.searchOnly);
+  // Exclude two-way pitcher clones (Ohtani's Pitchers-tab entry): the draft lists a two-way player
+  // once (his primary hitter record), never twice. The rankings board still shows both.
+  return (dataset.players || []).filter((p) => !p.searchOnly && !p.twoWay);
 }
 
 // A player's ADP for the league's scoring. Half-PPR uses FFC's native half-PPR ADP
