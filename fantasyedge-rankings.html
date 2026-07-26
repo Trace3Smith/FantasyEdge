@@ -495,6 +495,7 @@
   .stars-row { display: flex; gap: 2px; margin-bottom: 3px; }
   .star-filled { color: var(--gold); font-size: 13px; }
   .star-empty { color: var(--dark4); font-size: 13px; }
+  .star-plus { color: var(--gold); font-size: 13px; font-weight: 700; margin-left: 1px; }
   .stars-label { font-size: 9px; font-weight: 700; letter-spacing: 1px; color: var(--gray); text-transform: uppercase; margin-bottom: 3px; }
   .stars-cats { display: flex; gap: 3px; flex-wrap: wrap; }
   .stars-cat-pill { padding: 1px 5px; background: rgba(212,160,23,0.12); border: 1px solid rgba(212,160,23,0.25); border-radius: 2px; font-size: 9px; font-weight: 600; color: var(--gold-light); }
@@ -699,19 +700,21 @@
   };
   const isGoalie = p => (p.pos || '').toUpperCase().split('/')[0].trim() === 'G';
 
+  // Stars = the number of roto category tags the player already carries (the same MULTI-CAT pills
+  // shown beside the stars). 1 tag = 1 star, straight through; display caps at 5 with a "+" when a
+  // player maxes all their sport's categories (6 for MLB, so a 6-cat player is "5 star+").
   function getStarCount(cats) {
-    if (!cats || cats.length === 0) return 1;
-    if (cats.length >= 7) return 5;
-    if (cats.length >= 5) return 4;
-    if (cats.length >= 3) return 3;
-    return 2;
+    return Array.isArray(cats) ? cats.length : 0;
   }
   function getStarLabel(n) {
-    return ['','Specialist','Limited','Solid','Multi-Cat','Elite'][n] || '';
+    if (n <= 0) return 'No categories';
+    return n > 5 ? '5-Cat+' : n + '-Cat';
   }
   function renderStars(n) {
     let h = '';
-    for (let i = 1; i <= 5; i++) h += i <= n ? '<span class="star-filled">★</span>' : '<span class="star-empty">★</span>';
+    const filled = Math.min(n, 5);
+    for (let i = 1; i <= 5; i++) h += i <= filled ? '<span class="star-filled">★</span>' : '<span class="star-empty">★</span>';
+    if (n > 5) h += '<span class="star-plus">+</span>'; // all categories → "5 star+"
     return h;
   }
   function formatStat(v, label) {
