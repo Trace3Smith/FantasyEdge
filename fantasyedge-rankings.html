@@ -259,6 +259,12 @@
   .strip-card:nth-child(2) { border-left-color: var(--orange); }
   .strip-card:nth-child(3) { border-left-color: #6EC6F5; }
   .strip-card:nth-child(4) { border-left-color: var(--green); }
+  /* Clickable Hot/Cold cards filter the board to that form; the active one is highlighted. */
+  .strip-clickable { cursor: pointer; border-radius: 8px; transition: background 0.12s; }
+  .strip-clickable:hover { background: rgba(255,255,255,0.04); }
+  .strip-card.filter-active { background: rgba(212,160,23,0.14); box-shadow: inset 0 0 0 1px var(--gold); }
+  .strip-clickable.strip-empty { opacity: 0.4; cursor: default; }
+  .strip-clickable.strip-empty:hover { background: none; }
   .strip-icon { font-size: 22px; }
   .strip-number { font-family: 'Bebas Neue', sans-serif; font-size: 28px; line-height: 1; color: var(--white); }
   .strip-label { font-size: 9px; font-weight: 600; letter-spacing: 1.5px; color: var(--gray); text-transform: uppercase; margin-top: 2px; }
@@ -559,9 +565,9 @@
   <div class="stats-strip">
     <div class="strip-card"><div class="strip-icon">📈</div><div><div class="strip-number" id="stripTotal">—</div><div class="strip-label">Players Tracked</div></div></div>
     <div class="strip-divider"></div>
-    <div class="strip-card"><div class="strip-icon">🔥</div><div><div class="strip-number" id="stripHot">—</div><div class="strip-label">Hot Right Now</div></div></div>
+    <div class="strip-card strip-clickable" id="stripHotCard" data-form="hot" title="Show only hot players"><div class="strip-icon">🔥</div><div><div class="strip-number" id="stripHot">—</div><div class="strip-label">Hot Right Now</div></div></div>
     <div class="strip-divider"></div>
-    <div class="strip-card"><div class="strip-icon">❄️</div><div><div class="strip-number" id="stripCold">—</div><div class="strip-label">Cold Right Now</div></div></div>
+    <div class="strip-card strip-clickable" id="stripColdCard" data-form="cold" title="Show only cold players"><div class="strip-icon">❄️</div><div><div class="strip-number" id="stripCold">—</div><div class="strip-label">Cold Right Now</div></div></div>
   </div>
 
   <div class="roto-bar">
@@ -663,6 +669,7 @@
   let boardWindow = 'season';
   let sortStat = null;   // active sort column's stat label, or null for the default (rank) order
   let sortAsc = false;   // direction; set best-first per stat on first click, flips on re-click
+  let formFilter = null; // 'hot' | 'cold' | null — filter the board to a form badge (via the strip counters)
   let bvpData = null;        // { date, builtAt, batters: { [id]: {oppSp, line, advice} } } — MLB only
   // Recent game log (MLB) — a purely client-side feature: the browser hits the public MLB
   // Stats API directly on row-expand, so it costs the backend nothing and lives in no dataset.
@@ -919,6 +926,9 @@
       return (t === 'CF' || t === 'LF' || t === 'RF') ? 'OF' : t;
     }).includes(currentPos));
     if (currentLeague !== 'ALL') filtered = filtered.filter(p => leagueOf(p) === currentLeague);
+    // Hot/Cold strip filter — the form badge (season model) is independent of the window/sort, so it
+    // composes: filter to hot, then sort that list by any stat in any window.
+    if (formFilter) filtered = filtered.filter(p => p.tag === formFilter);
     // searchOnly players (statless roster players, sub-PA hitters, and — in
     // Phase 2 — prospects) never appear in the default ranked table. They only
     // surface when the user is actively searching. Search also stacks on top of
@@ -1541,9 +1551,18 @@
   }
 
   function updateStrip(players) {
+    const hot = players.filter(p => p.tag === 'hot').length;
+    const cold = players.filter(p => p.tag === 'cold').length;
     document.getElementById('stripTotal').textContent = players.length;
-    document.getElementById('stripHot').textContent = players.filter(p=>p.tag==='hot').length;
-    document.getElementById('stripCold').textContent = players.filter(p=>p.tag==='cold').length;
+    document.getElementById('stripHot').textContent = hot;
+    document.getElementById('stripCold').textContent = cold;
+    // A zero counter isn't filterable (greyed out); the active filter's card is highlighted.
+    const hotCard = document.getElementById('stripHotCard');
+    const coldCard = document.getElementById('stripColdCard');
+    hotCard.classList.toggle('strip-empty', hot === 0);
+    coldCard.classList.toggle('strip-empty', cold === 0);
+    hotCard.classList.toggle('filter-active', formFilter === 'hot');
+    coldCard.classList.toggle('filter-active', formFilter === 'cold');
   }
 
   // Premium-only sports: the tab is visible to everyone (so it sells itself), but
@@ -1662,6 +1681,7 @@
     boardWindow = 'season';
     sortStat = null;
     sortAsc = false;
+    formFilter = null; // clear any Hot/Cold filter on sport switch
     // The Pos column holds country for PGA (golfers have no position); 'Pos' elsewhere.
     const isPga = sport === 'pga';
     document.getElementById('hPos').textContent = isPga ? 'Country' : 'Pos';
@@ -1712,6 +1732,17 @@
     document.querySelectorAll('#posFilters .pos-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentPos = btn.dataset.pos;
+    renderTable(allPlayers);
+  });
+
+  // Hot/Cold strip counters filter the board to that form badge (toggle off by re-clicking). Composes
+  // with the type tabs, window toggle, and column sort — all downstream in renderTable's pipeline.
+  document.querySelector('.stats-strip').addEventListener('click', e => {
+    const card = e.target.closest('.strip-clickable');
+    if (!card || card.classList.contains('strip-empty')) return;
+    const f = card.dataset.form;
+    formFilter = formFilter === f ? null : f;
+    updateStrip(allPlayers);
     renderTable(allPlayers);
   });
 
