@@ -89,12 +89,14 @@ async function windowSplits(group, start, end, season) {
   return j.stats?.[0]?.splits || [];
 }
 
-// Trimmed to what a rolling card actually shows — the full split carries 34 stat fields,
-// and every byte here is multiplied by ~900 players inside the cached dataset.
+// Trimmed to what the rolling card + the board's windowed (L15/L30) columns show — the full split
+// carries 34 stat fields, and every byte here is multiplied by ~900 players inside the cached dataset.
+// obp (hitters) and hd/holds (pitchers) are carried so the windowed board columns match the season set
+// exactly (OBP and HD have no other rolling source).
 function hitLine(s, tg) {
   return {
     g: num(s.gamesPlayed), tg,
-    avg: s.avg ?? null, ops: s.ops ?? null,
+    avg: s.avg ?? null, obp: s.obp ?? null, ops: s.ops ?? null,
     hr: num(s.homeRuns), rbi: num(s.rbi), r: num(s.runs), sb: num(s.stolenBases),
     val: r1(gameValueMlb('OF', s)), // window total on the HOT/COLD scale
   };
@@ -103,7 +105,7 @@ function pitchLine(s, tg) {
   return {
     g: num(s.gamesPlayed), tg,
     ip: s.inningsPitched ?? null, era: s.era ?? null, whip: s.whip ?? null,
-    k: num(s.strikeOuts), w: num(s.wins), sv: num(s.saves),
+    k: num(s.strikeOuts), w: num(s.wins), sv: num(s.saves), hd: num(s.holds),
     val: r1(gameValueMlb('SP', s)),
   };
 }

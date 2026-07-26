@@ -338,6 +338,15 @@
     border-bottom: 1px solid rgba(255,255,255,0.07);
     white-space: nowrap;
   }
+  /* Clickable stat headers (ESPN-style column sort): highlight + arrow on the active column. */
+  thead th.sortable { cursor: pointer; }
+  thead th.sortable:hover { color: var(--gray-light); }
+  thead th.sort-active { color: var(--gold); }
+  thead th.sort-active::after { content: ' ▼'; font-size: 8px; vertical-align: middle; }
+  thead th.sort-active.sort-asc::after { content: ' ▲'; }
+  /* Season / L15 / L30 board window toggle — reuses .pos-filters layout + .pos-btn buttons. */
+  .win-toggle { align-items: center; }
+  .win-toggle .win-label { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--gray); margin-right: 2px; }
   tbody tr { border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.12s; }
   tbody tr:hover { background: rgba(255,255,255,0.03); }
   tbody td { padding: 13px 12px; font-size: 13px; vertical-align: middle; white-space: nowrap; }
@@ -588,14 +597,16 @@
     <button class="pos-btn" data-pos="OF">OF</button>
   </div>
 
+  <div class="win-toggle pos-filters" id="winToggle" style="display:none"></div>
+
   <div class="table-wrap">
     <table id="rankingsTable">
       <thead>
         <tr>
-          <th>#</th><th>Player</th><th id="hPos">Pos</th><th>Team</th>
-          <th id="h1">AVG</th><th id="h2">HR</th><th id="h3">RBI</th><th id="h4">SB</th>
-          <th id="h5">ERA</th><th id="h6">WHIP</th>
-          <th id="h7" class="pga-col">CUT%</th><th id="h8" class="pga-col">FIT</th>
+          <th id="hRank" class="sortable">#</th><th>Player</th><th id="hPos">Pos</th><th>Team</th>
+          <th id="h1" class="sortable">AVG</th><th id="h2" class="sortable">HR</th><th id="h3" class="sortable">RBI</th><th id="h4" class="sortable">SB</th>
+          <th id="h5" class="sortable">ERA</th><th id="h6" class="sortable">WHIP</th>
+          <th id="h7" class="pga-col sortable">CUT%</th><th id="h8" class="pga-col sortable">FIT</th>
           <th id="hRate">Stars</th><th>Trend</th><th>Own%</th>
         </tr>
       </thead>
@@ -621,6 +632,12 @@
   let searchTerm = '';
   let allPlayers = [];
   let rollingWindows = null; // { l15: {start,end,tgMin,tgMax}, l30: {...} } — MLB only
+  // Board-level time window ('season' | a rolling key like 'l15'/'l30'/'l10'/'l20') and column sort.
+  // Both reset on sport switch. The window sources each cell from p.rolling[key] (no extra fetch); the
+  // sort reads whatever value the active window is showing, so "L15 + click HR" composes for free.
+  let boardWindow = 'season';
+  let sortStat = null;   // active sort column's stat label, or null for the default (rank) order
+  let sortAsc = false;   // direction; set best-first per stat on first click, flips on re-click
   let bvpData = null;        // { date, builtAt, batters: { [id]: {oppSp, line, advice} } } — MLB only
   // Recent game log (MLB) — a purely client-side feature: the browser hits the public MLB
   // Stats API directly on row-expand, so it costs the backend nothing and lives in no dataset.
@@ -718,6 +735,14 @@
   };
   // NFL position filter -> header set (TE shares WR's columns).
   const NFL_HEADER_POS = { QB: 'nfl_qb', RB: 'nfl_rb', WR: 'nfl_wr', TE: 'nfl_wr', K: 'nfl_k', DST: 'nfl_dst' };
+  // Column stat LABEL -> its rolling-window key + whether lower is better (rate stats). Drives both the
+  // windowed (L15/L30) value lookup and click-sort direction. A label absent here (e.g. WNBA 3PM, which
+  // enrichRolling doesn't carry) has no windowed value — it shows '—' in a window and sinks when sorted.
+  const STAT_META = {
+    AVG: { roll: 'avg' }, OBP: { roll: 'obp' }, OPS: { roll: 'ops' }, HR: { roll: 'hr' }, RBI: { roll: 'rbi' }, R: { roll: 'r' }, SB: { roll: 'sb' },
+    K: { roll: 'k' }, W: { roll: 'w' }, SV: { roll: 'sv' }, HD: { roll: 'hd' }, IP: { roll: 'ip' }, ERA: { roll: 'era', low: true }, WHIP: { roll: 'whip', low: true },
+    PTS: { roll: 'pts' }, REB: { roll: 'reb' }, AST: { roll: 'ast' }, STL: { roll: 'stl' }, BLK: { roll: 'blk' },
+  };
   function updateStatHeaders() {
     let labels;
     if (currentSport === 'nhl') {
@@ -734,11 +759,56 @@
         : ['C', '1B', '2B', '3B', 'SS', 'OF'].includes(currentPos) ? STAT_HEADERS.hitter
         : STAT_HEADERS.generic;
     }
-    labels.forEach((l, i) => { document.getElementById('h' + (i + 1)).textContent = l; });
+    labels.forEach((l, i) => { const th = document.getElementById('h' + (i + 1)); th.textContent = l; th.dataset.stat = l; });
+  }
+
+  // Window-aware value for stat column i (0-5): the season slot, or the active rolling window's stat.
+  // Returns null (renders '—') when the window carries no value for that player/stat.
+  function cellVal(p, i) {
+    if (boardWindow === 'season') {
+      if (i === 5 && currentSport === 'nfl' && p.fpPpr != null) return nflFpts(p, currentScoring).toFixed(1); // FPTS reflects scoring
+      return p['s' + (i + 1)];
+    }
+    const meta = STAT_META[p.statLabels?.[i]];
+    const roll = p.rolling && p.rolling[boardWindow];
+    const v = meta && roll ? roll[meta.roll] : undefined;
+    return v == null ? null : v;
+  }
+  // Numeric sort key for a player under the active window, by stat LABEL. Missing -> null (sinks).
+  function sortNum(p, label) {
+    const idx = p.statLabels?.indexOf(label);
+    if (idx == null || idx < 0) return null;
+    const v = cellVal(p, idx);
+    if (v == null) return null;
+    const n = parseFloat(String(v).replace(/,/g, ''));
+    return isFinite(n) ? n : null;
+  }
+  // Distinct rolling-window keys present in the data (['l15','l30'] MLB, ['l10','l20'] WNBA; [] otherwise).
+  function availableWindowKeys(players) {
+    const s = new Set();
+    for (const p of players) if (p.rolling) for (const k of Object.keys(p.rolling)) if (/^l\d+$/.test(k)) s.add(k);
+    return [...s].sort((a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1)));
+  }
+  // Build the Season / L15 / L30 toggle from whatever windows the sport exposes (hidden if none).
+  function buildWindowControls(players) {
+    const el = document.getElementById('winToggle');
+    const keys = availableWindowKeys(players);
+    if (!keys.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = '';
+    const btn = (w, lbl) => `<button class="pos-btn win-btn${boardWindow === w ? ' active' : ''}" data-win="${w}">${lbl}</button>`;
+    el.innerHTML = `<span class="win-label">Window</span>` + btn('season', 'Season') + keys.map(k => btn(k, k.toUpperCase())).join('');
+  }
+  // Reflect the active sort column in the header (gold + arrow); classes only, CSS draws the arrow.
+  // '#' is the default (rank) order, highlighted when no stat sort is active.
+  function markSortHeader() {
+    for (let i = 1; i <= 8; i++) { const th = document.getElementById('h' + i); if (th) th.classList.remove('sort-active', 'sort-asc'); }
+    if (sortStat == null) return; // default (rank) order highlights nothing
+    for (let i = 1; i <= 8; i++) { const th = document.getElementById('h' + i); if (th && th.dataset.stat === sortStat) { th.classList.add('sort-active'); if (sortAsc) th.classList.add('sort-asc'); break; } }
   }
 
   function renderTable(players) {
     updateStatHeaders();
+    markSortHeader();
     // In a filtered view the column header is authoritative, so drop the inline
     // cell labels; in the mixed ALL view they disambiguate hitter vs pitcher rows.
     const showInline = currentPos === 'ALL';
@@ -792,6 +862,18 @@
     }
     // NFL rows are ordered by VORP for the league setup (same as the rank map above).
     if (isNfl) filtered = filtered.slice().sort((a, b) => nflBoardCmp(a, b, currentScoring, nflLevels));
+    // Explicit column sort (best-to-worst by the active window's value) overrides the default order.
+    // Players without a value for the stat (wrong type, or no rolling data in this window) always sink.
+    if (sortStat) {
+      const dir = sortAsc ? 1 : -1;
+      filtered = filtered.slice().sort((a, b) => {
+        const av = sortNum(a, sortStat), bv = sortNum(b, sortStat);
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        return (av - bv) * dir;
+      });
+    }
     if (!filtered.length) {
       tbody.innerHTML = '<tr class="loading-row"><td colspan="15"><div class="loading-title">No Players Found</div><div class="loading-sub">Try a different position filter</div></td></tr>';
       return;
@@ -858,15 +940,13 @@
       // In a league view, show the within-league rank; in NFL Standard mode, the
       // re-ranked board position; otherwise the global rank.
       const dispRank = nflRank ? (nflRank.get(p.id) ?? '—') : leagueRank ? (leagueRank.get(p.id) ?? '—') : (p.rank ?? '—');
-      // NFL: the FPTS column reflects the active scoring (PPR vs Standard).
-      const s6disp = (isNfl && p.fpPpr != null) ? nflFp(p).toFixed(1) : p.s6;
       const rowClass = [so ? 'search-only-row' : '', hasDetail ? 'row-expand' : ''].filter(Boolean).join(' ');
       const mainRow = `<tr class="${rowClass}">
         <td class="td-rank">${dispRank}</td>
         <td><div class="player-cell"><div class="player-avatar">${p.emoji||'⚾'}</div><div><div class="player-name">${p.name}${getTagHTML(p.tag, p.formReason)}${soBadge}${prospectChip}${bvpChip}${formChip}${gamelogChip}${pgaChip}</div><div class="player-meta">${p.team}</div></div></div></td>
         <td><span class="pos-badge">${p.pos||'—'}</span></td>
         <td style="color:var(--gray-light)">${p.team||'—'}</td>
-        <td>${formatStat(p.s1, showInline ? p.statLabels?.[0] : null)}</td><td>${formatStat(p.s2, showInline ? p.statLabels?.[1] : null)}</td><td>${formatStat(p.s3, showInline ? p.statLabels?.[2] : null)}</td><td>${formatStat(p.s4, showInline ? p.statLabels?.[3] : null)}</td><td>${formatStat(p.s5, showInline ? p.statLabels?.[4] : null)}</td><td>${formatStat(s6disp, showInline ? p.statLabels?.[5] : null)}</td>
+        <td>${formatStat(cellVal(p, 0), showInline ? p.statLabels?.[0] : null)}</td><td>${formatStat(cellVal(p, 1), showInline ? p.statLabels?.[1] : null)}</td><td>${formatStat(cellVal(p, 2), showInline ? p.statLabels?.[2] : null)}</td><td>${formatStat(cellVal(p, 3), showInline ? p.statLabels?.[3] : null)}</td><td>${formatStat(cellVal(p, 4), showInline ? p.statLabels?.[4] : null)}</td><td>${formatStat(cellVal(p, 5), showInline ? p.statLabels?.[5] : null)}</td>
         <td class="pga-col">${formatStat(p.s7, showInline ? p.statLabels?.[6] : null)}</td><td class="pga-col">${formatStat(p.s8, showInline ? p.statLabels?.[7] : null)}</td>
         <td class="${isPga ? 'tier-cell' : 'stars-cell'}">${so ? muted : isPga ? getTierHTML(p.tier, p.inField) : `<div class="stars-row">${renderStars(sc)}</div><div class="stars-label">${getStarLabel(sc)}</div><div class="stars-cats">${cats.map(c=>`<span class="stars-cat-pill">${c}</span>`).join('')}</div>`}</td>
         <td>${so ? muted : getTrendHTML(p.trend, p.trendVal)}</td>
@@ -1446,6 +1526,7 @@
       const now = new Date();
       document.getElementById('updateLabel').textContent = `Updated live · ${now.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}`;
       updateStrip(allPlayers);
+      buildWindowControls(allPlayers); // Season/L15/L30 toggle for sports with rolling data
       renderTable(allPlayers);
     } catch(err) {
       document.getElementById('tableBody').innerHTML = `<tr class="error-row"><td colspan="15"><div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;margin-bottom:6px">Failed to Load Data</div><div style="font-size:12px;color:var(--gray)">${err.message}</div></td></tr>`;
@@ -1504,6 +1585,10 @@
     currentPos = 'ALL';
     currentLeague = 'ALL';
     currentScoring = 'PPR';
+    // Columns differ by sport, so a stale window/sort can't carry over — back to Season + rank order.
+    boardWindow = 'season';
+    sortStat = null;
+    sortAsc = false;
     // The Pos column holds country for PGA (golfers have no position); 'Pos' elsewhere.
     const isPga = sport === 'pga';
     document.getElementById('hPos').textContent = isPga ? 'Country' : 'Pos';
@@ -1545,6 +1630,29 @@
     document.querySelectorAll('#posFilters .pos-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentPos = btn.dataset.pos;
+    renderTable(allPlayers);
+  });
+
+  // Season / L15 / L30 board window: re-source every cell from the rolling data (no fetch).
+  document.getElementById('winToggle').addEventListener('click', e => {
+    const btn = e.target.closest('.win-btn');
+    if (!btn) return;
+    boardWindow = btn.dataset.win;
+    document.querySelectorAll('#winToggle .win-btn').forEach(b => b.classList.toggle('active', b.dataset.win === boardWindow));
+    renderTable(allPlayers);
+  });
+
+  // Clickable stat headers -> sort best-to-worst by that column in the active window; re-click flips
+  // direction; the '#' header returns to default (fantasy-rank) order. Sorting keeps each player's rank.
+  document.querySelector('#rankingsTable thead tr').addEventListener('click', e => {
+    const th = e.target.closest('th');
+    if (!th) return;
+    if (th.id === 'hRank') { if (sortStat !== null) { sortStat = null; renderTable(allPlayers); } return; }
+    if (!/^h[1-8]$/.test(th.id || '')) return; // only the stat columns are sortable
+    const label = th.dataset.stat;
+    if (!label || label === '—') return;
+    if (sortStat === label) sortAsc = !sortAsc;
+    else { sortStat = label; sortAsc = !!(STAT_META[label] && STAT_META[label].low); } // best-first
     renderTable(allPlayers);
   });
 
