@@ -277,6 +277,15 @@
   }
   .roto-label { font-size: 10px; font-weight: 700; letter-spacing: 1px; color: var(--sport-accent-light); text-transform: uppercase; white-space: nowrap; }
   .cat-pill { padding: 3px 8px; background: rgba(var(--sport-accent-rgb),0.15); border: 1px solid rgba(var(--sport-accent-rgb),0.3); border-radius: 3px; font-size: 10px; font-weight: 600; color: var(--sport-accent-light); }
+  /* MLB player-type tabs (Hitters / Pitchers) — the primary split above the position sub-filters. */
+  .type-tabs { display: flex; gap: 8px; padding: 0 28px 14px; }
+  .type-tab-btn {
+    padding: 9px 22px; border: 1px solid rgba(255,255,255,0.14); background: transparent;
+    color: var(--gray-light); font-family: inherit; font-weight: 700; font-size: 13px;
+    letter-spacing: 1px; text-transform: uppercase; border-radius: 7px; cursor: pointer;
+  }
+  .type-tab-btn:hover { border-color: var(--gold); color: var(--white); }
+  .type-tab-btn.active { background: var(--gold); border-color: var(--gold); color: var(--black); }
   .pos-filters { display: flex; gap: 6px; padding: 0 28px 16px; flex-wrap: wrap; }
   .league-filters { padding-bottom: 10px; align-items: center; }
   .filter-group-label { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray); margin-right: 4px; align-self: center; }
@@ -594,10 +603,12 @@
     <label class="nfl-set">K<input type="number" id="rsK" min="0" max="2" step="1" value="1"></label>
     <label class="nfl-set">DST<input type="number" id="rsDST" min="0" max="2" step="1" value="1"></label>
   </div>
+  <div class="type-tabs" id="typeTabs" style="display:none">
+    <button class="type-tab-btn active" data-type="H">Hitters</button>
+    <button class="type-tab-btn" data-type="P">Pitchers</button>
+  </div>
   <div class="pos-filters" id="posFilters">
-    <button class="pos-btn active" data-pos="ALL">ALL</button>
-    <button class="pos-btn" data-pos="SP">SP</button>
-    <button class="pos-btn" data-pos="RP">RP</button>
+    <button class="pos-btn active" data-pos="ALL">All Hitters</button>
     <button class="pos-btn" data-pos="C">C</button>
     <button class="pos-btn" data-pos="1B">1B</button>
     <button class="pos-btn" data-pos="2B">2B</button>
@@ -636,6 +647,7 @@
   import { nflFpts, nflReplacementLevels, nflBoardCmp } from '/nflScoring.js';
 
   let currentSport = 'mlb';
+  let currentType = 'H'; // MLB player-type tab: 'H' hitters | 'P' pitchers (other sports ignore it)
   let currentPos = 'ALL';
   let currentLeague = 'ALL';
   let currentScoring = 'PPR'; // NFL only: PPR | HALF | STD
@@ -767,10 +779,9 @@
     } else if (STAT_HEADERS[currentSport]) {
       labels = STAT_HEADERS[currentSport]; // basketball columns are fixed regardless of position
     } else {
-      labels =
-        (currentPos === 'SP' || currentPos === 'RP') ? STAT_HEADERS.pitcher
-        : ['C', '1B', '2B', '3B', 'SS', 'OF'].includes(currentPos) ? STAT_HEADERS.hitter
-        : STAT_HEADERS.generic;
+      // MLB: the Hitters/Pitchers tab picks the header set — every column is now authoritative for
+      // every row in the tab, so the old mixed 'generic' set (and inline cell labels) are retired.
+      labels = currentType === 'P' ? STAT_HEADERS.pitcher : STAT_HEADERS.hitter;
     }
     labels.forEach((l, i) => { const th = document.getElementById('h' + (i + 1)); th.textContent = l; th.dataset.stat = l; });
   }
@@ -811,6 +822,19 @@
     const btn = (w, lbl) => `<button class="pos-btn win-btn${boardWindow === w ? ' active' : ''}" data-win="${w}">${lbl}</button>`;
     el.innerHTML = `<span class="win-label">Window</span>` + btn('season', 'Season') + keys.map(k => btn(k, k.toUpperCase())).join('');
   }
+  // Position sub-filter set for the current sport (MLB depends on the active Hitters/Pitchers tab).
+  function posSetFor() {
+    if (currentSport === 'mlb') return POS_SETS[currentType === 'P' ? 'mlb_P' : 'mlb_H'];
+    return POS_SETS[currentSport] || POS_SETS.mlb_H;
+  }
+  // (Re)build the position sub-filter buttons for the current sport/type. The 'ALL' button reads
+  // "All Hitters"/"All Pitchers" inside an MLB tab so it's clear it's scoped to that type.
+  function renderPosFilters() {
+    const set = posSetFor();
+    const allLabel = currentSport === 'mlb' ? (currentType === 'P' ? 'All Pitchers' : 'All Hitters') : 'ALL';
+    document.getElementById('posFilters').innerHTML = set.map(p =>
+      `<button class="pos-btn${p === currentPos ? ' active' : ''}" data-pos="${p}">${p === 'ALL' ? allLabel : p}</button>`).join('');
+  }
   // Reflect the active sort column in the header (gold + arrow); classes only, CSS draws the arrow.
   // '#' is the default (rank) order, highlighted when no stat sort is active.
   function markSortHeader() {
@@ -832,22 +856,24 @@
     updateStatHeaders();
     markSortHeader();
     updateSortResetUI();
-    // In a filtered view the column header is authoritative, so drop the inline
-    // cell labels; in the mixed ALL view they disambiguate hitter vs pitcher rows.
-    const showInline = currentPos === 'ALL';
+    // Inline cell labels only matter where a single column can hold different stats per row (the
+    // mixed ALL view of NHL/NFL). MLB is now split into homogeneous Hitters/Pitchers tabs, so its
+    // headers are always authoritative — no inline labels.
+    const showInline = currentPos === 'ALL' && currentSport !== 'mlb';
     const tbody = document.getElementById('tableBody');
-    // League re-ranking: when AL or NL is selected, rank is recomputed within that
-    // league, per group (hitters 1..N, pitchers 1..M), independent of the position
-    // filter. The default ALL view leaves each player's global p.rank untouched.
-    let leagueRank = null;
-    if (currentLeague !== 'ALL') {
-      leagueRank = new Map();
-      const ranked = players.filter(p => !p.searchOnly && p.rank != null && leagueOf(p) === currentLeague);
-      for (const pitchers of [false, true]) {
-        ranked
-          .filter(p => isPitcherPos(p) === pitchers)
+    // MLB ranks players WITHIN their type pool — hitters among hitters (1..N), pitchers among pitchers
+    // (1..M) — respecting an AL/NL filter if active. Keyed by the player OBJECT (not id) so a two-way
+    // player listed in both pools (Ohtani) gets an independent rank in each. This replaces the old
+    // league-only re-rank; other sports keep global/NFL rank.
+    let typeRank = null;
+    if (currentSport === 'mlb') {
+      typeRank = new Map();
+      const pool = players.filter(p => !p.searchOnly && p.rank != null && (currentLeague === 'ALL' || leagueOf(p) === currentLeague));
+      for (const wantPitchers of [false, true]) {
+        pool
+          .filter(p => isPitcherPos(p) === wantPitchers)
           .sort((a, b) => a.rank - b.rank)
-          .forEach((p, i) => leagueRank.set(p.id, i + 1));
+          .forEach((p, i) => typeRank.set(p, i + 1));
       }
     }
     // NFL board is ranked by VALUE OVER REPLACEMENT (VORP) for the user's league setup
@@ -867,7 +893,10 @@
         .sort((a, b) => nflBoardCmp(a, b, currentScoring, nflLevels))
         .forEach((p, i) => nflRank.set(p.id, i + 1));
     }
-    let filtered = currentPos === 'ALL' ? players : players.filter(p => (p.pos||'').toUpperCase().split('/').map(x => {
+    // MLB: split by player type first (Hitters vs Pitchers tab), then by the position sub-filter.
+    let filtered = players;
+    if (currentSport === 'mlb') filtered = filtered.filter(p => isPitcherPos(p) === (currentType === 'P'));
+    if (currentPos !== 'ALL') filtered = filtered.filter(p => (p.pos||'').toUpperCase().split('/').map(x => {
       const t = x.trim();
       return (t === 'CF' || t === 'LF' || t === 'RF') ? 'OF' : t;
     }).includes(currentPos));
@@ -962,7 +991,7 @@
       const muted = '<span class="td-stat muted">—</span>';
       // In a league view, show the within-league rank; in NFL Standard mode, the
       // re-ranked board position; otherwise the global rank.
-      const dispRank = nflRank ? (nflRank.get(p.id) ?? '—') : leagueRank ? (leagueRank.get(p.id) ?? '—') : (p.rank ?? '—');
+      const dispRank = nflRank ? (nflRank.get(p.id) ?? '—') : typeRank ? (typeRank.get(p) ?? '—') : (p.rank ?? '—');
       const rowClass = [so ? 'search-only-row' : '', hasDetail ? 'row-expand' : ''].filter(Boolean).join(' ');
       const mainRow = `<tr class="${rowClass}">
         <td class="td-rank">${dispRank}</td>
@@ -1583,7 +1612,8 @@
   // Keeps the default ALL view untouched.
   // Position-filter button sets per sport. ALL is always first.
   const POS_SETS = {
-    mlb: ['ALL', 'SP', 'RP', 'C', '1B', '2B', '3B', 'SS', 'OF'],
+    mlb_H: ['ALL', 'C', '1B', '2B', '3B', 'SS', 'OF'], // within the Hitters tab
+    mlb_P: ['ALL', 'SP', 'RP'],                        // within the Pitchers tab
     nba: ['ALL', 'G', 'F', 'C'],
     wnba: ['ALL', 'G', 'F', 'C'],
     nhl: ['ALL', 'C', 'LW', 'RW', 'D', 'G'],
@@ -1605,10 +1635,12 @@
     // Drive per-sport accent theming (see the body[data-sport] CSS blocks). Base gold
     // identity stays; unthemed sports fall back to the gold custom-property defaults.
     document.body.dataset.sport = sport;
+    currentSport = sport; // set before renderPosFilters() below (loadAndRender re-sets it too)
+    currentType = 'H'; // MLB opens on the Hitters tab
     currentPos = 'ALL';
     currentLeague = 'ALL';
     currentScoring = 'PPR';
-    // Columns differ by sport, so a stale window/sort can't carry over — back to Season + rank order.
+    // Columns differ by sport/type, so a stale window/sort can't carry over — back to Season + rank order.
     boardWindow = 'season';
     sortStat = null;
     sortAsc = false;
@@ -1618,9 +1650,11 @@
     // PGA shows two extra stat columns (CUT% / FIT) and a DFS value tier instead of stars.
     document.getElementById('rankingsTable').classList.toggle('show-pga-cols', isPga);
     document.getElementById('hRate').textContent = isPga ? 'Tier' : 'Stars';
-    const set = POS_SETS[sport] || POS_SETS.mlb;
-    document.getElementById('posFilters').innerHTML =
-      set.map(p => `<button class="pos-btn${p === 'ALL' ? ' active' : ''}" data-pos="${p}">${p}</button>`).join('');
+    // MLB shows the Hitters/Pitchers type tabs above the position sub-filters; other sports hide them.
+    const tt = document.getElementById('typeTabs');
+    tt.style.display = sport === 'mlb' ? '' : 'none';
+    tt.querySelectorAll('.type-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.type === 'H'));
+    renderPosFilters();
     const cats = ROTO_CATS[sport] || ROTO_CATS.mlb;
     document.getElementById('rotoCats').innerHTML =
       cats.map(c => `<span class="cat-pill">${c}</span>`).join('');
@@ -1653,6 +1687,19 @@
     document.querySelectorAll('#posFilters .pos-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentPos = btn.dataset.pos;
+    renderTable(allPlayers);
+  });
+
+  // MLB Hitters/Pitchers tabs: switch the type pool, rebuild the position sub-filters for it, and clear
+  // any active sort (hitter and pitcher columns are different, so a stat sort can't carry across).
+  document.getElementById('typeTabs').addEventListener('click', e => {
+    const btn = e.target.closest('.type-tab-btn');
+    if (!btn || btn.dataset.type === currentType) return;
+    currentType = btn.dataset.type;
+    document.querySelectorAll('#typeTabs .type-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.type === currentType));
+    currentPos = 'ALL';
+    sortStat = null; sortAsc = false;
+    renderPosFilters();
     renderTable(allPlayers);
   });
 
