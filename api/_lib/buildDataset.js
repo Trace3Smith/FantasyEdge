@@ -177,7 +177,6 @@ function parseIp(s) {
 function assignPitching(rec, stat) {
   rec.hasStats = true;
   rec.group = 'pitching';
-  rec.sortVal = parseInt(stat.strikeOuts) || 0; // ranked by K desc (as before)
   // The API only reports position "P"; classify SP vs RP from usage.
   const gs = parseInt(stat.gamesStarted) || 0;
   const gp = parseInt(stat.gamesPlayed) || 0;
@@ -317,21 +316,22 @@ export async function buildDataset({ season = new Date().getFullYear() } = {}) {
   //   Hitters: gate by 2.0 PA per team game, then order by multi-category
   //   z-score value. Sub-threshold hitters fall to searchOnly (kept stats, but
   //   out of the ranked list) so small samples don't float to the top.
-  //   Pitchers: K desc, as before. searchOnly: statless roster players too.
+  //   Pitchers: the SAME multi-category z-sum as hitters (W/SV/K + innings-weighted ERA/WHIP),
+  //   replacing the old K-only sort. searchOnly: statless roster players too.
   const all = [...records.values(), ...twoWayPitchers];
   const paThreshold = Math.round(2.0 * teamGames);
   const allHitters = all.filter((r) => r.hasStats && r.group === 'hitting');
   const qualHitters = allHitters.filter((r) => r._h.pa >= paThreshold);
   const subHitters = allHitters.filter((r) => r._h.pa < paThreshold);
-  const pitchers = all
-    .filter((r) => r.hasStats && r.group === 'pitching')
-    .sort((a, b) => b.sortVal - a.sortVal);
+  const pitchers = all.filter((r) => r.hasStats && r.group === 'pitching');
 
   scoreHitters(qualHitters);
   qualHitters.sort((a, b) => b.score - a.score);
-  // Pitchers keep their K-sorted rank/order (unchanged for the rankings page), but get a
-  // roto z block + zTotal so the draft board can value them on the same scale as hitters.
+  // Pitchers now rank by their total standardized roto value across the five pitching cats — the same
+  // z-sum machinery as hitters — so an elite-ratio starter or a high-save closer isn't buried behind a
+  // pure strikeout leader. (Previously sorted by K alone.)
   scorePitchers(pitchers);
+  pitchers.sort((a, b) => b.score - a.score);
 
   // Blend current-season z against a multi-year baseline (sample-size aware, with
   // cold-start outlier protection) → rec.blendVal / valParts / outlier. Additive and
@@ -357,7 +357,6 @@ export async function buildDataset({ season = new Date().getFullYear() } = {}) {
   // Clean internal-only fields off the wire (z / zTotal are kept for the draft board).
   for (const r of players) {
     delete r.posType;
-    delete r.sortVal;
     delete r.group;
     delete r.score;
     delete r._h;
