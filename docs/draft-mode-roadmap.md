@@ -10,6 +10,11 @@ the territory.
 - Provider linking (live draft picks) — `draft-linking-research.md`
 - Coach scoring-awareness — `coach-scoring-scoping.md`
 
+> Not a Draft Mode item, but relevant: the Player Rankings run (`player-rankings-changelog.md`) reworked
+> the shared `buildDataset` valuation the draft board also draws from — a pitcher innings gate now trims
+> tiny-sample arms from the draftable pool, and two-way players (Ohtani) carry a `twoWay` guard so they
+> stay a single draftable player.
+
 ## Shipped
 
 - **Sleeper live draft linking** — public/CORS, client-side poll, no serverless function.
