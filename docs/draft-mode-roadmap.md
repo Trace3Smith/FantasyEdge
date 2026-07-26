@@ -36,6 +36,8 @@ the territory.
   much bigger, likely skip.
 - Unlike Sleeper, ESPN polling routes **through our backend** (cookie is server-side only) — real
   per-poll invocation cost during drafts.
+- **Runnable test plan for the spike:** `espn-draft-spike-plan.md` (harness + pass/fail criteria + the
+  follow-on build if it passes).
 - Detail: `draft-linking-research.md` → ESPN section + "Auth reuse — CONFIRMED".
 
 ### 2. ESPN scoring detection — rides with #1 (~August)
