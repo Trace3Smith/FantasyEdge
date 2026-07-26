@@ -1,12 +1,16 @@
 // Recent-form HOT/COLD badges.
 //
-// MLB (in-season) uses a LEAGUE-BASELINE, per-category model: a player is HOT/COLD when his recent
-// window rate in a category sits in the league's ELITE / WEAK tier (top / bottom 20% of qualified
-// regulars), not merely above/below his OWN average — so a weak hitter's lucky stretch that's still
-// short of league-elite is not flagged. Hitters score on AVG, HR, OBP; starters on ERA, QS, K/9,
-// WHIP; relievers on ERA, K/9, WHIP (ERA/WHIP inverted — lower is better/hotter). A SINGLE category
-// clearing its bar earns the badge, guarded by a drop-best-game consistency check so one outlier
-// game can't drive it. The badge carries a `formReason` (e.g. ".367 AVG, 6 HR · last 15").
+// HITTERS (MLB, in-season) use FIXED ABSOLUTE thresholds over the player's last-15-game window across
+// five categories — AVG, HR, OBP, RBI, R — with no comparison to the league or to the player's own
+// past. A category reads hot or cold purely by where its window total/rate lands vs a fixed bar (HR is
+// hot-only — no cold side). The badge needs 2+ categories on one side AND strictly more than the other
+// side; a single-category edge or an even tie is neutral. No consistency guard — the 15-game window +
+// 6-appearance floor is the sample control. The badge carries a `formReason` listing the triggering
+// numbers (e.g. ".310 AVG, .357 OBP · last 15").
+//
+// PITCHERS (MLB) still use a LEAGUE-BASELINE percentile model: starters on ERA/QS/K9/WHIP, relievers
+// on ERA/K9/WHIP (ERA/WHIP inverted — lower is hotter). A SINGLE category clearing the league top/
+// bottom-20% bar earns the badge, guarded by a drop-best-game consistency check.
 //
 // The OTHER sports (NBA/NHL/WNBA/NFL) still use the older recent-vs-own-average model (unchanged)
 // until they're ported.
@@ -74,7 +78,6 @@ function recentWindow(games, window, gapDays) {
 }
 
 // Per-category rate over a set of games.
-const rHR = (g) => (g.length ? sum(g, 'hr') / g.length : 0);
 const rAVG = (g) => { const ab = sum(g, 'ab'); return ab ? sum(g, 'h') / ab : 0; };
 const rOBP = (g) => { const pa = sum(g, 'pa'); return pa ? (sum(g, 'h') + sum(g, 'bb') + sum(g, 'hbp')) / pa : 0; };
 const rERA = (g) => { const ip = sum(g, 'ip'); return ip ? sum(g, 'er') * 9 / ip : 0; };
@@ -82,11 +85,25 @@ const rWHIP = (g) => { const ip = sum(g, 'ip'); return ip ? (sum(g, 'h') + sum(g
 const rK9 = (g) => { const ip = sum(g, 'ip'); return ip ? sum(g, 'k') * 9 / ip : 0; };
 const rQS = (g) => (g.length ? sum(g, 'qs') / g.length : 0);
 
-const HIT_CATS = [
-  { key: 'AVG', inv: false, rate: rAVG, disp: (g) => fmt3(rAVG(g)) + ' AVG' },
-  { key: 'HR', inv: false, rate: rHR, disp: (g) => sum(g, 'hr') + ' HR' },
-  { key: 'OBP', inv: false, rate: rOBP, disp: (g) => fmt3(rOBP(g)) + ' OBP' },
-];
+// ── HITTERS: fixed absolute bars over the last-15-game window ──
+// AVG/OBP are window rates; HR/RBI/R are window totals. HR has no cold side. RBI/R bars sit just above
+// the ~P80 of regulars' 15-game production (elite pace), cold near P15. Verdict = 2+ categories on one
+// side AND strictly more than the other; otherwise neutral. Reason lists the triggering numbers.
+const HIT_HOT = { AVG: 0.300, OBP: 0.350, HR: 5, RBI: 11, R: 11 };
+const HIT_COLD = { AVG: 0.220, OBP: 0.290, RBI: 3, R: 3 };
+function hitterBadge(win) {
+  const avg = rAVG(win), obp = rOBP(win), hr = sum(win, 'hr'), rbi = sum(win, 'rbi'), r = sum(win, 'r');
+  const H = [], C = [];
+  if (avg >= HIT_HOT.AVG) H.push(fmt3(avg) + ' AVG'); else if (avg <= HIT_COLD.AVG) C.push(fmt3(avg) + ' AVG');
+  if (hr >= HIT_HOT.HR) H.push(hr + ' HR'); // hot-only
+  if (obp >= HIT_HOT.OBP) H.push(fmt3(obp) + ' OBP'); else if (obp <= HIT_COLD.OBP) C.push(fmt3(obp) + ' OBP');
+  if (rbi >= HIT_HOT.RBI) H.push(rbi + ' RBI'); else if (rbi <= HIT_COLD.RBI) C.push(rbi + ' RBI');
+  if (r >= HIT_HOT.R) H.push(r + ' R'); else if (r <= HIT_COLD.R) C.push(r + ' R');
+  if (H.length >= 2 && H.length > C.length) return { tag: 'hot', reason: H.join(', ') };
+  if (C.length >= 2 && C.length > H.length) return { tag: 'cold', reason: C.join(', ') };
+  return null; // single-category edge or an even tie → neutral
+}
+
 const SP_CATS = [
   { key: 'ERA', inv: true, rate: rERA, disp: (g) => rERA(g).toFixed(2) + ' ERA' },
   { key: 'WHIP', inv: true, rate: rWHIP, disp: (g) => rWHIP(g).toFixed(2) + ' WHIP' },
@@ -124,8 +141,9 @@ function badgeFrom(win, cats, bars) {
 async function mlbHitGames(id, season) {
   const j = await getJson(`${MLB_API}/people/${id}/stats?stats=gameLog&season=${season}&group=hitting&gameType=R`);
   return (j.stats?.[0]?.splits || []).map((sp) => { const s = sp.stat || {}; return {
-    date: sp.date || '', teamId: sp.team?.id ?? null,
-    ab: num(s.atBats), h: num(s.hits), hr: num(s.homeRuns), bb: num(s.baseOnBalls), hbp: num(s.hitByPitch), pa: num(s.plateAppearances),
+    date: sp.date || '',
+    ab: num(s.atBats), h: num(s.hits), hr: num(s.homeRuns), rbi: num(s.rbi), r: num(s.runs),
+    bb: num(s.baseOnBalls), hbp: num(s.hitByPitch), pa: num(s.plateAppearances),
   }; });
 }
 async function mlbPitchGames(id, season) {
@@ -136,14 +154,7 @@ async function mlbPitchGames(id, season) {
   }; });
 }
 
-// --- league bars from qualified regulars' season rates (per-game for HR, ratios otherwise) ---
-async function hitterBars(season) {
-  const j = await getJson(`${MLB_API}/stats?stats=season&group=hitting&season=${season}&sportId=1&playerPool=qualified&limit=500`);
-  const rows = (j.stats?.[0]?.splits || []).map((sp) => { const t = sp.stat || {}; const G = num(t.gamesPlayed), ab = num(t.atBats), h = num(t.hits), bb = num(t.baseOnBalls), hbp = num(t.hitByPitch), pa = num(t.plateAppearances);
-    return { G, HR: G ? num(t.homeRuns) / G : 0, AVG: ab ? h / ab : 0, OBP: pa ? (h + bb + hbp) / pa : 0 }; }).filter((r) => r.G >= POOL_MIN);
-  const bar = (k) => ({ elite: pctl(rows.map((r) => r[k]), ELITE_P), weak: pctl(rows.map((r) => r[k]), WEAK_P) });
-  return { AVG: bar('AVG'), HR: bar('HR'), OBP: bar('OBP') };
-}
+// --- league bars for PITCHERS from qualified regulars' season rates (hitters use fixed bars above) ---
 async function pitcherBars(season) {
   const j = await getJson(`${MLB_API}/stats?stats=season&group=pitching&season=${season}&sportId=1&playerPool=qualified&limit=500`);
   const sp = (j.stats?.[0]?.splits || []).map((s) => { const t = s.stat || {}; return { id: s.player?.id, gs: num(t.gamesStarted), ERA: num(t.era), WHIP: num(t.whip), K: num(t.strikeoutsPer9Inn) }; }).filter((r) => r.gs >= POOL_MIN / 2);
@@ -161,27 +172,28 @@ async function pitcherBars(season) {
 
 async function enrichMlbForm(dataset, season) {
   const top = dataset.players.filter((p) => !p.searchOnly && p.rank != null).sort((a, b) => a.rank - b.rank).slice(0, MLB_TOP_N);
-  const [hBars, pBars] = await Promise.all([hitterBars(season), pitcherBars(season)]);
+  const pBars = await pitcherBars(season); // hitters use fixed absolute bars; only pitchers need league percentiles
   let hot = 0, cold = 0;
   await mapLimit(top, 8, async (p) => {
     try {
       const first = (p.pos || '').split('/')[0].trim();
       const isPit = first === 'SP' || first === 'RP';
-      let win, cats, wlabel, bars;
+      let b = null, wlabel = '';
       if (isPit) {
         const g = await mlbPitchGames(p.id, season);
-        g.sort((a, b) => (a.date < b.date ? 1 : -1)); // newest first
+        g.sort((a, bb) => (a.date < bb.date ? 1 : -1)); // newest first
+        let win, cats;
         if (first === 'SP') { win = g.filter((x) => x.gs > 0).slice(0, SP_WINDOW); if (win.length < SP_MIN) return; wlabel = `last ${win.length} starts`; cats = SP_CATS; }
         else { win = g.slice(0, RP_WINDOW); if (win.length < RP_MIN) return; wlabel = `last ${win.length} appearances`; cats = RP_CATS; }
-        bars = pBars;
+        b = badgeFrom(win, cats, pBars);
       } else {
         const g = await mlbHitGames(p.id, season);
-        g.sort((a, b) => (a.date < b.date ? 1 : -1)); // newest first
-        win = recentWindow(g, HIT_WINDOW, HIT_GAP_DAYS); // last 15 games played, reset at any >14-day gap
+        g.sort((a, bb) => (a.date < bb.date ? 1 : -1)); // newest first
+        const win = recentWindow(g, HIT_WINDOW, HIT_GAP_DAYS); // last 15 games played, reset at any >14-day gap
         if (win.length < HIT_MIN_APPEAR) return; // too few appearances since returning from an absence
-        cats = HIT_CATS; bars = hBars; wlabel = `last ${win.length}`;
+        wlabel = `last ${win.length}`;
+        b = hitterBadge(win);
       }
-      const b = badgeFrom(win, cats, bars);
       if (!b) return;
       p.tag = b.tag; p.trend = b.tag === 'hot' ? 'up' : 'down'; p.trendVal = '';
       p.formReason = `${b.reason} · ${wlabel}`;
