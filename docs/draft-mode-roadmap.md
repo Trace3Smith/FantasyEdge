@@ -75,8 +75,11 @@ the territory.
 
 ## Sequence & dependencies
 
-1. **August:** run the ESPN `mDraftDetail` spike → if it passes, ship **#1 + #2 together** (ESPN
-   linking + scoring, one new surface, no new function).
+1. **Run the ESPN `mDraftDetail` spike — no longer strictly August-gated.** The test plan
+   (`espn-draft-spike-plan.md`) runs against a **self-created throwaway ESPN league** whose draft you
+   run yourself, so the gate can be answered **any time** — not only when real NFL drafts ramp. If it
+   passes, ship **#1 + #2 together** (one new surface, no new function), ideally landed before August
+   drafts, when live linking actually pays off.
 2. **Later / if demand:** **#3 + #4** (Yahoo linking + scoring) — the OAuth build that likely spends
    the last function slot.
 3. **Only if non-standard roto leagues matter:** **#5** (roto category-awareness).
