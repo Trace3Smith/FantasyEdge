@@ -359,6 +359,11 @@
   thead th.sort-active { color: var(--gold); }
   thead th.sort-active::after { content: ' ▼'; font-size: 8px; vertical-align: middle; }
   thead th.sort-active.sort-asc::after { content: ' ▲'; }
+  /* Combine tool: a checkbox per sortable header; checked columns highlight (no arrow — it's a sum). */
+  thead th.combine-active { color: var(--gold); }
+  .th-lbl { vertical-align: middle; }
+  .th-cb { margin-left: 5px; vertical-align: middle; cursor: pointer; width: 12px; height: 12px; accent-color: var(--gold); }
+  .th-cb:disabled { opacity: 0.25; cursor: default; }
   /* Season / L15 / L30 board window toggle — reuses .pos-filters layout + .pos-btn buttons. */
   .win-toggle { align-items: center; }
   .win-toggle .win-label { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--gray); margin-right: 2px; }
@@ -671,6 +676,7 @@
   let sortStat = null;   // active sort column's stat label, or null for the default (rank) order
   let sortAsc = false;   // direction; set best-first per stat on first click, flips on re-click
   let formFilter = null; // 'hot' | 'cold' | null — filter the board to a form badge (via the strip counters)
+  let combineCats = []; // [{label, zkey}] — categories checked in the header; 2+ re-rank by summed season z
   let bvpData = null;        // { date, builtAt, batters: { [id]: {oppSp, line, advice} } } — MLB only
   // Recent game log (MLB) — a purely client-side feature: the browser hits the public MLB
   // Stats API directly on row-expand, so it costs the backend nothing and lives in no dataset.
@@ -789,34 +795,56 @@
       order: ['H', 'P'],
       classify: p => isPitcherPos(p) ? 'P' : 'H',
       tabs: {
-        H: { label: 'Hitters', allLabel: 'All Hitters', posSet: ['ALL', 'C', '1B', '2B', '3B', 'SS', 'OF'], headers: STAT_HEADERS.hitter },
-        P: { label: 'Pitchers', allLabel: 'All Pitchers', posSet: ['ALL', 'SP', 'RP'], headers: STAT_HEADERS.pitcher },
+        H: { label: 'Hitters', allLabel: 'All Hitters', posSet: ['ALL', 'C', '1B', '2B', '3B', 'SS', 'OF'], headers: STAT_HEADERS.hitter, zKeys: ['avg', 'hr', 'rbi', 'r', 'sb', 'obp'] },
+        P: { label: 'Pitchers', allLabel: 'All Pitchers', posSet: ['ALL', 'SP', 'RP'], headers: STAT_HEADERS.pitcher, zKeys: ['k', 'w', 'sv', null, 'era', 'whip'] }, // HD has no z
       },
     },
     nhl: {
       order: ['S', 'G'],
       classify: p => isGoalie(p) ? 'G' : 'S',
       tabs: {
-        S: { label: 'Skaters', allLabel: 'All Skaters', posSet: ['ALL', 'C', 'LW', 'RW', 'D'], headers: STAT_HEADERS.nhl_skater },
-        G: { label: 'Goalies', allLabel: 'All Goalies', posSet: ['ALL'], headers: STAT_HEADERS.nhl_goalie },
+        S: { label: 'Skaters', allLabel: 'All Skaters', posSet: ['ALL', 'C', 'LW', 'RW', 'D'], headers: STAT_HEADERS.nhl_skater, zKeys: ['g', 'a', null, 'pm', 'sog', 'ppp'] }, // PTS (=G+A) has no z
+        G: { label: 'Goalies', allLabel: 'All Goalies', posSet: ['ALL'], headers: STAT_HEADERS.nhl_goalie, zKeys: ['w', 'gaa', 'svpct', 'so', 'sv', null] }, // SA has no z
       },
     },
   };
+  // Per-category z-score keys (on p.z) for the fixed-column sports, parallel to their STAT_HEADERS.
+  // A null entry = that column has no z (can't be combined). NFL/PGA have no z block at all.
+  const Z_HEADERS = {
+    nba: ['pts', 'reb', 'ast', 'tpm', 'stl', 'blk'],
+    wnba: ['pts', 'reb', 'ast', 'tpm', 'stl', 'blk'],
+  };
   function updateStatHeaders() {
     const cfg = TYPE_TABS[currentSport];
-    let labels;
+    let labels, zkeys = null;
     if (cfg) {
       // Type-tab sports (MLB, NHL): the active tab picks the header set, so every column is
       // authoritative for every row — no mixed 'generic' set, no inline cell labels.
       labels = cfg.tabs[currentType].headers;
+      zkeys = cfg.tabs[currentType].zKeys;
     } else if (currentSport === 'nfl') {
-      labels = STAT_HEADERS[NFL_HEADER_POS[currentPos]] || STAT_HEADERS.nfl_all;
+      labels = STAT_HEADERS[NFL_HEADER_POS[currentPos]] || STAT_HEADERS.nfl_all; // no z block
     } else if (STAT_HEADERS[currentSport]) {
       labels = STAT_HEADERS[currentSport]; // basketball columns are fixed
+      zkeys = Z_HEADERS[currentSport] || null;
     } else {
       labels = STAT_HEADERS.hitter;
     }
-    labels.forEach((l, i) => { const th = document.getElementById('h' + (i + 1)); th.textContent = l; th.dataset.stat = l; });
+    labels.forEach((l, i) => {
+      const th = document.getElementById('h' + (i + 1));
+      th.dataset.stat = l;
+      const zk = zkeys ? zkeys[i] : null;
+      th.dataset.zkey = zk || '';
+      // Combine checkbox: only for sports/columns that carry a z-score. Disabled (greyed) for a column
+      // whose stat has no z (HD, PTS, SA); absent entirely for sports with no z block (NFL/PGA).
+      let cb = '';
+      if (zkeys) {
+        cb = zk
+          ? `<input type="checkbox" class="th-cb"${combineCats.some(c => c.zkey === zk) ? ' checked' : ''} title="Add ${l} to the combined score">`
+          : `<input type="checkbox" class="th-cb" disabled title="No z-score for ${l} — can't combine">`;
+      }
+      th.innerHTML = `<span class="th-lbl">${l}</span>${cb}`;
+    });
   }
 
   // Window-aware value for stat column i (0-5): the season slot, or the active rolling window's stat.
@@ -830,6 +858,12 @@
     const roll = p.rolling && p.rolling[boardWindow];
     const v = meta && roll ? roll[meta.roll] : undefined;
     return v == null ? null : v;
+  }
+  // Combined season z-score across the checked categories (higher = better; z is already oriented so
+  // for every cat — incl. ERA/WHIP/GAA). Reuses the per-category z the ranking algorithm computed.
+  function combineScore(p) {
+    const z = p.z || {};
+    return combineCats.reduce((s, c) => s + (Number(z[c.zkey]) || 0), 0);
   }
   // Numeric sort key for a player under the active window, by stat LABEL. Missing -> null (sinks).
   function sortNum(p, label) {
@@ -867,7 +901,12 @@
   // Reflect the active sort column in the header (gold + arrow); classes only, CSS draws the arrow.
   // '#' is the default (rank) order, highlighted when no stat sort is active.
   function markSortHeader() {
-    for (let i = 1; i <= 8; i++) { const th = document.getElementById('h' + i); if (th) th.classList.remove('sort-active', 'sort-asc'); }
+    for (let i = 1; i <= 8; i++) { const th = document.getElementById('h' + i); if (th) th.classList.remove('sort-active', 'sort-asc', 'combine-active'); }
+    if (combineCats.length) {
+      // Highlight every checked column (no direction arrow — a combine is a multi-cat sum).
+      for (let i = 1; i <= 8; i++) { const th = document.getElementById('h' + i); if (th && combineCats.some(c => c.zkey === th.dataset.zkey)) th.classList.add('combine-active'); }
+      return;
+    }
     if (sortStat == null) return; // default (rank) order highlights nothing
     for (let i = 1; i <= 8; i++) { const th = document.getElementById('h' + i); if (th && th.dataset.stat === sortStat) { th.classList.add('sort-active'); if (sortAsc) th.classList.add('sort-asc'); break; } }
   }
@@ -875,10 +914,13 @@
   // on; it's the obvious, documented way back to default rank order (the '#' header still works too).
   function updateSortResetUI() {
     const wrap = document.getElementById('sortResetWrap');
-    if (sortStat == null) { wrap.style.display = 'none'; return; }
+    if (!combineCats.length && sortStat == null) { wrap.style.display = 'none'; return; }
     wrap.style.display = '';
-    const win = boardWindow === 'season' ? '' : ' · ' + boardWindow.toUpperCase();
-    document.getElementById('sortResetNote').textContent = `Sorted by ${sortStat}${win} — not fantasy-rank order`;
+    let note;
+    if (combineCats.length >= 2) note = `Combined: ${combineCats.map(c => c.label).join(' + ')} · season value`;
+    else if (combineCats.length === 1) note = `Sorted by ${combineCats[0].label}`;
+    else { const win = boardWindow === 'season' ? '' : ' · ' + boardWindow.toUpperCase(); note = `Sorted by ${sortStat}${win} — not fantasy-rank order`; }
+    document.getElementById('sortResetNote').textContent = note;
   }
 
   function renderTable(players) {
@@ -945,17 +987,24 @@
     }
     // NFL rows are ordered by VORP for the league setup (same as the rank map above).
     if (isNfl) filtered = filtered.slice().sort((a, b) => nflBoardCmp(a, b, currentScoring, nflLevels));
-    // Explicit column sort (best-to-worst by the active window's value) overrides the default order.
-    // Players without a value for the stat (wrong type, or no rolling data in this window) always sink.
-    if (sortStat) {
-      const dir = sortAsc ? 1 : -1;
-      filtered = filtered.slice().sort((a, b) => {
-        const av = sortNum(a, sortStat), bv = sortNum(b, sortStat);
-        if (av == null && bv == null) return 0;
-        if (av == null) return 1;
-        if (bv == null) return -1;
-        return (av - bv) * dir;
-      });
+    // Ordering precedence: a category COMBINE (2+ checked) re-ranks by the summed season z of the
+    // checked cats; a single checked category (or a header-text click) is the normal single-column
+    // value sort (window-aware); otherwise the default rank order. Missing values always sink.
+    if (combineCats.length >= 2) {
+      filtered = filtered.slice().sort((a, b) => combineScore(b) - combineScore(a)); // higher z-sum = better
+    } else {
+      const label = combineCats.length === 1 ? combineCats[0].label : sortStat;
+      if (label) {
+        const asc = combineCats.length === 1 ? !!(STAT_META[label] && STAT_META[label].low) : sortAsc;
+        const dir = asc ? 1 : -1;
+        filtered = filtered.slice().sort((a, b) => {
+          const av = sortNum(a, label), bv = sortNum(b, label);
+          if (av == null && bv == null) return 0;
+          if (av == null) return 1;
+          if (bv == null) return -1;
+          return (av - bv) * dir;
+        });
+      }
     }
     if (!filtered.length) {
       tbody.innerHTML = '<tr class="loading-row"><td colspan="15"><div class="loading-title">No Players Found</div><div class="loading-sub">Try a different position filter</div></td></tr>';
@@ -1684,6 +1733,7 @@
     boardWindow = 'season';
     sortStat = null;
     sortAsc = false;
+    combineCats = []; // checked categories are tied to the current columns
     formFilter = null; // clear any Hot/Cold filter on sport switch
     // The Pos column holds country for PGA (golfers have no position); 'Pos' elsewhere.
     const isPga = sport === 'pga';
@@ -1757,7 +1807,7 @@
     currentType = btn.dataset.type;
     document.querySelectorAll('#typeTabs .type-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.type === currentType));
     currentPos = 'ALL';
-    sortStat = null; sortAsc = false;
+    sortStat = null; sortAsc = false; combineCats = []; // columns change between tabs
     renderPosFilters();
     renderTable(allPlayers);
   });
@@ -1774,21 +1824,37 @@
   // Clickable stat headers -> sort best-to-worst by that column in the active window; re-click flips
   // direction; the '#' header returns to default (fantasy-rank) order. Sorting keeps each player's rank.
   document.querySelector('#rankingsTable thead tr').addEventListener('click', e => {
+    if (e.target.closest('.th-cb')) return; // the combine checkbox is handled by its 'change' event
     const th = e.target.closest('th');
     if (!th) return;
-    if (th.id === 'hRank') { if (sortStat !== null) { sortStat = null; renderTable(allPlayers); } return; }
+    if (th.id === 'hRank') { if (sortStat !== null || combineCats.length) { sortStat = null; combineCats = []; renderTable(allPlayers); } return; }
     if (!/^h[1-8]$/.test(th.id || '')) return; // only the stat columns are sortable
     const label = th.dataset.stat;
     if (!label || label === '—') return;
+    combineCats = []; // a header-text click is single-column sort mode; drop any active combine
     if (sortStat === label) sortAsc = !sortAsc;
     else { sortStat = label; sortAsc = !!(STAT_META[label] && STAT_META[label].low); } // best-first
     renderTable(allPlayers);
   });
 
-  // The visible, obvious way back to default rank order (shown only while a sort is active).
+  // Combine checkboxes: toggle a category into the combined score. 2+ checked re-ranks by summed z.
+  document.querySelector('#rankingsTable thead tr').addEventListener('change', e => {
+    const cb = e.target.closest('.th-cb');
+    if (!cb) return;
+    const th = cb.closest('th');
+    const label = th.dataset.stat, zkey = th.dataset.zkey;
+    if (!zkey) return;
+    if (cb.checked) { if (!combineCats.some(c => c.zkey === zkey)) combineCats.push({ label, zkey }); }
+    else { combineCats = combineCats.filter(c => c.zkey !== zkey); }
+    sortStat = null; sortAsc = false; // the combine now drives the order
+    renderTable(allPlayers);
+  });
+
+  // The visible, obvious way back to default rank order (shown only while a sort/combine is active).
   document.getElementById('sortResetBtn').addEventListener('click', () => {
     sortStat = null;
     sortAsc = false;
+    combineCats = [];
     renderTable(allPlayers);
   });
 
