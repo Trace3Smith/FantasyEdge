@@ -194,6 +194,7 @@ function assignPitching(rec, stat) {
     ip: parseIp(stat.inningsPitched),
     w: parseInt(stat.wins) || 0,
     sv: parseInt(stat.saves) || 0,
+    hd: parseInt(stat.holds) || 0,
     k: parseInt(stat.strikeOuts) || 0,
     era: parseFloat(stat.era) || 0,
     whip: parseFloat(stat.whip) || 0,
@@ -320,10 +321,19 @@ export async function buildDataset({ season = new Date().getFullYear() } = {}) {
   //   replacing the old K-only sort. searchOnly: statless roster players too.
   const all = [...records.values(), ...twoWayPitchers];
   const paThreshold = Math.round(2.0 * teamGames);
+  // Pitcher innings gate, the analog of the hitter PA gate: 0.2 IP per team game (~half a typical
+  // reliever's workload), so a tiny-sample arm with fluky ratios can't float up the ranked board.
+  // BUT a real bullpen role (saves + holds >= 5) is exempt — a closer's value is scarce counting stats
+  // he racks up in few innings, not a ratio sample, so gating him on innings would wrongly hide him.
+  // Sub-threshold pitchers fall to searchOnly (stats kept, out of the ranked list) like sub-PA hitters.
+  const ipThreshold = 0.2 * teamGames;
+  const pitcherRoled = (r) => r._p.ip >= ipThreshold || (r._p.sv + r._p.hd) >= 5;
   const allHitters = all.filter((r) => r.hasStats && r.group === 'hitting');
   const qualHitters = allHitters.filter((r) => r._h.pa >= paThreshold);
   const subHitters = allHitters.filter((r) => r._h.pa < paThreshold);
-  const pitchers = all.filter((r) => r.hasStats && r.group === 'pitching');
+  const allPitchers = all.filter((r) => r.hasStats && r.group === 'pitching');
+  const pitchers = allPitchers.filter(pitcherRoled);
+  const subPitchers = allPitchers.filter((r) => !pitcherRoled(r));
 
   scoreHitters(qualHitters);
   qualHitters.sort((a, b) => b.score - a.score);
@@ -347,7 +357,7 @@ export async function buildDataset({ season = new Date().getFullYear() } = {}) {
   qualHitters.forEach(decorate);
   pitchers.forEach(decorate);
 
-  const searchOnly = [...subHitters, ...all.filter((r) => !r.hasStats)];
+  const searchOnly = [...subHitters, ...subPitchers, ...all.filter((r) => !r.hasStats)];
   for (const r of searchOnly) {
     r.searchOnly = true; // out of the ranked list; surfaced in search only
     r.emoji = '⚾';
@@ -371,11 +381,13 @@ export async function buildDataset({ season = new Date().getFullYear() } = {}) {
       teams: teams.length,
       teamGames,
       paThreshold,
+      ipThreshold: Math.round(ipThreshold * 10) / 10,
       rostered: all.filter((r) => r.rostered).length,
       hitters: qualHitters.length,
       pitchers: pitchers.length,
       hasStats: qualHitters.length + pitchers.length,
       subThresholdHitters: subHitters.length,
+      subThresholdPitchers: subPitchers.length,
       searchOnly: searchOnly.length,
       total: players.length,
       blend: blendInfo,
