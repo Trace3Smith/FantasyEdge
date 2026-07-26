@@ -347,6 +347,15 @@
   /* Season / L15 / L30 board window toggle — reuses .pos-filters layout + .pos-btn buttons. */
   .win-toggle { align-items: center; }
   .win-toggle .win-label { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--gray); margin-right: 2px; }
+  /* Visible "Back to Rankings" control — shown only while a column sort is active. */
+  .sort-reset-wrap { display: flex; align-items: center; gap: 12px; padding: 0 28px 16px; }
+  .sort-reset-btn {
+    padding: 8px 16px; border-radius: 6px; border: 1px solid var(--gold); background: var(--gold);
+    color: var(--black); font-family: inherit; font-weight: 700; font-size: 12px; letter-spacing: .5px;
+    cursor: pointer; white-space: nowrap;
+  }
+  .sort-reset-btn:hover { filter: brightness(1.08); }
+  .sort-reset-note { font-size: 11px; color: var(--gray); letter-spacing: .5px; }
   tbody tr { border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.12s; }
   tbody tr:hover { background: rgba(255,255,255,0.03); }
   tbody td { padding: 13px 12px; font-size: 13px; vertical-align: middle; white-space: nowrap; }
@@ -598,6 +607,10 @@
   </div>
 
   <div class="win-toggle pos-filters" id="winToggle" style="display:none"></div>
+  <div class="sort-reset-wrap" id="sortResetWrap" style="display:none">
+    <button class="sort-reset-btn" id="sortResetBtn">↺ Back to Rankings</button>
+    <span class="sort-reset-note" id="sortResetNote"></span>
+  </div>
 
   <div class="table-wrap">
     <table id="rankingsTable">
@@ -805,10 +818,20 @@
     if (sortStat == null) return; // default (rank) order highlights nothing
     for (let i = 1; i <= 8; i++) { const th = document.getElementById('h' + i); if (th && th.dataset.stat === sortStat) { th.classList.add('sort-active'); if (sortAsc) th.classList.add('sort-asc'); break; } }
   }
+  // Show the explicit "Back to Rankings" button (+ a note of what's active) only while a column sort is
+  // on; it's the obvious, documented way back to default rank order (the '#' header still works too).
+  function updateSortResetUI() {
+    const wrap = document.getElementById('sortResetWrap');
+    if (sortStat == null) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    const win = boardWindow === 'season' ? '' : ' · ' + boardWindow.toUpperCase();
+    document.getElementById('sortResetNote').textContent = `Sorted by ${sortStat}${win} — not fantasy-rank order`;
+  }
 
   function renderTable(players) {
     updateStatHeaders();
     markSortHeader();
+    updateSortResetUI();
     // In a filtered view the column header is authoritative, so drop the inline
     // cell labels; in the mixed ALL view they disambiguate hitter vs pitcher rows.
     const showInline = currentPos === 'ALL';
@@ -1653,6 +1676,13 @@
     if (!label || label === '—') return;
     if (sortStat === label) sortAsc = !sortAsc;
     else { sortStat = label; sortAsc = !!(STAT_META[label] && STAT_META[label].low); } // best-first
+    renderTable(allPlayers);
+  });
+
+  // The visible, obvious way back to default rank order (shown only while a sort is active).
+  document.getElementById('sortResetBtn').addEventListener('click', () => {
+    sortStat = null;
+    sortAsc = false;
     renderTable(allPlayers);
   });
 
