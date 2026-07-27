@@ -16,6 +16,17 @@
 
 import { fetchByAthlete, buildIndex, makeReader } from './espn.js';
 
+// Manual display-name overrides, keyed by ESPN athlete id (globally unique across
+// NBA + WNBA). ESPN occasionally changes a player's displayName to a new legal name
+// (e.g. a married name) while fantasy users still know and search them by the prior
+// one. We keep ESPN as the source of truth for every stat and only reshape the shown
+// name — folding both names into one "Current (Former)" string. The frontend search
+// matches the whole display string, so either term finds the player, no search-side
+// plumbing needed. Example: Megan Gustafson (Iowa) now plays as Megan DiLeo (Portland).
+const NAME_OVERRIDES = {
+  '3934218': 'Megan DiLeo (Gustafson)',
+};
+
 // z-score pool gate. Like the MLB PA gate, it adapts to how far the season has
 // progressed (40% of the leader's games played) so it's right early- AND full-
 // season; MIN_MINUTES additionally drops deep-bench players from the rate pool.
@@ -147,7 +158,7 @@ async function buildBasketballDataset(sport) {
     };
     const rec = {
       id: at.id,
-      name: at.displayName || `${at.firstName || ''} ${at.lastName || ''}`.trim() || 'Unknown',
+      name: NAME_OVERRIDES[String(at.id)] || at.displayName || `${at.firstName || ''} ${at.lastName || ''}`.trim() || 'Unknown',
       team: at.teamShortName || at.teamName || '—',
       league: null, // NBA has no AL/NL; the league toggle is hidden for non-MLB
       pos: at.position?.abbreviation || '—',
