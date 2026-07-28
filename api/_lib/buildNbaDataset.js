@@ -125,6 +125,39 @@ function decorate(rec, i) {
   rec.tag = null;       // no rank-based badges; HOT/COLD come from recent form
 }
 
+// Prior full-season per-game line for the Mock Draft sidebar, keyed by athlete id. Additive and
+// failure-tolerant: any error (or an out-of-range prior year) yields an empty map, so players just
+// show no prior-year line rather than failing the build.
+async function fetchPrevYearBasketball(sport, priorSeasonParam) {
+  const out = new Map();
+  if (!Number.isFinite(priorSeasonParam)) return out;
+  try {
+    const { athletes, categories, season } = await fetchByAthlete({
+      sportPath: `basketball/${sport}`, sort: 'offensive.avgPoints:desc', season: priorSeasonParam,
+    });
+    const val = makeReader(buildIndex(categories));
+    for (const a of athletes) {
+      const at = a.athlete || {};
+      if (at.id == null) continue;
+      const g = val(a, 'general', 'gamesPlayed');
+      const num = (c, k) => { const v = val(a, c, k); return v == null ? '—' : (+v).toFixed(1); };
+      out.set(String(at.id), {
+        season,
+        headline: g != null ? `${g} GP` : '',
+        line: [
+          { cat: 'PTS', val: num('offensive', 'avgPoints') },
+          { cat: 'REB', val: num('general', 'avgRebounds') },
+          { cat: 'AST', val: num('offensive', 'avgAssists') },
+          { cat: '3PM', val: num('offensive', 'avgThreePointFieldGoalsMade') },
+          { cat: 'STL', val: num('defensive', 'avgSteals') },
+          { cat: 'BLK', val: num('defensive', 'avgBlocks') },
+        ],
+      });
+    }
+  } catch { /* prior season unavailable — no-op */ }
+  return out;
+}
+
 async function buildBasketballDataset(sport) {
   const { athletes, categories, season } = await fetchByAthlete({
     sportPath: `basketball/${sport}`,
@@ -132,6 +165,9 @@ async function buildBasketballDataset(sport) {
   });
   const idx = buildIndex(categories);
   const val = makeReader(idx);
+  // Prior full season (start year one back from the current season's leading year, e.g. "2025-26" -> 2024,
+  // "2026" -> 2025), fetched once and matched by athlete id below. Additive; failure-tolerant.
+  const prevMap = await fetchPrevYearBasketball(sport, parseInt(String(season || '').slice(0, 4)) - 1);
 
   const records = [];
   for (const a of athletes) {
@@ -196,6 +232,8 @@ async function buildBasketballDataset(sport) {
   const players = [...ranked, ...subThreshold];
   for (const r of players) {
     r.n = r._n; // per-game category stats { pts, reb, ast, stl, blk, tpm, to, fgPct, ftPct, ... }
+    const pv = prevMap.get(String(r.id));
+    if (pv) r.prevYear = pv; // prior full-season line for the Mock Draft sidebar
     if (r._z) {
       const z = {};
       for (const k in r._z) z[k] = r3(r._z[k]);

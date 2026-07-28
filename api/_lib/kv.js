@@ -16,7 +16,7 @@ export const PGA_DATASET_KEY = 'dataset:pga';
 // request, so a deploy self-heals immediately instead of waiting for the cron.
 // MLB is intentionally exempt (its cold-start build skips prospect enrichment, so
 // we don't want a version bump to drop Phase 2 data between cron runs).
-export const DATASET_VERSION = 10;
+export const DATASET_VERSION = 11;
 // Persistent Phase 2 state, survives the daily dataset rebuild:
 //   PROSPECT_STATE_KEY — per-player prospect record (milb lines, synopsis cache,
 //     event-detection snapshot) + the last good FanGraphs board for graceful degrade.

@@ -200,6 +200,34 @@ async function buildDsts(season) {
   return results.filter(Boolean);
 }
 
+// Prior full-season line for the Mock Draft sidebar, keyed by athlete id. Shows only the volume
+// categories the player actually produced in (so a QB shows passing, a WR receiving), with total
+// touchdowns as the headline. Additive and failure-tolerant (empty map on any error).
+async function fetchPrevYearNfl(priorSeasonParam) {
+  const out = new Map();
+  if (!Number.isFinite(priorSeasonParam)) return out;
+  try {
+    const { athletes, categories, season } = await fetchByAthlete({ sportPath: 'football/nfl', sort: 'scoring.totalPoints:desc', season: priorSeasonParam });
+    const val = makeReader(buildIndex(categories));
+    for (const a of athletes) {
+      const at = a.athlete || {};
+      if (at.id == null) continue;
+      const num = (c, k) => val(a, c, k) || 0;
+      const passTD = num('passing', 'passingTouchdowns'), rushTD = num('rushing', 'rushingTouchdowns'), recTD = num('receiving', 'receivingTouchdowns');
+      const raw = [
+        ['PaYd', num('passing', 'passingYards')], ['PaTD', passTD],
+        ['RuYd', num('rushing', 'rushingYards')], ['RuTD', rushTD],
+        ['Rec', num('receiving', 'receptions')], ['ReYd', num('receiving', 'receivingYards')], ['ReTD', recTD],
+      ];
+      const line = raw.filter(([, v]) => v > 0).map(([cat, v]) => ({ cat, val: String(v) }));
+      if (!line.length) continue;
+      const totalTD = passTD + rushTD + recTD;
+      out.set(String(at.id), { season, headline: totalTD > 0 ? `${totalTD} TD` : '', line });
+    }
+  } catch { /* prior season unavailable — no-op */ }
+  return out;
+}
+
 export async function buildNflDataset() {
   const { athletes, categories, season, skipped } = await fetchByAthlete({
     sportPath: 'football/nfl',
@@ -208,6 +236,8 @@ export async function buildNflDataset() {
   const seasonYear = parseInt(season, 10) || new Date().getFullYear();
   const idx = buildIndex(categories);
   const val = makeReader(idx);
+  // Prior full season (one year back). Additive; failure-tolerant. Matched by athlete id below.
+  const prevMap = await fetchPrevYearNfl(seasonYear - 1);
 
   const skill = [];
   for (const a of athletes) {
@@ -330,7 +360,11 @@ export async function buildNflDataset() {
 
   const maxGames = skill.reduce((m, r) => Math.max(m, r._games || 0), 0); // for enrichForm
   const players = [...ranked, ...subThreshold];
-  for (const r of players) delete r._games;
+  for (const r of players) {
+    const pv = prevMap.get(String(r.id));
+    if (pv) r.prevYear = pv; // prior full-season line for the Mock Draft sidebar (DSTs have no athlete id)
+    delete r._games;
+  }
 
   return {
     builtAt: new Date().toISOString(),

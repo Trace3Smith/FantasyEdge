@@ -669,6 +669,9 @@
   // Shared NFL scoring — the SAME functions the draft board uses, so rankings and the
   // draft board order players by FPTS in a format identically (one ranking system).
   import { nflFpts, nflReplacementLevels, nflBoardCmp } from '/nflScoring.js';
+  // Shared player-display primitives (stars, category pills, formatStat, tag/trend/tier badges) —
+  // the SAME code the Mock Draft detail sidebar renders through, so both views are identical.
+  import { getStarCount, getStarLabel, renderStars, renderStarsBlock, formatStat, getTrendHTML, getTagHTML, getTierHTML } from '/playerDisplay.js';
 
   let currentSport = 'mlb';
   let currentType = 'H'; // MLB player-type tab: 'H' hitters | 'P' pitchers (other sports ignore it)
@@ -719,53 +722,10 @@
   };
   const isGoalie = p => (p.pos || '').toUpperCase().split('/')[0].trim() === 'G';
 
-  // Stars = the number of roto category tags the player already carries (the same MULTI-CAT pills
-  // shown beside the stars). 1 tag = 1 star, straight through; display caps at 5 with a "+" when a
-  // player maxes all their sport's categories (6 for MLB, so a 6-cat player is "5 star+").
-  function getStarCount(cats) {
-    return Array.isArray(cats) ? cats.length : 0;
-  }
-  function getStarLabel(n) {
-    if (n <= 0) return 'No categories';
-    return n > 5 ? '5-Cat+' : n + '-Cat';
-  }
-  function renderStars(n) {
-    let h = '';
-    const filled = Math.min(n, 5);
-    for (let i = 1; i <= 5; i++) h += i <= filled ? '<span class="star-filled">★</span>' : '<span class="star-empty">★</span>';
-    if (n > 5) h += '<span class="star-plus">+</span>'; // all categories → "5 star+"
-    return h;
-  }
-  function formatStat(v, label) {
-    if (v === null || v === undefined || v === '—' || v === '') return '<span class="td-stat muted">—</span>';
-    const lbl = label ? `<span class="td-stat-label">${label}</span>` : '';
-    return `${lbl}<span class="td-stat">${v}</span>`;
-  }
-  function getTrendHTML(trend, val) {
-    // Trend mirrors the HOT/COLD form signal (recent vs season avg); flat = no data.
-    if (trend === 'up') return `<span class="trend-up">▲ ${val||''}</span>`;
-    if (trend === 'down') return `<span class="trend-down">▼ ${val||''}</span>`;
-    return `<span class="trend-flat">—</span>`;
-  }
-  // Only two badges now: HOT and COLD, driven by real recent form (enrichForm).
-  function getTagHTML(tag, reason) {
-    if (tag !== 'hot' && tag !== 'cold') return '';
-    const label = tag === 'hot' ? '🔥 HOT' : '❄️ COLD';
-    const cls = tag === 'hot' ? 'tag-fire' : 'tag-slump';
-    // The badge carries WHY it fired — the surging/slumping category line from enrichForm
-    // (e.g. ".367 AVG, 6 HR · last 15"). Shown inline (muted) and as a hover tooltip.
-    const r = reason ? ` <span class="tag-reason">${reason}</span>` : '';
-    return `<span class="tag-badge ${cls}"${reason ? ` title="${reason}"` : ''}>${label}</span>${r}`;
-  }
-  // PGA DFS value tier (replaces the star rating on the golf board): VALUE (produces
-  // above his price), CHALK (obvious stud), SOLID (dependable), PUNT (salary saver).
-  // A small note flags golfers not in this week's field (their CUT%/FIT are blank).
-  function getTierHTML(tier, inField) {
-    const labels = { value: 'VALUE', chalk: 'CHALK', solid: 'SOLID', punt: 'PUNT' };
-    const key = labels[tier] ? tier : 'solid';
-    const note = inField === false ? '<span class="tier-note">not in field</span>' : '';
-    return `<span class="tier-badge tier-${key}">${labels[key]}</span>${note}`;
-  }
+  // The stars / N-Cat rating, formatStat, and the tag/trend/tier badge renderers now live in
+  // the shared /playerDisplay.js module (imported at the top of this script) so the Mock Draft
+  // detail sidebar renders them identically. getStarCount, getStarLabel, renderStars, formatStat,
+  // getTrendHTML, getTagHTML, and getTierHTML are the same functions, imported not inlined.
 
   const STAT_HEADERS = {
     pitcher: ['K', 'W', 'SV', 'HD', 'ERA', 'WHIP'],
@@ -1112,7 +1072,7 @@
         <td class="gp-col">${formatStat(gpVal(p), null)}</td>
         <td>${formatStat(cellVal(p, 0), showInline ? p.statLabels?.[0] : null)}</td><td>${formatStat(cellVal(p, 1), showInline ? p.statLabels?.[1] : null)}</td><td>${formatStat(cellVal(p, 2), showInline ? p.statLabels?.[2] : null)}</td><td>${formatStat(cellVal(p, 3), showInline ? p.statLabels?.[3] : null)}</td><td>${formatStat(cellVal(p, 4), showInline ? p.statLabels?.[4] : null)}</td><td>${formatStat(cellVal(p, 5), showInline ? p.statLabels?.[5] : null)}</td>
         <td class="pga-col">${formatStat(p.s7, showInline ? p.statLabels?.[6] : null)}</td><td class="pga-col">${formatStat(p.s8, showInline ? p.statLabels?.[7] : null)}</td>
-        <td class="${isPga ? 'tier-cell' : 'stars-cell'}">${so ? muted : isPga ? getTierHTML(p.tier, p.inField) : `<div class="stars-row">${renderStars(sc)}</div><div class="stars-label">${getStarLabel(sc)}</div><div class="stars-cats">${cats.map(c=>`<span class="stars-cat-pill">${c}</span>`).join('')}</div>`}</td>
+        <td class="${isPga ? 'tier-cell' : 'stars-cell'}">${so ? muted : isPga ? getTierHTML(p.tier, p.inField) : renderStarsBlock(cats)}</td>
         <td>${so ? muted : getTrendHTML(p.trend, p.trendVal)}</td>
         <td class="own-pct">${so ? '—' : (p.own!=null?p.own+'%':'—')}</td>
       </tr>`;

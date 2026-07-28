@@ -100,6 +100,57 @@
 
   .clock-you { color: var(--gold); font-weight: 700; }
 
+  /* ---- Shared player-display styles (copied from Player Rankings; the detail sidebar renders through
+         the same /playerDisplay.js module, so these classes must match) ---- */
+  .td-stat { color: var(--gold-light); font-weight: 600; font-size: 13px; }
+  .td-stat.muted { color: var(--gray); font-weight: 400; }
+  .td-stat-label { color: var(--gray); font-weight: 600; font-size: 9px; letter-spacing: 0.5px; margin-right: 3px; text-transform: uppercase; }
+  .stars-row { display: flex; gap: 2px; margin-bottom: 3px; }
+  .star-filled { color: var(--gold); font-size: 13px; }
+  .star-empty { color: var(--dark4); font-size: 13px; }
+  .star-plus { color: var(--gold); font-size: 13px; font-weight: 700; margin-left: 1px; }
+  .stars-label { font-size: 9px; font-weight: 700; letter-spacing: 1px; color: var(--gray); text-transform: uppercase; margin-bottom: 3px; }
+  .stars-cats { display: flex; gap: 3px; flex-wrap: wrap; }
+  .stars-cat-pill { padding: 1px 5px; background: rgba(212,160,23,0.12); border: 1px solid rgba(212,160,23,0.25); border-radius: 2px; font-size: 9px; font-weight: 600; color: var(--gold-light); }
+  .tag-badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; margin-left: 4px; }
+  .tag-fire { background: rgba(255,152,0,0.2); color: var(--orange); border: 1px solid rgba(255,152,0,0.4); }
+  .tag-slump { background: rgba(244,67,54,0.15); color: var(--red); border: 1px solid rgba(244,67,54,0.3); }
+  .tag-reason { font-size: 10px; color: var(--gray); font-weight: 500; letter-spacing: 0; white-space: nowrap; margin-left: 2px; vertical-align: middle; }
+  .trend-up { color: var(--green); font-weight: 600; font-size: 12px; }
+  .trend-down { color: var(--red); font-weight: 600; font-size: 12px; }
+  .trend-flat { color: var(--gray); font-size: 12px; }
+
+  /* ---- Player detail sidebar (Mock Draft) ---- */
+  .cand.selected { border-color: var(--gold); background: rgba(212,160,23,0.10); }
+  .cand .cand-main { min-width: 0; }
+  .cand .cand-add { flex: 0 0 auto; margin-left: 10px; width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--gold);
+    background: transparent; color: var(--gold); font-weight: 700; font-size: 16px; line-height: 1; cursor: pointer; }
+  .cand .cand-add:hover { background: var(--gold); color: #111; }
+  .pd-placeholder { color: var(--gray); font-size: 13px; text-align: center; padding: 22px 8px; line-height: 1.5; }
+  .pd-empty { color: var(--gray); font-size: 12px; }
+  .pd-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+  .pd-name { font-weight: 700; font-size: 16px; }
+  .pd-sub { font-size: 12px; color: var(--gray); margin-top: 3px; }
+  .pd-draft { padding: 7px 15px; font-size: 13px; white-space: nowrap; }
+  .pd-stars { margin-bottom: 4px; }
+  .pd-sec-hd { display: flex; align-items: center; justify-content: space-between; font-size: 11px; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--gray); margin: 14px 0 8px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; }
+  .pd-sort { display: flex; gap: 4px; }
+  .pd-sort button { background: var(--dark3); color: var(--gray); border: 1px solid rgba(255,255,255,0.1); border-radius: 5px;
+    padding: 3px 8px; font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; cursor: pointer; font-family: inherit; }
+  .pd-sort button.active { color: var(--gold); border-color: var(--gold); background: rgba(212,160,23,0.1); }
+  .pd-cats { display: flex; flex-direction: column; gap: 3px; }
+  .pd-cat-row { display: grid; grid-template-columns: 1fr auto 54px; align-items: center; gap: 8px; padding: 5px 9px; border-radius: 6px; background: var(--dark3); }
+  .pd-cat { font-size: 11px; font-weight: 700; letter-spacing: .5px; color: var(--gray-light); text-transform: uppercase; }
+  .pd-val { font-size: 13px; font-weight: 600; color: var(--gold-light); text-align: right; }
+  .pd-z { font-size: 11px; font-weight: 700; text-align: right; }
+  .pd-z-pos { color: var(--green); } .pd-z-neg { color: var(--red); } .pd-z-none { color: var(--gray); }
+  .pd-prev-hd { font-size: 11px; color: var(--gray-light); margin-bottom: 6px; }
+  .pd-prev-headline { color: var(--gold); font-weight: 700; }
+  .pd-prev-line { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+  .pd-prev-cell { font-size: 12px; color: var(--gray-light); }
+  .pd-prev-cell b { color: var(--white); }
+
   /* ---- embedded AI Coach chat ---- */
   .coach-panel { display: flex; flex-direction: column; min-height: 300px; max-height: 440px; }
   .coach-scroll { flex: 1; overflow-y: auto; padding: 4px 2px 10px; min-height: 140px; }
@@ -282,11 +333,15 @@
         <div class="avail">
           <h3>Available Players</h3>
           <div class="adp-stamp" id="adpStamp"></div>
-          <input class="search-input" id="availSearch" placeholder="Search to draft anyone…">
+          <input class="search-input" id="availSearch" placeholder="Search players…">
           <div class="avail-list" id="availList"></div>
         </div>
       </div>
       <div>
+        <div class="panel pd-panel">
+          <h3>Player Detail</h3>
+          <div class="pd-placeholder" id="detailBody">Click a player to see their full category stats, stars, and prior-season line. Use the <b style="color:var(--gold)">+</b> button (or the Draft button here) to draft.</div>
+        </div>
         <div class="panel roster">
           <h3>Your Roster</h3>
           <ul class="roster-list" id="rosterList"></ul>
@@ -309,12 +364,17 @@ import { nflFpts, nflReplacementLevels, nflBoardCmp } from '/nflScoring.js';
 import { nbaPlayerValue, nbaBoardCmp, nbaRankMap } from '/nbaScoring.js';
 import { value as mlbValue, boardCmp as mlbBoardCmp, rankMap as mlbRankMap } from '/mlbScoring.js';
 import { value as nhlValue, boardCmp as nhlBoardCmp, rankMap as nhlRankMap } from '/nhlScoring.js';
+// Shared player-display module — the SAME code Player Rankings renders through, so the detail
+// sidebar's stars, category pills, tags/trends, sortable category list, and prior-year line match it.
+import { renderStarsBlock, renderCategoryList, renderPrevYear, getTagHTML, getTrendHTML } from '/playerDisplay.js';
 
 // --- Mock draft controller ----------------------------------------------------
 let players = [];           // full player pool for the active sport
 let byId = new Map();
 let state = null;           // active draft state
 let rankMap = new Map();    // id -> big-board rank for the draft's format
+let selectedId = null;      // player currently shown in the detail sidebar (inspect, not drafted)
+let detailSort = 'natural'; // sidebar category sort: 'natural' | 'value' | 'impact'
 let levels = {};            // NFL: per-position replacement levels (unused for roto sports)
 
 // Active sport: from ?sport= (default NFL). NBA/WNBA/MLB/NHL are category leagues; everything
@@ -899,12 +959,66 @@ function renderAvailable(filter = '') {
       meta = ` · ${p.team} · #${rk}${fpts != null ? ' · ' + fpts + ' FPTS' : ''}${adpStr != null ? ' · ADP ' + adpStr : ''}`;
       extra = projLine(p);
     }
-    return `<div class="cand" data-id="${p.id}"><div><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>
-      <span class="meta">${meta}</span>${extra}</div></div>`;
+    return `<div class="cand${selectedId === p.id ? ' selected' : ''}" data-id="${p.id}"><div class="cand-main"><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>
+      <span class="meta">${meta}</span>${extra}</div><button class="cand-add" data-add="${p.id}" title="Draft ${p.name.replace(/"/g, '&quot;')}">+</button></div>`;
   }).join('');
-  $('availList').querySelectorAll('.cand').forEach((el) => el.addEventListener('click', () => draftPlayer(el.dataset.id)));
+  // Row click = inspect (open the detail sidebar); the + button = draft. So browsing stats never
+  // risks an accidental pick, while drafting stays one click away.
+  $('availList').querySelectorAll('.cand').forEach((el) => el.addEventListener('click', (e) => {
+    const add = e.target.closest('.cand-add');
+    if (add) { draftPlayer(add.dataset.add); return; }
+    selectPlayer(el.dataset.id);
+  }));
+  renderDetail(); // keep the sidebar's drafted-state / highlight in sync after every board re-render
 }
 $('availSearch').addEventListener('input', (e) => renderAvailable(e.target.value));
+
+// The board's value string for the selected player — roto value for category sports, FPTS for NFL.
+function detailValueStr(p) {
+  if (isRoto()) return typeof p.zTotal === 'number' ? `${rotoMod().val(p).toFixed(1)} ${rotoMod().label}` : '';
+  const scoring = (state && state.settings && state.settings.scoring) || 'ppr';
+  return p.fpPpr != null ? `${nflFpts(p, scoring).toFixed(1)} FPTS` : '';
+}
+
+// Show a player in the detail sidebar (inspect only — no draft). Reuses the shared /playerDisplay.js
+// renderers so the categories, stars, tags, and prior-year line look exactly like Player Rankings.
+function selectPlayer(id) {
+  selectedId = id;
+  $('availList').querySelectorAll('.cand').forEach((el) => el.classList.toggle('selected', el.dataset.id === id));
+  renderDetail();
+}
+
+function renderDetail() {
+  const el = $('detailBody');
+  if (!el) return;
+  const p = byId.get(selectedId);
+  if (!p) {
+    el.className = 'pd-placeholder';
+    el.innerHTML = 'Click a player to see their full category stats, stars, and prior-season line.';
+    return;
+  }
+  const rk = rankMap.get(p.id) ?? '—';
+  const val = detailValueStr(p);
+  const drafted = !!(state && state.drafted && state.drafted.has(p.id));
+  const sortBtn = (k, lbl) => `<button data-sort="${k}"${detailSort === k ? ' class="active"' : ''}>${lbl}</button>`;
+  el.className = '';
+  el.innerHTML = `
+    <div class="pd-head">
+      <div>
+        <div class="pd-name">${p.name}${getTagHTML(p.tag, p.formReason)}</div>
+        <div class="pd-sub">${p.pos} · ${p.team} · #${rk}${val ? ' · ' + val : ''} ${getTrendHTML(p.trend, p.trendVal)}</div>
+      </div>
+      <button class="btn btn-gold pd-draft" id="pdDraftBtn"${drafted ? ' disabled' : ''}>${drafted ? 'Drafted' : 'Draft'}</button>
+    </div>
+    <div class="pd-stars">${renderStarsBlock(p.cats)}</div>
+    <div class="pd-sec-hd"><span>Categories</span><span class="pd-sort">${sortBtn('natural', 'Order')}${sortBtn('value', 'Value')}${sortBtn('impact', 'Impact')}</span></div>
+    ${renderCategoryList(p, detailSort)}
+    <div class="pd-sec-hd"><span>Prior Season</span></div>
+    ${renderPrevYear(p)}`;
+  const draftBtn = $('pdDraftBtn');
+  if (draftBtn && !drafted) draftBtn.addEventListener('click', () => draftPlayer(p.id));
+  el.querySelectorAll('.pd-sort button').forEach((b) => b.addEventListener('click', () => { detailSort = b.dataset.sort; renderDetail(); }));
+}
 
 function finishDraft() {
   $('clock').innerHTML = '✅ <b>Draft complete!</b>';

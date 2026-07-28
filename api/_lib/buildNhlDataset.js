@@ -108,6 +108,44 @@ function decorate(rec, i) {
   rec.tag = null;       // no rank-based badges; HOT/COLD come from recent form
 }
 
+// Prior full-season line for the Mock Draft sidebar, keyed by athlete id — skaters get their
+// scoring line, goalies their goaltending line. Additive and failure-tolerant (empty map on error).
+async function fetchPrevYearNhl(priorSeasonParam) {
+  const out = new Map();
+  if (!Number.isFinite(priorSeasonParam)) return out;
+  try {
+    const { athletes, categories, season } = await fetchByAthlete({ sportPath: 'hockey/nhl', sort: 'offensive.points:desc', season: priorSeasonParam });
+    const val = makeReader(buildIndex(categories));
+    for (const a of athletes) {
+      const at = a.athlete || {};
+      if (at.id == null) continue;
+      const g = val(a, 'general', 'games');
+      let line;
+      if ((at.position?.abbreviation || '').toUpperCase() === 'G') {
+        line = [
+          { cat: 'W', val: fmt(val(a, 'general', 'wins')) },
+          { cat: 'GAA', val: fmt(val(a, 'defensive', 'avgGoalsAgainst'), 2) },
+          { cat: 'SV%', val: pct(val(a, 'defensive', 'savePct')) },
+          { cat: 'SO', val: fmt(val(a, 'defensive', 'shutouts')) },
+          { cat: 'SV', val: fmt(val(a, 'defensive', 'saves')) },
+          { cat: 'SA', val: fmt(val(a, 'defensive', 'shotsAgainst')) },
+        ];
+      } else {
+        line = [
+          { cat: 'G', val: fmt(val(a, 'offensive', 'goals')) },
+          { cat: 'A', val: fmt(val(a, 'offensive', 'assists')) },
+          { cat: 'PTS', val: fmt(val(a, 'offensive', 'points')) },
+          { cat: '+/-', val: fmt(val(a, 'general', 'plusMinus')) },
+          { cat: 'SOG', val: fmt(val(a, 'offensive', 'shotsTotal')) },
+          { cat: 'PPP', val: fmt((val(a, 'offensive', 'powerPlayGoals') || 0) + (val(a, 'offensive', 'powerPlayAssists') || 0)) },
+        ];
+      }
+      out.set(String(at.id), { season, headline: g != null ? `${g} GP` : '', line });
+    }
+  } catch { /* prior season unavailable — no-op */ }
+  return out;
+}
+
 export async function buildNhlDataset() {
   const { athletes, categories, season } = await fetchByAthlete({
     sportPath: 'hockey/nhl',
@@ -115,6 +153,8 @@ export async function buildNhlDataset() {
   });
   const idx = buildIndex(categories);
   const val = makeReader(idx);
+  // Prior full season (start year one back from the current season's leading year). Additive; tolerant.
+  const prevMap = await fetchPrevYearNhl(parseInt(String(season || '').slice(0, 4)) - 1);
 
   const skaters = [];
   const goalies = [];
@@ -223,6 +263,8 @@ export async function buildNhlDataset() {
 
   const players = [...rankedSk, ...rankedG, ...subThreshold];
   for (const r of players) {
+    const pv = prevMap.get(String(r.id));
+    if (pv) r.prevYear = pv; // prior full-season line for the Mock Draft sidebar
     delete r.score;
     delete r._n;
   }

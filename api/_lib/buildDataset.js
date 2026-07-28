@@ -214,6 +214,36 @@ function decorate(rec, i) {
   rec.tag = null;       // no rank-based badges; HOT/COLD come from recent form
 }
 
+// Prior full-season lines for the Mock Draft sidebar (hitting + pitching leaderboards for the given
+// season), keyed by MLBAM id. Additive and failure-tolerant: any error yields empty maps, so players
+// simply show no prior-year line. Same endpoint shape the current-season fetch uses.
+async function fetchPrevYearMlb(season) {
+  const hit = new Map(), pit = new Map();
+  try {
+    const [hd, pd] = await Promise.all([
+      getJson(`${API}/stats?stats=season&group=hitting&gameType=R&season=${season}&limit=2000&sortStat=homeRuns&order=desc`),
+      getJson(`${API}/stats?stats=season&group=pitching&gameType=R&season=${season}&limit=2000&sortStat=strikeOuts&order=desc`),
+    ]);
+    for (const s of hd.stats?.[0]?.splits || []) {
+      const id = s.player?.id, st = s.stat || {};
+      if (id == null) continue;
+      hit.set(String(id), { season: String(season), headline: st.homeRuns != null ? `${st.homeRuns} HR` : '', line: [
+        { cat: 'AVG', val: st.avg ?? '—' }, { cat: 'HR', val: st.homeRuns ?? '—' }, { cat: 'RBI', val: st.rbi ?? '—' },
+        { cat: 'R', val: st.runs ?? '—' }, { cat: 'SB', val: st.stolenBases ?? '—' }, { cat: 'OBP', val: st.obp ?? '—' },
+      ] });
+    }
+    for (const s of pd.stats?.[0]?.splits || []) {
+      const id = s.player?.id, st = s.stat || {};
+      if (id == null) continue;
+      pit.set(String(id), { season: String(season), headline: st.strikeOuts != null ? `${st.strikeOuts} K` : '', line: [
+        { cat: 'K', val: st.strikeOuts ?? '—' }, { cat: 'W', val: st.wins ?? '—' }, { cat: 'SV', val: st.saves ?? '—' },
+        { cat: 'ERA', val: st.era ?? '—' }, { cat: 'WHIP', val: st.whip ?? '—' },
+      ] });
+    }
+  } catch { /* prior season unavailable — no-op */ }
+  return { hit, pit };
+}
+
 export async function buildDataset({ season = new Date().getFullYear() } = {}) {
   // 1. Teams (30) → 2. 40-man rosters (canonical universe).
   const teams = (await getJson(`${API}/teams?sportId=1&season=${season}`)).teams || [];
@@ -365,9 +395,14 @@ export async function buildDataset({ season = new Date().getFullYear() } = {}) {
     r.emoji = '⚾';
   }
 
+  // Prior full-season lines (last completed season) for the Mock Draft sidebar. Additive; tolerant.
+  const prevYearMlb = await fetchPrevYearMlb(season - 1);
+
   const players = [...qualHitters, ...pitchers, ...searchOnly];
   // Clean internal-only fields off the wire (z / zTotal are kept for the draft board).
   for (const r of players) {
+    const pv = (r.group === 'pitching' ? prevYearMlb.pit : prevYearMlb.hit).get(String(r.id));
+    if (pv) r.prevYear = pv; // matched by MLBAM id, by role (before r.group is stripped below)
     delete r.posType;
     delete r.group;
     delete r.score;

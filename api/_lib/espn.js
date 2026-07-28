@@ -63,20 +63,24 @@ const CHUNK_CHAIN = [50, 10, 1]; // each entry must divide the previous one
 // athletes nor pagination is a failed query ("stub"), NOT an empty league.
 const isStub = (j) => !Array.isArray(j?.athletes) && !j?.pagination;
 
-export async function fetchByAthlete({ sportPath, sort, seasonType = 2, concurrency = 6 }) {
+export async function fetchByAthlete({ sportPath, sort, seasonType = 2, season = null, concurrency = 6 }) {
   const base = `https://site.web.api.espn.com/apis/common/v3/sports/${sportPath}/statistics/byathlete`;
+  // `season` (a start year, e.g. 2024 = the 2024-25 season) pins a specific season; omitted, ESPN
+  // returns the current one. Used to pull the prior full season for the Mock Draft sidebar's
+  // prior-year line. Verified: &season=2024 returns requestedSeason "2023-24".
+  const seasonQ = season != null ? `&season=${season}` : '';
   const url = (limit, page) =>
-    `${base}?region=us&lang=en&contentorigin=espn&seasontype=${seasonType}&limit=${limit}&page=${page}&sort=${sort}`;
+    `${base}?region=us&lang=en&contentorigin=espn&seasontype=${seasonType}${seasonQ}&limit=${limit}&page=${page}&sort=${sort}`;
 
   const athletes = [];
   const skipped = [];
   let categories = null;
-  let season = null;
+  let resolvedSeason = null; // the season ESPN actually served (display name, e.g. "2023-24")
   let count = null;
 
   const absorb = (j) => {
     if (!categories && j.categories?.length) categories = j.categories;
-    if (!season) season = j.requestedSeason?.displayName || j.currentSeason?.displayName || null;
+    if (!resolvedSeason) resolvedSeason = j.requestedSeason?.displayName || j.currentSeason?.displayName || null;
     if (count == null && j.pagination?.count != null) count = j.pagination.count;
   };
 
@@ -124,7 +128,7 @@ export async function fetchByAthlete({ sportPath, sort, seasonType = 2, concurre
   if (!athletes.length) {
     throw new Error(`ESPN byathlete returned no athletes for ${sportPath} (${count} rows advertised)`);
   }
-  return { athletes, categories: categories || [], season, skipped: skipped.length };
+  return { athletes, categories: categories || [], season: resolvedSeason, skipped: skipped.length };
 }
 
 // Map of statName -> column index, per category, from the leaderboard header.
