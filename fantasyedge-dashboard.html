@@ -137,6 +137,11 @@
   .stab{padding:12px 20px;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;background:none;border:none;color:var(--gray);cursor:none;transition:all 0.2s;border-bottom:2px solid transparent;margin-bottom:-1px;}
   .stab:hover{color:var(--gray-light);}
   .stab.active{color:var(--gold);border-bottom-color:var(--gold);}
+  /* Player entries that deep-link into Player Rankings (hero, hot streaks, add/watch). The site
+     hides the OS cursor (custom dot), so interactivity is signalled with a hover tint + gold name. */
+  .p-link{cursor:none;transition:background 0.15s;}
+  .p-link:hover{background:rgba(212,160,23,0.07);}
+  .p-link:hover .p-name,.p-link:hover .hero-name{color:var(--gold);}
 </style>
 </head>
 <body>
@@ -465,7 +470,7 @@ function renderHero(player) {
     ? `<span class="alert-chip streak">${player.streak.label}</span>` : '';
 
   document.getElementById('heroPerformer').innerHTML = `
-    <div>
+    <div class="p-link"${feFocusAttr(player)} title="Open ${player.name} in Player Rankings">
       <div class="hero-tag-row">
         <span class="hero-eyebrow">⭐ Top Performer — ${player.game}</span>
         <span class="grade-badge ${gc}">${player.performance.grade}</span>
@@ -530,7 +535,7 @@ function renderHotStreaks(players) {
       <div class="panel-body">
         ${players.map(p => {
           const barColor = p.streak.type === 'fire' ? 'cold-fire' : 'cold-hot';
-          return `<div class="player-row">
+          return `<div class="player-row p-link"${feFocusAttr(p)} title="Open ${p.name} in Player Rankings">
             <div class="cold-indicator ${barColor}"></div>
             <div class="p-avatar">${p.emoji}</div>
             <div class="p-info">
@@ -591,7 +596,7 @@ function renderAddDrop(data) {
       <div class="panel-hd"><div class="panel-title">⚡ Today's Add / Drop Recommendations</div></div>
       <div class="add-drop-list">
         ${adds.map(p => `
-          <div class="add-drop-row">
+          <div class="add-drop-row p-link"${feFocusAttr(p)} title="Open ${p.name} in Player Rankings">
             <span class="action-tag tag-add">+ Add</span>
             <div class="p-avatar">${p.emoji}</div>
             <div class="p-info">
@@ -609,7 +614,7 @@ function renderAddDrop(data) {
             </div>
           </div>`).join('')}
         ${watches.map(p => `
-          <div class="add-drop-row">
+          <div class="add-drop-row p-link"${feFocusAttr(p)} title="Open ${p.name} in Player Rankings">
             <span class="action-tag tag-watch">Watch</span>
             <div class="p-avatar">${p.emoji}</div>
             <div class="p-info">
@@ -650,6 +655,19 @@ function filterSport(sport) {
   document.querySelectorAll('.sfm').forEach(b=>b.classList.toggle('active',b.dataset.sport===sport));
   renderTab();
 }
+
+// A hot/notable player entry links into Player Rankings, landing on their expanded FORM card.
+// The nightly dashboard data carries no player ids, so the deep link keys on name+sport; the
+// rankings side normalizes the name (handles former/married names), falls back to its search box,
+// and shows a toast if the player isn't on that board.
+function feFocusAttr(p) {
+  return ` data-sport="${p.sport}" data-focus="${String(p.name || '').replace(/"/g, '&quot;')}"`;
+}
+document.addEventListener('click', e => {
+  const el = e.target.closest('.p-link[data-focus][data-sport]');
+  if (!el) return;
+  window.location.href = `fantasyedge-rankings.html?sport=${encodeURIComponent(el.dataset.sport)}&focus=${encodeURIComponent(el.dataset.focus)}`;
+});
 
 async function init() {
   const summary = await PostGameTracker.getDashboardSummary();

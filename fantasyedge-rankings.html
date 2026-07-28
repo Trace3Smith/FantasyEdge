@@ -401,6 +401,17 @@
   .row-expand:hover td { background: rgba(212,160,23,0.05); }
   .row-caret { display: inline-block; margin-left: 6px; font-size: 9px; color: var(--gold); transition: transform 0.15s; }
   .row-expand.open .row-caret { transform: rotate(90deg); }
+  /* A HOT/COLD player arriving via deep link (from the dashboard) or a badge click lands on
+     their row — briefly flash it so the eye finds it in a long board. */
+  @keyframes fe-focus-flash { 0%,100%{ background:transparent } 25%,70%{ background:rgba(212,160,23,0.22) } }
+  tr.focus-flash td { animation: fe-focus-flash 1.6s ease-in-out 1; }
+  /* HOT/COLD badges read as clickable (their row already expands; a badge click also scrolls to it). */
+  .tag-fire, .tag-slump { cursor: pointer; }
+  /* Transient message when a deep-linked player isn't on the current board. */
+  .fe-toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: var(--dark3); color: var(--white);
+    border: 1px solid rgba(255,255,255,0.14); padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 9999;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.4); opacity: 0; transition: opacity 0.25s; pointer-events: none; max-width: 90vw; }
+  .fe-toast.show { opacity: 1; }
   .row-detail > td { padding: 0 18px 16px 18px; background: rgba(0,0,0,0.25); border-top: none; }
   .row-detail { display: none; }
   .row-detail.open { display: table-row; }
@@ -676,6 +687,7 @@
   let sortStat = null;   // active sort column's stat label, or null for the default (rank) order
   let sortAsc = false;   // direction; set best-first per stat on first click, flips on re-click
   let formFilter = null; // 'hot' | 'cold' | null — filter the board to a form badge (via the strip counters)
+  let pendingFocus = null; // a ?focus= player key (id or name) from a deep link, consumed once after the first successful render
   let combineCats = []; // [{label, zkey}] — categories checked in the header; 2+ re-rank by summed season z
   let bvpData = null;        // { date, builtAt, batters: { [id]: {oppSp, line, advice} } } — MLB only
   // Recent game log (MLB) — a purely client-side feature: the browser hits the public MLB
@@ -1073,7 +1085,7 @@
       // re-ranked board position; otherwise the global rank.
       const dispRank = nflRank ? (nflRank.get(p.id) ?? '—') : typeRank ? (typeRank.get(p) ?? '—') : (p.rank ?? '—');
       const rowClass = [so ? 'search-only-row' : '', hasDetail ? 'row-expand' : ''].filter(Boolean).join(' ');
-      const mainRow = `<tr class="${rowClass}">
+      const mainRow = `<tr class="${rowClass}" data-pid="${p.id != null ? p.id : ''}">
         <td class="td-rank">${dispRank}</td>
         <td><div class="player-cell"><div class="player-avatar">${p.emoji||'⚾'}</div><div><div class="player-name">${p.name}${getTagHTML(p.tag, p.formReason)}${soBadge}${prospectChip}${bvpChip}${formChip}${gamelogChip}${pgaChip}</div><div class="player-meta">${p.team}</div></div></div></td>
         <td><span class="pos-badge">${p.pos||'—'}</span></td>
@@ -1639,6 +1651,83 @@
       (window.FE && window.FE.openPricing) ? window.FE.openPricing() : (window.location.href = '/fantasyedge-draft.html');
   }
 
+  function showFocusToast(msg) {
+    let el = document.getElementById('feToast');
+    if (!el) { el = document.createElement('div'); el.id = 'feToast'; el.className = 'fe-toast'; document.body.appendChild(el); }
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('show'), 3200);
+  }
+
+  // Scroll to a specific player's row and open its detail (the FORM view for a hot/cold player).
+  // Called after data has loaded, from a ?focus= deep link. Resolves the player by id first, then by
+  // normalized name (so cross-view name drift still lands). Clears any active filter that could hide
+  // the row; if the player is only in the search pool (unranked), surfaces them via the search box.
+  function focusPlayer(key) {
+    if (!key || !allPlayers.length) return;
+    // Token-set match (id first). Unlike the PGA normName, this KEEPS parenthetical text as tokens,
+    // so a former name deep-linked from elsewhere still resolves: "Megan Gustafson" -> tokens
+    // {megan,gustafson} ⊆ {megan,dileo,gustafson} of "Megan DiLeo (Gustafson)". A 2+ token query
+    // matches when all its tokens are present (either direction); a lone token must hit a name token.
+    const tokize = (s) => new Set(String(s || '')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean));
+    const subset = (a, b) => a.size > 0 && [...a].every(t => b.has(t)); // every token of a is in b
+    const qTok = tokize(key);
+    const target = allPlayers.find(p => String(p.id) === String(key))
+      || (qTok.size >= 2 ? allPlayers.find(p => { const t = tokize(p.name); return subset(qTok, t) || subset(t, qTok); }) : null)
+      || (qTok.size === 1 ? allPlayers.find(p => tokize(p.name).has([...qTok][0])) : null);
+    if (!target) { showFocusToast(`"${key}" isn't on the ${currentSport.toUpperCase()} board right now.`); return; }
+
+    // Drop any filter that could keep the target off the rendered board, and sync the button UI.
+    formFilter = null;
+    currentLeague = 'ALL';
+    currentPos = 'ALL';
+    // MLB/NHL split the board by player type (Hitters/Pitchers, Skaters/Goalies) — a target on the
+    // other tab is filtered out (line ~980), so jump to its own tab, mirroring the type-tab handler.
+    const typeCfg = TYPE_TABS[currentSport];
+    if (typeCfg) {
+      currentType = typeCfg.classify(target);
+      document.querySelectorAll('#typeTabs .type-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.type === currentType));
+      sortStat = null; sortAsc = false; combineCats = []; // columns differ between tabs
+      renderPosFilters();
+    }
+    document.querySelectorAll('#posFilters .pos-btn').forEach(b => b.classList.toggle('active', b.dataset.pos === 'ALL'));
+    document.querySelectorAll('#leagueFilters .pos-btn').forEach(b => b.classList.toggle('active', b.dataset.league === 'ALL'));
+    document.getElementById('stripHotCard')?.classList.remove('filter-active');
+    document.getElementById('stripColdCard')?.classList.remove('filter-active');
+
+    const locate = () => (target.id != null ? document.querySelector(`#tableBody tr[data-pid="${target.id}"]`) : null);
+    renderTable(allPlayers);
+    let row = locate();
+    // Unranked players (searchOnly) never appear in the default board — surface them by name, then retry.
+    if (!row) {
+      searchTerm = target.name;
+      const box = document.getElementById('playerSearch');
+      if (box) box.value = target.name;
+      renderTable(allPlayers);
+      row = locate() || document.querySelector('#tableBody tr.row-expand');
+    }
+    if (!row) { showFocusToast(`Found ${target.name}, but their row couldn't be opened.`); return; }
+
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Open the detail exactly like the row click handler (revealing FORM for a hot/cold player),
+    // including the lazy game-log / PGA-results load, if the row carries a detail and isn't already open.
+    const detail = row.nextElementSibling;
+    if (row.classList.contains('row-expand') && detail && detail.classList.contains('row-detail') && !row.classList.contains('open')) {
+      row.classList.add('open');
+      detail.classList.add('open');
+      const gl = detail.querySelector('.gamelog-wrap:not(.loaded):not(.loading)');
+      if (gl) loadGamelog(gl);
+      const pr = detail.querySelector('.pga-results-wrap:not(.loaded):not(.loading)');
+      if (pr) loadPgaResults(pr);
+    }
+    row.classList.remove('focus-flash');
+    void row.offsetWidth; // restart the flash animation if focus is re-triggered
+    row.classList.add('focus-flash');
+  }
+
   async function loadAndRender(sport) {
     currentSport = sport;
     if (isLocked(sport)) { renderLocked(); return; }
@@ -1669,6 +1758,9 @@
       updateStrip(allPlayers);
       buildWindowControls(allPlayers); // Season/L15/L30 toggle for sports with rolling data
       renderTable(allPlayers);
+      // A ?focus= deep link (from a HOT list elsewhere) jumps to that player once data exists. Consumed
+      // here — not at bootstrap — so it also fires after a premium sport unlocks and loads via auth-ready.
+      if (pendingFocus) { const k = pendingFocus; pendingFocus = null; focusPlayer(k); }
     } catch(err) {
       document.getElementById('tableBody').innerHTML = `<tr class="error-row"><td colspan="15"><div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;margin-bottom:6px">Failed to Load Data</div><div style="font-size:12px;color:var(--gray)">${err.message}</div></td></tr>`;
     }
@@ -1910,6 +2002,8 @@
       if (gl) loadGamelog(gl);
       const pr = detail.querySelector('.pga-results-wrap:not(.loaded):not(.loading)');
       if (pr) loadPgaResults(pr);
+      // Clicking the HOT/COLD badge itself is a "take me to this player" gesture — center the row.
+      if (e.target.closest('.tag-fire, .tag-slump')) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   });
 
@@ -1923,7 +2017,10 @@
   // Honor a ?sport= deep link (the sidebar SPORTS nav on other pages points here). Falls back to
   // mlb for a missing/unknown value. Reflect it in both the sidebar and the sport-tabs' active state.
   const VALID_SPORTS = new Set(['mlb', 'nba', 'wnba', 'nhl', 'pga', 'nfl']);
-  const qSport = new URLSearchParams(location.search).get('sport');
+  const qParams = new URLSearchParams(location.search);
+  const qSport = qParams.get('sport');
+  // ?focus=<player id or name> jumps to and expands that player once the board loads (see loadAndRender).
+  pendingFocus = qParams.get('focus') || null;
   const initialSport = qSport && VALID_SPORTS.has(qSport) ? qSport : 'mlb';
   if (initialSport !== 'mlb') {
     document.querySelectorAll('.sport-tab,.sidebar-sports a').forEach(el => el.classList.remove('active'));
