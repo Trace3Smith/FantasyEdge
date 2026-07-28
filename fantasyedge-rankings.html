@@ -426,7 +426,7 @@
   .prospect-synopsis .synopsis-label { display: block; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--gold); margin-bottom: 4px; }
   .prospect-meta-bits { font-size: 10px; color: var(--gray); margin-top: 2px; }
   /* Rolling last-15 / last-30 form (MLB). The GP line is the point of the feature: the gap
-     between a player's games and his team's is the playing-time signal, so it gets more
+     between a player's games and the team's is the playing-time signal, so it gets more
      weight than the stat line it sits above. */
   .tag-form { background: rgba(79,163,212,0.14); color: #9FD3EE; border: 1px solid rgba(79,163,212,0.4); cursor: pointer; }
   .roll-wrap { display: flex; flex-wrap: wrap; gap: 14px; align-items: stretch; }
@@ -1137,7 +1137,7 @@
   //
   // Every label comes from what was actually measured, never a hardcoded "15": teams don't
   // play in lockstep, so an "L15" window spans a RANGE of team games (14-17 at the time of
-  // writing). Each player carries `tg` — his own team's games in the window — so the honest
+  // writing). Each player carries `tg` — their own team's games in the window — so the honest
   // statement is "12 of 15 team games". rollingWindows (from the API) supplies the dates.
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   function fmtWinDate(iso) {
@@ -1151,17 +1151,17 @@
   function rollingGp(p, line) {
     const first = (p.pos || '').toUpperCase().split('/')[0].trim();
     const tg = line.tg || 0, g = line.g || 0;
-    if (first === 'SP') return { html: `<b>${g}</b> start${g === 1 ? '' : 's'} in his team's ${tg} games`,
+    if (first === 'SP') return { html: `<b>${g}</b> start${g === 1 ? '' : 's'} in the team's ${tg} games`,
       note: 'Starters take the ball roughly every fifth game.', thin: false };
-    if (first === 'RP' || first === 'P') return { html: `<b>${g}</b> appearance${g === 1 ? '' : 's'} in his team's ${tg} games`,
+    if (first === 'RP' || first === 'P') return { html: `<b>${g}</b> appearance${g === 1 ? '' : 's'} in the team's ${tg} games`,
       note: 'Relievers pitch on availability, not a fixed turn.', thin: false };
-    if (currentSport === 'nhl' && first === 'G') return { html: `Started <b>${g}</b> of his team's ${tg} games`,
+    if (currentSport === 'nhl' && first === 'G') return { html: `Started <b>${g}</b> of the team's ${tg} games`,
       note: "Goalies rotate; a backup's lower count is expected.", thin: false };
     const thin = tg > 0 && g <= tg * 0.6;
     const note = !thin ? ''
-      : currentSport === 'mlb' ? 'Sitting more than he starts — check for an injury or a platoon.'
+      : currentSport === 'mlb' ? 'Sitting more than starting — check for an injury or a platoon.'
       : 'Missing games — check for an injury or a rest stretch.';
-    return { html: `Played <b>${g}</b> of his team's ${tg} games`, note, thin };
+    return { html: `Played <b>${g}</b> of the team's ${tg} games`, note, thin };
   }
   // The per-window stat cells, by sport (and NHL role). MLB shows totals; NBA/WNBA/NHL-skater
   // show per-game rates for counting cats, matching how each board reads. Goalies (a `gaa`
