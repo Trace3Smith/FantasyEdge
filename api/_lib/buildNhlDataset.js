@@ -148,6 +148,7 @@ export async function buildNhlDataset() {
       };
       goalies.push({
         ...base,
+        games: gp, // season games played — surfaces as the GP column
         s1: fmt(n.w), s2: n.gaa ? n.gaa.toFixed(2) : '—', s3: pct(n.svpct),
         s4: fmt(n.so), s5: fmt(n.sv), s6: fmt(n.sa),
         statLabels: ['W', 'GAA', 'SV%', 'SO', 'SV', 'SA'],
@@ -173,6 +174,7 @@ export async function buildNhlDataset() {
       };
       skaters.push({
         ...base,
+        games: gp, // season games played — surfaces as the GP column
         s1: fmt(g), s2: fmt(a_), s3: fmt(g + a_), s4: fmt(n.plusMinus), s5: fmt(n.sog), s6: fmt(ppp),
         statLabels: ['G', 'A', 'PTS', '+/-', 'SOG', 'PPP'],
         cats: skaterCats(n, gp),

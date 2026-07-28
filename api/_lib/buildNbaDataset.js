@@ -163,6 +163,7 @@ async function buildBasketballDataset(sport) {
       league: null, // NBA has no AL/NL; the league toggle is hidden for non-MLB
       pos: at.position?.abbreviation || '—',
       hasStats: true,
+      games: n.g, // season games played — surfaces as the GP column
       s1: fmt(n.pts), s2: fmt(n.reb), s3: fmt(n.ast),
       s4: fmt(n.tpm), s5: fmt(n.stl), s6: fmt(n.blk),
       statLabels: ['PTS', 'REB', 'AST', '3PM', 'STL', 'BLK'],

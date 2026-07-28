@@ -185,6 +185,7 @@ async function buildDsts(season) {
           league: null,
           pos: 'DST',
           hasStats: true,
+          games, // team games played — surfaces as the GP column
           fp: r1(fp), fpPpr: r1(fp), fpStd: r1(fp), // no receptions: same in both formats
           s1: String(sacks), s2: String(int), s3: String(fr),
           s4: String(td), s5: String(tm.pa), s6: r1(fp).toFixed(1),
@@ -291,6 +292,7 @@ export async function buildNflDataset() {
       };
     }
     rec._games = games;
+    rec.games = games; // season games played — surfaces as the GP column (public; _games is stripped below)
     skill.push(rec);
   }
 

@@ -651,6 +651,7 @@
       <thead>
         <tr>
           <th id="hRank" class="sortable">#</th><th>Player</th><th id="hPos">Pos</th><th>Team</th>
+          <th id="hGP" class="sortable" data-stat="GP" title="Games played (season, or in the active L15/L30 window)">GP</th>
           <th id="h1" class="sortable">AVG</th><th id="h2" class="sortable">HR</th><th id="h3" class="sortable">RBI</th><th id="h4" class="sortable">SB</th>
           <th id="h5" class="sortable">ERA</th><th id="h6" class="sortable">WHIP</th>
           <th id="h7" class="pga-col sortable">CUT%</th><th id="h8" class="pga-col sortable">FIT</th>
@@ -658,7 +659,7 @@
         </tr>
       </thead>
       <tbody id="tableBody">
-        <tr class="loading-row"><td colspan="15"><div class="loading-title">Loading Live Data...</div><div class="loading-sub">Fetching real stats from MLB Stats API</div></td></tr>
+        <tr class="loading-row"><td colspan="16"><div class="loading-title">Loading Live Data...</div><div class="loading-sub">Fetching real stats from MLB Stats API</div></td></tr>
       </tbody>
     </table>
   </div>
@@ -871,6 +872,18 @@
     const v = meta && roll ? roll[meta.roll] : undefined;
     return v == null ? null : v;
   }
+  // Window-aware games played for the GP column: season total (p.games, with a p.n fallback for the
+  // basketball boards), or games played in the active rolling window (p.rolling[win].g). PGA has no
+  // games concept, so it shows '—'. Returns null (renders '—') when there's no value.
+  function gpVal(p) {
+    if (currentSport === 'pga') return null;
+    if (boardWindow === 'season') {
+      const g = p.games ?? p.n?.g ?? p.n?.gp;
+      return g == null ? null : g;
+    }
+    const roll = p.rolling && p.rolling[boardWindow];
+    return roll && roll.g != null ? roll.g : null;
+  }
   // Combined season z-score across the checked categories (higher = better; z is already oriented so
   // for every cat — incl. ERA/WHIP/GAA). Reuses the per-category z the ranking algorithm computed.
   function combineScore(p) {
@@ -879,6 +892,7 @@
   }
   // Numeric sort key for a player under the active window, by stat LABEL. Missing -> null (sinks).
   function sortNum(p, label) {
+    if (label === 'GP') return gpVal(p); // the GP column isn't in statLabels; sort on the same value it shows
     const idx = p.statLabels?.indexOf(label);
     if (idx == null || idx < 0) return null;
     const v = cellVal(p, idx);
@@ -913,13 +927,16 @@
   // Reflect the active sort column in the header (gold + arrow); classes only, CSS draws the arrow.
   // '#' is the default (rank) order, highlighted when no stat sort is active.
   function markSortHeader() {
+    const hGP = document.getElementById('hGP');
     for (let i = 1; i <= 8; i++) { const th = document.getElementById('h' + i); if (th) th.classList.remove('sort-active', 'sort-asc', 'combine-active'); }
+    if (hGP) hGP.classList.remove('sort-active', 'sort-asc'); // GP has no z, so no combine-active
     if (combineCats.length) {
       // Highlight every checked column (no direction arrow — a combine is a multi-cat sum).
       for (let i = 1; i <= 8; i++) { const th = document.getElementById('h' + i); if (th && combineCats.some(c => c.zkey === th.dataset.zkey)) th.classList.add('combine-active'); }
       return;
     }
     if (sortStat == null) return; // default (rank) order highlights nothing
+    if (sortStat === 'GP') { if (hGP) { hGP.classList.add('sort-active'); if (sortAsc) hGP.classList.add('sort-asc'); } return; }
     for (let i = 1; i <= 8; i++) { const th = document.getElementById('h' + i); if (th && th.dataset.stat === sortStat) { th.classList.add('sort-active'); if (sortAsc) th.classList.add('sort-asc'); break; } }
   }
   // Show the explicit "Back to Rankings" button (+ a note of what's active) only while a column sort is
@@ -1019,7 +1036,7 @@
       }
     }
     if (!filtered.length) {
-      tbody.innerHTML = '<tr class="loading-row"><td colspan="15"><div class="loading-title">No Players Found</div><div class="loading-sub">Try a different position filter</div></td></tr>';
+      tbody.innerHTML = '<tr class="loading-row"><td colspan="16"><div class="loading-title">No Players Found</div><div class="loading-sub">Try a different position filter</div></td></tr>';
       return;
     }
     tbody.innerHTML = filtered.map(p => {
@@ -1092,13 +1109,14 @@
         <td><div class="player-cell"><div class="player-avatar">${p.emoji||'⚾'}</div><div><div class="player-name">${p.name}${getTagHTML(p.tag, p.formReason)}${soBadge}${prospectChip}${bvpChip}${formChip}${gamelogChip}${pgaChip}</div><div class="player-meta">${p.team}</div></div></div></td>
         <td><span class="pos-badge">${p.pos||'—'}</span></td>
         <td style="color:var(--gray-light)">${p.team||'—'}</td>
+        <td class="gp-col">${formatStat(gpVal(p), null)}</td>
         <td>${formatStat(cellVal(p, 0), showInline ? p.statLabels?.[0] : null)}</td><td>${formatStat(cellVal(p, 1), showInline ? p.statLabels?.[1] : null)}</td><td>${formatStat(cellVal(p, 2), showInline ? p.statLabels?.[2] : null)}</td><td>${formatStat(cellVal(p, 3), showInline ? p.statLabels?.[3] : null)}</td><td>${formatStat(cellVal(p, 4), showInline ? p.statLabels?.[4] : null)}</td><td>${formatStat(cellVal(p, 5), showInline ? p.statLabels?.[5] : null)}</td>
         <td class="pga-col">${formatStat(p.s7, showInline ? p.statLabels?.[6] : null)}</td><td class="pga-col">${formatStat(p.s8, showInline ? p.statLabels?.[7] : null)}</td>
         <td class="${isPga ? 'tier-cell' : 'stars-cell'}">${so ? muted : isPga ? getTierHTML(p.tier, p.inField) : `<div class="stars-row">${renderStars(sc)}</div><div class="stars-label">${getStarLabel(sc)}</div><div class="stars-cats">${cats.map(c=>`<span class="stars-cat-pill">${c}</span>`).join('')}</div>`}</td>
         <td>${so ? muted : getTrendHTML(p.trend, p.trendVal)}</td>
         <td class="own-pct">${so ? '—' : (p.own!=null?p.own+'%':'—')}</td>
       </tr>`;
-      return mainRow + (hasDetail ? `<tr class="row-detail"><td colspan="15">${detailHtml}</td></tr>` : '');
+      return mainRow + (hasDetail ? `<tr class="row-detail"><td colspan="16">${detailHtml}</td></tr>` : '');
     }).join('');
   }
 
@@ -1643,7 +1661,7 @@
   function renderLocked() {
     document.getElementById('updateLabel').textContent = 'Premium feature';
     ['stripTotal', 'stripHot', 'stripCold'].forEach(id => document.getElementById(id).textContent = '—');
-    document.getElementById('tableBody').innerHTML = `<tr><td colspan="15" style="padding:64px 24px;text-align:center">
+    document.getElementById('tableBody').innerHTML = `<tr><td colspan="16" style="padding:64px 24px;text-align:center">
       <div style="font-size:40px;margin-bottom:10px">🔒</div>
       <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:var(--gold);margin-bottom:8px">PGA Rankings is a Premium feature</div>
       <div style="font-size:13px;color:var(--gray);max-width:440px;margin:0 auto 20px;line-height:1.6">World rankings, recent-form trends, course-fit scores, and cut probabilities for the current tournament — updated daily.</div>
@@ -1733,7 +1751,7 @@
   async function loadAndRender(sport) {
     currentSport = sport;
     if (isLocked(sport)) { renderLocked(); return; }
-    document.getElementById('tableBody').innerHTML = '<tr class="loading-row"><td colspan="15"><div class="loading-title">Loading Live Data...</div><div class="loading-sub">Fetching real stats...</div></td></tr>';
+    document.getElementById('tableBody').innerHTML = '<tr class="loading-row"><td colspan="16"><div class="loading-title">Loading Live Data...</div><div class="loading-sub">Fetching real stats...</div></td></tr>';
     try {
       // Premium sports are gated server-side, so attach the Clerk session token.
       // (isLocked already short-circuits non-premium users before we get here.)
@@ -1764,7 +1782,7 @@
       // here — not at bootstrap — so it also fires after a premium sport unlocks and loads via auth-ready.
       if (pendingFocus) { const k = pendingFocus; pendingFocus = null; focusPlayer(k); }
     } catch(err) {
-      document.getElementById('tableBody').innerHTML = `<tr class="error-row"><td colspan="15"><div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;margin-bottom:6px">Failed to Load Data</div><div style="font-size:12px;color:var(--gray)">${err.message}</div></td></tr>`;
+      document.getElementById('tableBody').innerHTML = `<tr class="error-row"><td colspan="16"><div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;margin-bottom:6px">Failed to Load Data</div><div style="font-size:12px;color:var(--gray)">${err.message}</div></td></tr>`;
     }
   }
 
@@ -1922,7 +1940,7 @@
     const th = e.target.closest('th');
     if (!th) return;
     if (th.id === 'hRank') { if (sortStat !== null || combineCats.length) { sortStat = null; combineCats = []; renderTable(allPlayers); } return; }
-    if (!/^h[1-8]$/.test(th.id || '')) return; // only the stat columns are sortable
+    if (!/^h([1-8]|GP)$/.test(th.id || '')) return; // only the stat columns (+ GP) are sortable
     const label = th.dataset.stat;
     if (!label || label === '—') return;
     combineCats = []; // a header-text click is single-column sort mode; drop any active combine

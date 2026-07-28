@@ -71,6 +71,7 @@ function assignHitting(rec, stat) {
   rec.s5 = stat.stolenBases ?? '0';
   rec.s6 = stat.obp ?? '—';
   rec.statLabels = ['AVG', 'HR', 'RBI', 'R', 'SB', 'OBP'];
+  rec.games = parseInt(stat.gamesPlayed) || 0; // season games — surfaces as the GP column
   rec.cats = buildMLBCats(stat);
   // Raw numeric inputs for z-score valuation (stripped before the wire).
   rec._h = {
@@ -181,6 +182,7 @@ function assignPitching(rec, stat) {
   const gs = parseInt(stat.gamesStarted) || 0;
   const gp = parseInt(stat.gamesPlayed) || 0;
   rec.pos = gs >= Math.max(1, gp * 0.5) ? 'SP' : 'RP';
+  rec.games = gp; // season games (appearances) — surfaces as the GP column
   rec.s1 = stat.strikeOuts ?? '0';
   rec.s2 = stat.wins ?? '0';
   rec.s3 = stat.saves ?? '0';
