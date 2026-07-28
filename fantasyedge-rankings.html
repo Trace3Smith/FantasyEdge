@@ -1071,10 +1071,12 @@
       const formChip = (rollingDetail && !prospectDetail)
         ? `<span class="tag-badge tag-form">FORM${caretOn === 'form' ? '<span class="row-caret">▶</span>' : ''}</span>`
         : '';
-      // LOG chip appears only when the game log is the sole reason to open the row (caretOn ===
-      // 'gamelog'); otherwise the log rides along under whichever chip already carries the caret.
+      // FORM fallback: caretOn==='gamelog' means the game log is the row's sole detail — which only
+      // happens when there are no rolling splits above it (unranked player, or out of season). In that
+      // case the recent game log IS the player's form view, so the chip reads FORM (not LOG) and opens
+      // it. Ranked players with real rolling splits keep the rolling FORM chip above; they never land here.
       const gamelogChip = caretOn === 'gamelog'
-        ? `<span class="tag-badge tag-log">LOG<span class="row-caret">▶</span></span>`
+        ? `<span class="tag-badge tag-form" title="Recent game log — this player's current form">FORM<span class="row-caret">▶</span></span>`
         : '';
       // PGA golfers get a RESULTS chip opening their recent tournament finishes.
       const pgaChip = caretOn === 'pga'
