@@ -10,7 +10,7 @@
 // above expectation given shot volume). Goalies use W, GAA (inverted), SV%
 // (volume-weighted), shutouts, and saves.
 
-import { fetchByAthlete, buildIndex, makeReader } from './espn.js';
+import { fetchByAthlete, buildIndex, makeReader, priorSeasonParam } from './espn.js';
 
 // Adaptive games gates (fraction of the group leader's games played), like the
 // MLB PA gate — correct early- and full-season. Goalies play fewer games.
@@ -153,8 +153,8 @@ export async function buildNhlDataset() {
   });
   const idx = buildIndex(categories);
   const val = makeReader(idx);
-  // Prior full season (start year one back from the current season's leading year). Additive; tolerant.
-  const prevMap = await fetchPrevYearNhl(parseInt(String(season || '').slice(0, 4)) - 1);
+  // Prior full season (e.g. "2025-26" -> param 2025 = "2024-25"). Additive; failure-tolerant.
+  const prevMap = await fetchPrevYearNhl(priorSeasonParam(season));
 
   const skaters = [];
   const goalies = [];

@@ -14,7 +14,7 @@
 // into one value. Mirrors the MLB pipeline's record shape so the same frontend
 // renders both. Output: { builtAt, sport, players, counts }.
 
-import { fetchByAthlete, buildIndex, makeReader } from './espn.js';
+import { fetchByAthlete, buildIndex, makeReader, priorSeasonParam } from './espn.js';
 
 // Manual display-name overrides, keyed by ESPN athlete id (globally unique across
 // NBA + WNBA). ESPN occasionally changes a player's displayName to a new legal name
@@ -165,9 +165,9 @@ async function buildBasketballDataset(sport) {
   });
   const idx = buildIndex(categories);
   const val = makeReader(idx);
-  // Prior full season (start year one back from the current season's leading year, e.g. "2025-26" -> 2024,
-  // "2026" -> 2025), fetched once and matched by athlete id below. Additive; failure-tolerant.
-  const prevMap = await fetchPrevYearBasketball(sport, parseInt(String(season || '').slice(0, 4)) - 1);
+  // Prior full season (e.g. NBA "2025-26" -> param 2025 = "2024-25"; WNBA "2026" -> 2025), fetched once
+  // and matched by athlete id below. Additive; failure-tolerant.
+  const prevMap = await fetchPrevYearBasketball(sport, priorSeasonParam(season));
 
   const records = [];
   for (const a of athletes) {

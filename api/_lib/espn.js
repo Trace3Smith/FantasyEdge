@@ -63,6 +63,18 @@ const CHUNK_CHAIN = [50, 10, 1]; // each entry must divide the previous one
 // athletes nor pagination is a failed query ("stub"), NOT an empty league.
 const isStub = (j) => !Array.isArray(j?.athletes) && !j?.pagination;
 
+// The `season` param for the IMMEDIATELY PRIOR season, given the current season's display string.
+// ESPN's season param is a season's END year (verified: season=2025 -> "2024-25"). So for a
+// hyphenated season like "2025-26" (end year 2026), the prior season "2024-25" has param = the
+// current start year (2025) — i.e. no subtraction. Single-year seasons (WNBA "2026") just go back
+// one calendar year. Returns NaN if the string can't be parsed (caller then skips the prior fetch).
+export function priorSeasonParam(seasonStr) {
+  const s = String(seasonStr || '');
+  const start = parseInt(s.slice(0, 4), 10);
+  if (!Number.isFinite(start)) return NaN;
+  return s.includes('-') ? start : start - 1;
+}
+
 export async function fetchByAthlete({ sportPath, sort, seasonType = 2, season = null, concurrency = 6 }) {
   const base = `https://site.web.api.espn.com/apis/common/v3/sports/${sportPath}/statistics/byathlete`;
   // `season` (a start year, e.g. 2024 = the 2024-25 season) pins a specific season; omitted, ESPN
