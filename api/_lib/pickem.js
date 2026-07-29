@@ -32,6 +32,14 @@ export function confidenceOf(winProb) {
   return 'coin';                        // near coin-flip
 }
 
+// American moneyline -> raw implied probability (book's vig still included). "+105" -> 0.488,
+// "-125" -> 0.556. Accepts a string or number; returns null when unparseable.
+export function mlToProb(ml) {
+  const n = Number(ml);
+  if (!Number.isFinite(n) || n === 0) return null;
+  return n < 0 ? (-n) / ((-n) + 100) : 100 / (n + 100);
+}
+
 // Injury statuses worth surfacing (skip ACTIVE/PROBABLE — not decision-relevant here).
 const NOTABLE_STATUS = new Set(['Out', 'Doubtful', 'Questionable', 'Injured Reserve', 'Suspension']);
 // Positions we prioritize when trimming a team's injury list to the few that matter.
@@ -131,6 +139,19 @@ export async function buildPickem(cfg) {
         upsetAlert = winProb < 0.58; // tight line — the underdog has a real shot
       }
 
+      // Market-implied win % per side, de-vigged from the DraftKings moneyline (spread fallback when
+      // a moneyline is absent). This is the betting MARKET's implied probability — NOT a public
+      // money/ticket split (no free source exposes that); the UI labels it "Market". Home + away = 100.
+      let market = null;
+      if (o) {
+        const mlH = mlToProb(o.moneyline?.home?.close?.odds ?? o.homeTeamOdds?.moneyLine);
+        const mlA = mlToProb(o.moneyline?.away?.close?.odds ?? o.awayTeamOdds?.moneyLine);
+        let homePct = null;
+        if (mlH != null && mlA != null && mlH + mlA > 0) homePct = (mlH / (mlH + mlA)) * 100;
+        else if (typeof o.spread === 'number' && o.spread !== 0) homePct = (o.spread < 0 ? winProbFromSpread(o.spread) : 1 - winProbFromSpread(o.spread)) * 100;
+        if (homePct != null) { const h = Math.round(homePct); market = { home: h, away: 100 - h }; }
+      }
+
       const indoor = c.venue?.indoor === true;
       const coords = cfg.coordsFor ? cfg.coordsFor(c, home, away) : null;
       const weather = await fetchWeather(coords, indoor, ev.date);
@@ -148,6 +169,7 @@ export async function buildPickem(cfg) {
         venue: { name: c.venue?.fullName || '', indoor, city: c.venue?.address?.city || '' },
         odds,
         pick,
+        market, // { home, away } implied win % (de-vigged moneyline); null when no line
         upsetAlert,
         injuries: {
           home: injuries[home.team.abbreviation] || [],

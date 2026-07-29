@@ -146,6 +146,10 @@
 
   /* ===== NFL Pick'em ===== */
   #nflView{display:none;} #nflView.active{display:block;}
+  #cfbWeekView{display:none;} #cfbWeekView.active{display:block;}
+  /* Market-implied win % per side (de-vigged moneyline) shown on each team row. */
+  .team-row .tmarket{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:.5px;color:var(--gold-light);background:rgba(212,160,23,0.10);border:1px solid rgba(212,160,23,0.25);border-radius:3px;padding:1px 7px;margin-left:4px;}
+  .gc-market-hd{font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gray);margin:2px 0 4px;}
   .nfl-week{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px;}
   .nfl-week h2{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;letter-spacing:2px;text-transform:uppercase;}
   .nfl-week .stamp{font-size:11px;color:var(--gray);}
@@ -238,6 +242,7 @@
       <!-- MODE TABS -->
       <div class="mode-tabs">
         <button class="mode-tab active" onclick="switchMode('nfl')">🏈 NFL Pick'em</button>
+        <button class="mode-tab" onclick="switchMode('cfbweek')">🏈 CFB Week</button>
         <button class="mode-tab" onclick="switchMode('march')">🏀 March Madness</button>
         <button class="mode-tab" onclick="switchMode('bowl')">🏈 Bowl Games</button>
       </div>
@@ -251,6 +256,17 @@
         <div class="nfl-sub">Every game's pick and win probability, derived from the current betting market, plus injuries and (game-week) weather. Highest-confidence picks and upset alerts are flagged. Informational — not betting advice.</div>
         <div class="nfl-rails" id="nflRails"></div>
         <div id="nflGames"><div class="nfl-loading">Loading this week's games…</div></div>
+      </div>
+
+      <!-- CFB WEEK (free; live feed: ESPN college-football scoreboard via /api/sports?feed=cfb-week) -->
+      <div id="cfbWeekView">
+        <div class="nfl-week">
+          <h2 id="cfbWeekTitle">CFB Week</h2>
+          <span class="stamp" id="cfbWeekStamp"></span>
+        </div>
+        <div class="nfl-sub">This week's ranked (AP/CFP Top-25) college-football games with each side's market win % and pick, from the current betting market, plus injuries. Ranked games only — the poll is set in-season. Informational — not betting advice.</div>
+        <div class="nfl-rails" id="cfbWeekRails"></div>
+        <div id="cfbWeekGames"><div class="nfl-loading">Loading this week's ranked games…</div></div>
       </div>
 
       <!-- MARCH MADNESS (premium; live feed: ESPN BPI + seed history via /api/sports?feed=march-madness) -->
@@ -323,14 +339,16 @@ let mx=0,my=0,rx=0,ry=0;
 document.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;});
 (function a(){cursor.style.left=mx+'px';cursor.style.top=my+'px';rx+=(mx-rx)*.15;ry+=(my-ry)*.15;ring.style.left=rx+'px';ring.style.top=ry+'px';requestAnimationFrame(a);})();
 
-const MODES = ['nfl','march','bowl'];
+const MODES = ['nfl','cfbweek','march','bowl'];
 function switchMode(mode) {
   const idx = MODES.indexOf(mode);
   document.querySelectorAll('.mode-tab').forEach((t,i)=>t.classList.toggle('active', i===idx));
   document.getElementById('nflView').classList.toggle('active', mode==='nfl');
+  document.getElementById('cfbWeekView').classList.toggle('active', mode==='cfbweek');
   document.getElementById('marchView').classList.toggle('active', mode==='march');
   document.getElementById('bowlView').classList.toggle('active', mode==='bowl');
   if (mode==='nfl') loadNfl();
+  if (mode==='cfbweek') loadCfbWeek();
   if (mode==='march') loadMarch();
   if (mode==='bowl') loadCfb();
 }
@@ -370,8 +388,16 @@ const CFB_FEED = { endpoint:'/api/sports?feed=cfb-bowl', gamesId:'cfbGames', rai
     document.getElementById('cfbTitle').textContent = `Bowl Games & Playoff${d.season?' — '+d.season:''}`;
     document.getElementById('cfbStamp').textContent = stampText(d);
   } };
+const CFB_WEEK_FEED = { endpoint:'/api/sports?feed=cfb-week', gamesId:'cfbWeekGames', railsId:'cfbWeekRails',
+  empty:'Ranked (Top-25) matchups appear once the season’s poll is set (~mid-August) — check back in season.',
+  header(d){
+    const stype = SEASON_TYPE[d.seasonType] ? SEASON_TYPE[d.seasonType]+' · ' : '';
+    document.getElementById('cfbWeekTitle').textContent = `CFB Week — ${stype}Week ${d.week ?? ''}`.trim();
+    document.getElementById('cfbWeekStamp').textContent = stampText(d);
+  } };
 function loadNfl(){ loadFeed(NFL_FEED); }
 function loadCfb(){ loadFeed(CFB_FEED); }
+function loadCfbWeek(){ loadFeed(CFB_WEEK_FEED); }
 
 function stampText(d){ const w = d.builtAt ? new Date(d.builtAt) : null; return w ? 'Updated '+w.toLocaleDateString([], {month:'short',day:'numeric'}) : ''; }
 
@@ -387,11 +413,15 @@ function renderRails(d, railsId) {
     `<div class="rail upset"><div class="rail-title">⚡ Upset alerts</div>${ups}</div>`;
 }
 
-function teamRow(t, picked) {
+function teamRow(t, picked, mkt) {
   const logo = t.logo ? `<img src="${esc(t.logo)}" alt="">` : '';
   const rec = t.record ? `<span class="trec">${esc(t.record)}</span>` : '';
   const chk = picked ? '<span class="pickchk">✓ PICK</span>' : '';
-  return `<div class="team-row${picked?' picked':''}">${logo}<span class="tname">${esc(t.name)}</span>${rec}${chk}</div>`;
+  // Market-implied win % (de-vigged DraftKings moneyline) — labeled "Market", NOT a public betting split.
+  const market = mkt != null
+    ? `<span class="tmarket" title="Market-implied win % — the de-vigged DraftKings moneyline (the betting market's implied probability), not a public money/ticket split.">${mkt}%</span>`
+    : '';
+  return `<div class="team-row${picked?' picked':''}">${logo}<span class="tname">${esc(t.name)}</span>${rec}${market}${chk}</div>`;
 }
 
 function injLine(label, rows) {
@@ -425,7 +455,8 @@ function gameCard(g) {
   return `<div class="gcard${g.upsetAlert?' upset':''}">
     <div class="gc-top"><span class="gc-when">${esc(when)}</span><span>${live}${flag}</span></div>
     ${bowl}
-    <div class="matchup">${teamRow(g.away, pickTeam===g.away.abbr)}${teamRow(g.home, pickTeam===g.home.abbr)}</div>
+    ${g.market ? '<div class="gc-market-hd" title="Market-implied win % per side, de-vigged from the DraftKings moneyline — the betting market\'s implied probability, not a public money/ticket split.">Market win %</div>' : ''}
+    <div class="matchup">${teamRow(g.away, pickTeam===g.away.abbr, g.market?g.market.away:null)}${teamRow(g.home, pickTeam===g.home.abbr, g.market?g.market.home:null)}</div>
     ${pickBlock}
     ${line}
     <div class="gc-extra">${inj}${wx}</div>

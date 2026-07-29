@@ -18,8 +18,9 @@ import { enrichNflProjections } from '../_lib/fantasyProjections.js';
 import { enrichNflAdp } from '../_lib/fantasyAdp.js';
 import { buildNflPickem } from '../_lib/nflPickem.js';
 import { buildCfbBowl } from '../_lib/cfbBowl.js';
+import { buildCfbWeek } from '../_lib/cfbWeek.js';
 import { buildMarchMadness } from '../_lib/marchMadness.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, MM_KEY, BVP_KEY, DATASET_VERSION } from '../_lib/kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, DATASET_VERSION } from '../_lib/kv.js';
 
 // Secondary sports (ESPN-sourced, no prospects/enrichment). Each is built and
 // cached independently so one league's source failure can't drop another's
@@ -172,6 +173,17 @@ export default async function handler(req, res) {
       cfbBowl = { error: err.message };
     }
 
+    // CFB Week feed — the current regular-season week's Top-25 games (weekly counterpart to the
+    // bowl feed). Empty before the season's first poll (~mid-August). Additive + failure-tolerant.
+    let cfbWeek;
+    try {
+      const feed = await buildCfbWeek();
+      await redis.set(CFB_WEEK_KEY, feed);
+      cfbWeek = { week: feed.week, games: feed.games.length, upsets: feed.upsetAlerts.length };
+    } catch (err) {
+      cfbWeek = { error: err.message };
+    }
+
     // March Madness bracket (premium) — full men's tournament model, free ESPN sources. Empty
     // out of season (the field only exists ~3 weeks each March). Additive + failure-tolerant:
     // a failed build leaves the last good bracket in KV rather than dropping it.
@@ -191,6 +203,7 @@ export default async function handler(req, res) {
       bvp,
       pickem,
       cfbBowl,
+      cfbWeek,
       marchMadness,
       ...secondary,
     });

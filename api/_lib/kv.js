@@ -40,6 +40,10 @@ export const NFL_PICKEM_KEY = 'pickem:nfl';
 // market-implied picks, injuries, and weather, built daily from the same free ESPN + NWS
 // sources as NFL and served via api/sports.js (?feed=cfb-bowl). Empty out of bowl season.
 export const CFB_BOWL_KEY = 'pickem:cfb';
+// CFB Week Pick'em feed (Brackets & Bowls) — the current regular-season week's Top-25 (ranked)
+// college-football games, built from the same ESPN scoreboard pipeline as NFL Pick'em and served
+// via api/sports.js (?feed=cfb-week). Empty before the poll drops (~mid-August) and out of season.
+export const CFB_WEEK_KEY = 'pickem:cfbweek';
 // March Madness bracket optimizer feed (Brackets & Bowls, premium) — the full men's tournament
 // bracket with per-game model picks, round-by-round advancement probabilities, national title
 // odds, and a recommended optimal fill. Built daily from free ESPN sources (scoreboard field +
