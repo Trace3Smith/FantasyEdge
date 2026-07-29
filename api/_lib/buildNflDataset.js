@@ -207,7 +207,7 @@ async function fetchPrevYearNfl(priorSeasonParam) {
   const out = new Map();
   if (!Number.isFinite(priorSeasonParam)) return out;
   try {
-    const { athletes, categories, season } = await fetchByAthlete({ sportPath: 'football/nfl', sort: 'scoring.totalPoints:desc', season: priorSeasonParam });
+    const { athletes, categories, season } = await fetchByAthlete({ sportPath: 'football/nfl', sort: 'scoring.totalPoints:desc', season: priorSeasonParam, tolerant: true });
     const val = makeReader(buildIndex(categories));
     for (const a of athletes) {
       const at = a.athlete || {};

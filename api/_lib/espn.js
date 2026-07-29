@@ -75,7 +75,7 @@ export function priorSeasonParam(seasonStr) {
   return s.includes('-') ? start : start - 1;
 }
 
-export async function fetchByAthlete({ sportPath, sort, seasonType = 2, season = null, concurrency = 6 }) {
+export async function fetchByAthlete({ sportPath, sort, seasonType = 2, season = null, concurrency = 6, tolerant = false }) {
   const base = `https://site.web.api.espn.com/apis/common/v3/sports/${sportPath}/statistics/byathlete`;
   // `season` (a start year, e.g. 2024 = the 2024-25 season) pins a specific season; omitted, ESPN
   // returns the current one. Used to pull the prior full season for the Mock Draft sidebar's
@@ -107,10 +107,22 @@ export async function fetchByAthlete({ sportPath, sort, seasonType = 2, season =
     throw new Error(`ESPN byathlete returned no pagination for ${sportPath} — cannot page`);
   }
 
-  // Fetch one chunk; on a stub, recurse into smaller chunks over the same rows.
+  // Fetch one chunk; on a stub, recurse into smaller chunks over the same rows. In `tolerant` mode
+  // (used for the prior-year fetch, a nice-to-have) a hard HTTP failure on a chunk is treated like a
+  // stub — recurse to salvage the good rows around a poison page instead of aborting the whole fetch.
   async function take(level, page) {
     const limit = CHUNK_CHAIN[level];
-    const j = await getJson(url(limit, page));
+    let j;
+    try {
+      j = await getJson(url(limit, page));
+    } catch (err) {
+      if (!tolerant) throw err;
+      if (level === CHUNK_CHAIN.length - 1) { skipped.push(page); return; } // poison single row — drop it
+      const factor = limit / CHUNK_CHAIN[level + 1];
+      const first = (page - 1) * factor + 1;
+      for (let i = 0; i < factor; i++) await take(level + 1, first + i);
+      return;
+    }
     if (Array.isArray(j.athletes)) {
       absorb(j);
       athletes.push(...j.athletes);
@@ -136,8 +148,9 @@ export async function fetchByAthlete({ sportPath, sort, seasonType = 2, season =
   }
 
   // Every chunk stubbing means the leaderboard itself is broken, not that the league is
-  // empty. Fail loudly rather than hand back an empty dataset that a caller would cache.
-  if (!athletes.length) {
+  // empty. Fail loudly rather than hand back an empty dataset that a caller would cache — unless
+  // tolerant (prior-year), where an empty result just means "no prior-year lines this build".
+  if (!athletes.length && !tolerant) {
     throw new Error(`ESPN byathlete returned no athletes for ${sportPath} (${count} rows advertised)`);
   }
   return { athletes, categories: categories || [], season: resolvedSeason, skipped: skipped.length };

@@ -133,7 +133,7 @@ async function fetchPrevYearBasketball(sport, priorSeasonParam) {
   if (!Number.isFinite(priorSeasonParam)) return out;
   try {
     const { athletes, categories, season } = await fetchByAthlete({
-      sportPath: `basketball/${sport}`, sort: 'offensive.avgPoints:desc', season: priorSeasonParam,
+      sportPath: `basketball/${sport}`, sort: 'offensive.avgPoints:desc', season: priorSeasonParam, tolerant: true,
     });
     const val = makeReader(buildIndex(categories));
     for (const a of athletes) {
