@@ -651,7 +651,7 @@
       <thead>
         <tr>
           <th id="hRank" class="sortable">#</th><th>Player</th><th id="hPos">Pos</th><th>Team</th>
-          <th id="hGP" class="sortable" data-stat="GP" title="Games played / team games (season or the active L15/L30 window). Pitchers show a bare count of starts/appearances — they don't play every team game.">GP</th>
+          <th id="hGP" class="sortable" data-stat="GP" title="Games played / team games (season or the active L15/L30 window). Pitchers and NHL goalies show a bare count of starts/appearances — they don't play every team game.">GP</th>
           <th id="h1" class="sortable">AVG</th><th id="h2" class="sortable">HR</th><th id="h3" class="sortable">RBI</th><th id="h4" class="sortable">SB</th>
           <th id="h5" class="sortable">ERA</th><th id="h6" class="sortable">WHIP</th>
           <th id="h7" class="pga-col sortable">CUT%</th><th id="h8" class="pga-col sortable">FIT</th>
@@ -865,13 +865,15 @@
     return roll && roll.tg != null ? roll.tg : null;
   }
   // GP CELL — "played/happened" (e.g. "3/5") for everyday roles, so a sat game reads as a miss.
-  // Starting pitchers & relievers show a BARE count instead: they don't play every team game, and the
-  // data has no honest scheduled-start denominator (probables reconcile to the actual starter for
-  // finished games, so scratches can't be detected after the fact). '—' when there's no value.
+  // Rotation roles that DON'T play every team game show a BARE count instead — MLB pitchers (starts /
+  // appearances) and NHL goalies (appearances): a team-games denominator would misrepresent them, and
+  // for pitchers the data has no honest scheduled-start denominator anyway (probables reconcile to the
+  // actual starter for finished games, so scratches can't be detected after the fact). Goalie is scoped
+  // to NHL because 'G' is a guard on the basketball boards. '—' when there's no value.
   function gpDisplay(p) {
     const num = gpVal(p);
     if (num == null) return null;
-    if (isPitcherPos(p)) return String(num); // starts made / appearances — no team-games denominator
+    if (isPitcherPos(p) || (currentSport === 'nhl' && isGoalie(p))) return String(num);
     const den = gpDenom(p);
     return den == null ? String(num) : `${num}/${den}`;
   }
