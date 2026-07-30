@@ -1,7 +1,8 @@
 # Player Rankings — shipped changelog
 
-**Date:** 2026-07-26 · **Status:** all items below shipped to production and verified live (data checks
-+ a full in-browser pass over the UI). Commit hashes in parentheses.
+**Date:** 2026-07-30 · **Status:** all items below shipped to production and verified live (data checks
++ a full in-browser pass over the UI), except where an entry notes a different verification path.
+Commit hashes in parentheses.
 
 A record of the Player Rankings build-out. Grouped by area, not strictly chronological. Draft Mode has
 its own map in [`draft-mode-roadmap.md`](./draft-mode-roadmap.md); the few ranking-engine changes that
@@ -78,6 +79,31 @@ These changed `buildDataset`, so they also affect the shared dataset the draft b
 - **Two-way players get an independent Pitchers-pool entry** (`4d5c4ee`) — Ohtani now ranks in both the
   Hitters and Pitchers pools (same MLB id, `twoWay`-tagged clone). `draft.js` and the Coach skip the
   clone so he's drafted once; `enrichRolling` became a multimap so both entries keep their rolling data.
+
+## NFL opportunity context (shared with the draft board)
+
+Team-context **opportunity modifiers** layered onto the NFL blended-value board — free ESPN target
+share + offensive pace, clearly labeled as *opportunity* (not predictive precision). Scoped in
+[`nfl-phase2-context-scoping.md`](./nfl-phase2-context-scoping.md). Applied only to the **current-pace
+leg** of the blend and only **in-season**; in the offseason/preseason the same figures are last
+season's usage (stale for players who changed teams, and the projection already prices in expected
+new-team roles), so they show as **display-only context** and never tilt the ranking. Verified against
+live 2025 data through the full build pipeline; only affects the ranking once the season starts and
+`inSeason` flips true, so it isn't yet observable on the live board.
+
+- **Target share + pace as capped opportunity modifiers** (`1ed2d8e`) — `buildNflDataset` now captures
+  each team's receiving targets + offensive plays off the *existing* per-team DST stat calls (no extra
+  network) and stores per-player targets; a new `enrichNflContext` converts them into `targetShare`
+  (WR/TE/RB) and a `paceIndex` (all skill; QB pace-only), then into a modest **capped ±8% tilt**
+  (`nflBlend` applies it to the in-season pace leg). Surfaces an explicit **"Opportunity"** label
+  (e.g. "28% target share · fast pace") on the draft board/sidebar and the rankings NFL detail row via
+  a shared `renderOpportunity` helper.
+- **Target-share baseline from starters only** (`79d3699`) — the positional baseline a player's share
+  is measured against is built from each team's *starters* (WR top 2, TE/RB top 1, among players who
+  logged ≥ half the games) instead of every rostered body, so deep-roster depth no longer drags it
+  down. This separates ELITE usage from merely-good: on live 2025 data the baselines settle at
+  WR .178 / TE .147 / RB .103, keeping a real tilt for target hogs (JSN, McBride, CMC) while
+  solid-but-not-elite WR1s compress toward neutral.
 
 ## Removed
 
