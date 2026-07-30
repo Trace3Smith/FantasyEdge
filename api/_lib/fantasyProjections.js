@@ -46,20 +46,30 @@ export function keyFor(pos, name) {
   return pos === 'DST' ? `DST|${teamKey(name)}` : `${pos}|${normName(name)}`;
 }
 
-// The compact, draft-relevant subset shown on each card, as [displayLabel, sleeperStatKey].
-// A '__'-prefixed key is a computed field (see statValue). Projected FPTS is the headline,
-// shown separately. Mirrors the labels the UI already renders.
-const DISPLAY = {
+// Full per-position stat columns as [displayLabel, sleeperStatKey], ALIGNED to buildNflDataset's
+// statLabels order so a seeded (rookie) record's s1..s5 line up with the ranked table. A
+// '__'-prefixed key is computed (see statValue); a null value renders '—'. K/DST are partial (they
+// aren't seeded and their cards only show a few fields).
+const COLUMNS = {
   QB: [['PaYd', 'pass_yd'], ['PaTD', 'pass_td'], ['INT', 'pass_int'], ['RuYd', 'rush_yd'], ['RuTD', 'rush_td']],
   RB: [['RuYd', 'rush_yd'], ['RuTD', 'rush_td'], ['Rec', 'rec'], ['ReYd', 'rec_yd'], ['ReTD', 'rec_td']],
-  WR: [['Rec', 'rec'], ['ReYd', 'rec_yd'], ['ReTD', 'rec_td'], ['RuYd', 'rush_yd']],
-  TE: [['Rec', 'rec'], ['ReYd', 'rec_yd'], ['ReTD', 'rec_td']],
-  K: [['FG', '__fg'], ['XP', 'xpm']],
+  WR: [['Rec', 'rec'], ['ReYd', 'rec_yd'], ['ReTD', 'rec_td'], ['Tgt', '__tgt'], ['RuYd', 'rush_yd']],
+  TE: [['Rec', 'rec'], ['ReYd', 'rec_yd'], ['ReTD', 'rec_td'], ['Tgt', '__tgt'], ['RuYd', 'rush_yd']],
+  K: [['FGM', '__fg'], ['XPM', 'xpm']],
   DST: [['Sack', 'sack'], ['INT', 'int'], ['TD', '__deftd']],
 };
+// The subset of labels shown on the compact draft-card line (projected FPTS is the headline).
+const CARD = {
+  QB: ['PaYd', 'PaTD', 'INT', 'RuYd', 'RuTD'], RB: ['RuYd', 'RuTD', 'Rec', 'ReYd', 'ReTD'],
+  WR: ['Rec', 'ReYd', 'ReTD', 'RuYd'], TE: ['Rec', 'ReYd', 'ReTD'], K: ['FGM', 'XPM'], DST: ['Sack', 'INT', 'TD'],
+};
+// Rookie seeding: only skill positions, only above this projected-PPR floor (skip camp bodies).
+const SEED_POS = new Set(['QB', 'RB', 'WR', 'TE']);
+const SEED_FLOOR = 50;
 
-// Read a (possibly computed) stat from a Sleeper stats object.
+// Read a (possibly computed) stat from a Sleeper stats object. null -> the cell renders '—'.
 function statValue(st, key) {
+  if (key === '__tgt') return null; // Sleeper doesn't project targets separately
   if (key === '__fg') return Object.keys(st).filter((k) => /^fgm_\d/.test(k)).reduce((a, k) => a + (st[k] || 0), 0);
   if (key === '__deftd') return (st.def_fum_td || 0) + (st.def_kr_td || 0) + (st.def_st_td || 0) + (st.def_td || 0);
   return st[key];
@@ -91,11 +101,13 @@ async function fetchPosition(season, sleeperPos) {
         : `${pl.first_name || ''} ${pl.last_name || ''}`.trim();
       if (!name) continue;
       const stats = {};
-      for (const [label, key] of (DISPLAY[pos] || [])) {
+      for (const [label, key] of (COLUMNS[pos] || [])) {
         const v = statValue(st, key);
         if (v != null) stats[label] = round1(v);
       }
       rows.push({
+        id: r.player_id != null ? String(r.player_id) : null, // Sleeper's stable id (row-level)
+        exp: pl.years_exp,                                     // 0 = rookie
         name, team: pl.team || null, pos,
         pts: { ppr: round1(st.pts_ppr), std: round1(st.pts_std ?? st.pts_ppr), half: round1(st.pts_half_ppr ?? st.pts_ppr) },
         stats,
@@ -120,7 +132,9 @@ export async function fetchSleeperProjections(season) {
 // nothing. Mutates dataset in place; additive and failure-tolerant.
 export async function enrichNflProjections(dataset, redis) {
   if (!dataset?.players?.length) return;
-  const season = dataset.counts?.season || new Date().getFullYear();
+  // The UPCOMING/ranking season, not ESPN's stat season: in the offseason ESPN's byathlete is still
+  // last year's completed data (dataset.counts.season = 2025) while we want the 2026 projections.
+  const season = Math.max(new Date().getFullYear(), Number(dataset.counts?.season) || 0);
 
   let pull = await fetchSleeperProjections(season);
   if (pull.players.length) {
@@ -138,19 +152,50 @@ export async function enrichNflProjections(dataset, redis) {
     if (!byKey.has(k)) byKey.set(k, r);
   }
 
+  // The compact card line (CARD subset) for a projection row.
+  const cardLine = (r) => (CARD[r.pos] || [])
+    .map((label) => ({ label, val: r.stats[label] }))
+    .filter((s) => s.val != null);
+  const projOf = (r) => ({ fpts: r.pts.ppr, line: cardLine(r), scoring: pull.scoring, pts: r.pts });
+
+  // Match existing dataset players; also record which keys already exist (so seeding can't dupe).
+  const existing = new Set();
   let matched = 0;
   for (const pl of dataset.players) {
+    existing.add(keyFor(pl.pos, pl.name));
     const r = byKey.get(keyFor(pl.pos, pl.name));
     if (!r) continue;
-    const line = Object.entries(r.stats).map(([label, val]) => ({ label, val }));
-    // `pts` (all three formats) feeds the blended-value ranking; `fpts` (PPR headline) + `line`
-    // are what the draft cards and Coach already render.
-    pl.proj = { fpts: r.pts.ppr, line, scoring: pull.scoring, pts: r.pts };
+    pl.proj = projOf(r); // `pts` feeds the blend; `fpts`+`line` are what cards/Coach render
     matched++;
+  }
+
+  // Seed true rookies (years_exp === 0) that Sleeper projects but ESPN's byathlete universe lacks,
+  // so a projection-aware draft board isn't missing the incoming class. Skill positions only, above
+  // a projected-PPR floor, never duplicating an existing key. Synthetic record: no current/prior
+  // stats (games 0), so the blend collapses to the projection. fpPpr/fpStd seed the blend's actual/
+  // recent legs (both = projection in the offseason), yielding blend = projection. See
+  // docs/nfl-rookie-seeding-scoping.md.
+  let seeded = 0;
+  for (const r of pull.players) {
+    if (!SEED_POS.has(r.pos) || r.exp !== 0 || !r.id || r.pts.ppr < SEED_FLOOR) continue;
+    const k = keyFor(r.pos, r.name);
+    if (existing.has(k)) continue;
+    existing.add(k);
+    const cols = COLUMNS[r.pos] || [];
+    const s = cols.map(([label]) => (r.stats[label] != null ? String(r.stats[label]) : '—'));
+    dataset.players.push({
+      id: `sleeper-${r.id}`, name: r.name, team: r.team || '—', league: null, pos: r.pos,
+      hasStats: true, games: 0, rookie: true, searchOnly: false,
+      fpPpr: r.pts.ppr, fpStd: r.pts.std, fp: r.pts.ppr,
+      s1: s[0] ?? '—', s2: s[1] ?? '—', s3: s[2] ?? '—', s4: s[3] ?? '—', s5: s[4] ?? '—', s6: r.pts.ppr.toFixed(1),
+      statLabels: [...cols.map(([label]) => label), 'FPTS'], cats: [],
+      proj: projOf(r), emoji: '🏈', trend: 'flat', trendVal: '', own: 5, tag: null,
+    });
+    seeded++;
   }
 
   dataset.counts = {
     ...dataset.counts,
-    projections: { matched, pulled: pull.players.length, source: 'sleeper', builtAt: pull.builtAt },
+    projections: { matched, seeded, pulled: pull.players.length, source: 'sleeper', builtAt: pull.builtAt },
   };
 }
