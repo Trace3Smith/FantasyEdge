@@ -74,6 +74,12 @@
   .cand .nm { font-weight: 600; }
   .cand .meta { font-size: 12px; color: var(--gray); }
   .cand .proj { font-size: 11px; color: var(--gold); opacity: 0.85; margin-top: 3px; }
+  /* Phase 2 opportunity context (target share + pace). Green to distinguish it from the gold proj line. */
+  .cand .opp { font-size: 11px; color: var(--green); opacity: 0.9; margin-top: 3px; }
+  .opp-block { margin: 12px 0; padding: 9px 11px; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; background: var(--dark3); }
+  .opp-block .opp-hd { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--gold); margin-bottom: 4px; }
+  .opp-block .opp-body { font-size: 13px; color: var(--white); font-weight: 600; }
+  .opp-block .opp-note { font-size: 10px; color: var(--gray); margin-top: 4px; }
   .cand .pos { display: inline-block; min-width: 34px; text-align: center; font-size: 11px; font-weight: 700;
     padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.08); margin-right: 8px; }
   .cand .need { color: var(--green); font-size: 11px; font-weight: 700; }
@@ -366,7 +372,7 @@ import { value as mlbValue, boardCmp as mlbBoardCmp, rankMap as mlbRankMap } fro
 import { value as nhlValue, boardCmp as nhlBoardCmp, rankMap as nhlRankMap } from '/nhlScoring.js';
 // Shared player-display module — the SAME code Player Rankings renders through, so the detail
 // sidebar's stars, category pills, tags/trends, sortable category list, and prior-year line match it.
-import { renderStarsBlock, renderCategoryList, renderPrevYear, getTagHTML, getTrendHTML } from '/playerDisplay.js';
+import { renderStarsBlock, renderCategoryList, renderPrevYear, renderOpportunity, getTagHTML, getTrendHTML } from '/playerDisplay.js';
 
 // --- Mock draft controller ----------------------------------------------------
 let players = [];           // full player pool for the active sport
@@ -957,7 +963,7 @@ function renderAvailable(filter = '') {
       const adpStr = adp != null ? Math.round(adp * 10) / 10 : null;
       const fpts = p.fpPpr != null ? nflFpts(p, scoring).toFixed(1) : null;
       meta = ` · ${p.team} · #${rk}${fpts != null ? ' · ' + fpts + ' FPTS' : ''}${adpStr != null ? ' · ADP ' + adpStr : ''}`;
-      extra = projLine(p);
+      extra = projLine(p) + renderOpportunity(p, 'compact');
     }
     return `<div class="cand${selectedId === p.id ? ' selected' : ''}" data-id="${p.id}"><div class="cand-main"><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>
       <span class="meta">${meta}</span>${extra}</div><button class="cand-add" data-add="${p.id}" title="Draft ${p.name.replace(/"/g, '&quot;')}">+</button></div>`;
@@ -1011,6 +1017,7 @@ function renderDetail() {
       <button class="btn btn-gold pd-draft" id="pdDraftBtn"${drafted ? ' disabled' : ''}>${drafted ? 'Drafted' : 'Draft'}</button>
     </div>
     <div class="pd-stars">${renderStarsBlock(p.cats)}</div>
+    ${renderOpportunity(p, 'block')}
     <div class="pd-sec-hd"><span>Categories</span><span class="pd-sort">${sortBtn('natural', 'Order')}${sortBtn('value', 'Value')}${sortBtn('impact', 'Impact')}</span></div>
     ${renderCategoryList(p, detailSort)}
     <div class="pd-sec-hd"><span>Prior Season</span></div>

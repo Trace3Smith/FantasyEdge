@@ -132,7 +132,13 @@ function dstCats(n) {
   return cats;
 }
 
-// --- DST: core team statistics + standings points-allowed --------------------
+// --- DST + team offensive context: core team statistics + standings points-allowed --------------
+// Returns { dsts, teamContext }. Phase 2 (see docs/nfl-phase2-context-scoping.md) piggybacks the
+// per-team statistics fetch this already does for DST to ALSO capture each team's offensive
+// context — total receiving targets (denominator for a pass-catcher's target share) and offensive
+// plays per game (the pace signal) — so the opportunity modifiers cost no extra network calls.
+// teamContext is keyed by ESPN team id (a String), the reliable join key back to each skill
+// player's `teamId` (team abbreviations can drift between endpoints).
 async function buildDsts(season) {
   const standUrl = `https://site.web.api.espn.com/apis/v2/sports/football/nfl/standings?region=us&lang=en&season=${season}&seasontype=2`;
   const stand = await getJson(standUrl);
@@ -155,7 +161,8 @@ async function buildDsts(season) {
     return s ? (s.value ?? 0) : 0;
   };
 
-  // Fetch every team's core defensive stat line in parallel.
+  // Fetch every team's core stat line in parallel — one call per team drives BOTH the DST record
+  // and the offensive-context entry.
   const results = await Promise.all(
     teams.map(async (tm) => {
       try {
@@ -178,7 +185,7 @@ async function buildDsts(season) {
           sacks * DST_SACK + int * DST_INT + fr * DST_FR + td * DST_TD +
           safeties * DST_SAFETY + blk * DST_BLK + paPoints(paPerGame) * games;
         const n = { sacks, int, fr, td, safeties, blk, pa: tm.pa, paPerGame };
-        return {
+        const dst = {
           id: 'dst-' + tm.id,
           name: tm.name + ' D/ST',
           team: tm.abbr,
@@ -192,12 +199,24 @@ async function buildDsts(season) {
           statLabels: ['Sack', 'INT', 'FR', 'TD', 'PA', 'FPTS'],
           cats: dstCats(n),
         };
+        // Phase 2 offensive context: team receiving targets + offensive pace, keyed by team id.
+        const targets = coreStat(cats, 'receiving', 'receivingTargets');
+        const plays = coreStat(cats, 'passing', 'totalOffensivePlays');
+        const ctx = { id: String(tm.id), abbr: tm.abbr, targets, plays, games, playsPerGame: games > 0 ? plays / games : 0 };
+        return { dst, ctx };
       } catch {
         return null;
       }
     })
   );
-  return results.filter(Boolean);
+  const dsts = [];
+  const teamContext = {};
+  for (const r of results) {
+    if (!r) continue;
+    dsts.push(r.dst);
+    if (r.ctx?.id != null) teamContext[r.ctx.id] = r.ctx;
+  }
+  return { dsts, teamContext };
 }
 
 // Prior full-season line for the Mock Draft sidebar, keyed by athlete id. Shows only the volume
@@ -263,6 +282,7 @@ export async function buildNflDataset() {
       id: at.id,
       name: at.displayName || `${at.firstName || ''} ${at.lastName || ''}`.trim() || 'Unknown',
       team: at.teamShortName || at.teamName || '—',
+      teamId: at.teamId != null ? String(at.teamId) : null, // join key to teamContext (Phase 2)
       league: null,
       pos,
       hasStats: true,
@@ -331,18 +351,24 @@ export async function buildNflDataset() {
         statLabels: labels,
         cats: skillCats(pos, n),
       };
+      rec.tgt = n.tgt; // player receiving targets on every pass-catcher (QB ~0); feeds target share (Phase 2)
     }
     rec._games = games;
     rec.games = games; // season games played — surfaces as the GP column (public; _games is stripped below)
     skill.push(rec);
   }
 
-  // DST is additive and failure-tolerant — skill players still rank without it.
+  // DST + team offensive context are additive and failure-tolerant — skill players still rank
+  // without them (an empty teamContext simply makes the Phase 2 opportunity modifiers a no-op).
   let dsts = [];
+  let teamContext = {};
   try {
-    dsts = await buildDsts(seasonYear);
+    const built = await buildDsts(seasonYear);
+    dsts = built.dsts;
+    teamContext = built.teamContext;
   } catch {
     dsts = [];
+    teamContext = {};
   }
 
   // Positional scaling for kickers. Raw kicker points are deceptively high (a top
@@ -381,6 +407,7 @@ export async function buildNflDataset() {
     builtAt: new Date().toISOString(),
     sport: 'nfl',
     players,
+    teamContext, // per-team offensive context (targets/pace) for the Phase 2 opportunity modifiers
     counts: {
       season,
       maxGames,

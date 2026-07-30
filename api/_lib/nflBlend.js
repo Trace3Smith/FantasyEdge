@@ -48,15 +48,27 @@ export function enrichNflBlend(dataset) {
       ? { ppr: (actual.ppr / games) * SEASON_GAMES, std: (actual.std / games) * SEASON_GAMES }
       : null;
 
+    // Phase 2 opportunity modifier: a small capped tilt (target share + pace, from enrichNflContext)
+    // applied ONLY to the in-season current-pace leg — the leg that reflects the real current
+    // situation. Out of season the pace leg is null and the tilt is inert (offseason figures are
+    // stale/last-season, so they stay display-only). See docs/nfl-phase2-context-scoping.md.
+    const oppTilt = (inSeason && pace != null && p.opportunity && Number.isFinite(p.opportunity.tilt))
+      ? p.opportunity.tilt : 0;
+
     const blendFmt = (fmt) => {
       const pj = proj ? proj[fmt] : null;
       const rc = recent ? recent[fmt] : null;
       // Baseline expectation: projection-led with recent actuals in support; degrade gracefully.
       const baseline = (pj != null && rc != null) ? 0.65 * pj + 0.35 * rc
         : (pj != null ? pj : (rc != null ? rc : actual[fmt]));
-      return pace != null ? wCur * pace[fmt] + (1 - wCur) * baseline : baseline;
+      const pacePts = pace != null ? pace[fmt] * (1 + oppTilt) : null;
+      return pacePts != null ? wCur * pacePts + (1 - wCur) * baseline : baseline;
     };
     const bppr = blendFmt('ppr'), bstd = blendFmt('std');
+
+    // `applied` = the in-season pace leg was live (the tilt was integrated into the ranking, even
+    // if it netted to ~0), which is what the display framing keys off; `appliedTilt` is the amount.
+    if (p.opportunity) { p.opportunity.applied = inSeason && pace != null; p.opportunity.appliedTilt = oppTilt; }
 
     p.actual = { ppr: r1(actual.ppr), std: r1(actual.std) }; // keep true current-season points
     p.fpPpr = r1(bppr);

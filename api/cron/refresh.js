@@ -16,6 +16,7 @@ import { enrichRollingEspn } from '../_lib/enrichRollingEspn.js';
 import { buildBvp } from '../_lib/enrichBvp.js';
 import { enrichNflProjections } from '../_lib/fantasyProjections.js';
 import { enrichNflAdp } from '../_lib/fantasyAdp.js';
+import { enrichNflContext } from '../_lib/enrichNflContext.js';
 import { enrichNflBlend } from '../_lib/nflBlend.js';
 import { buildNflPickem } from '../_lib/nflPickem.js';
 import { buildCfbBowl } from '../_lib/cfbBowl.js';
@@ -142,8 +143,17 @@ export default async function handler(req, res) {
           } catch (err) {
             built.counts = { ...built.counts, adpError: err.message };
           }
+          // Phase 2 opportunity context: target share + pace → a capped tilt on each skill player.
+          // Runs BEFORE the blend (which applies the tilt to the in-season pace leg). Additive +
+          // failure-tolerant — an error just leaves players without p.opportunity.
+          try {
+            enrichNflContext(built);
+          } catch (err) {
+            built.counts = { ...built.counts, contextError: err.message };
+          }
           // Blended-value ranking: reweight fpPpr/fpStd = projection + last-year + current pace by
-          // season progress (needs projections above). Additive + failure-tolerant.
+          // season progress (needs projections above). Also applies the Phase 2 opportunity tilt to
+          // the in-season pace leg. Additive + failure-tolerant.
           try {
             enrichNflBlend(built);
           } catch (err) {
