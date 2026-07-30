@@ -63,3 +63,25 @@ A `'sleeper-'`-prefixed id is new — confirm nothing assumes numeric/ESPN ids. 
 
 Medium — concentrated in the projection enrich + a dedup guard + the column mapping; the blend and
 ranking need no changes.
+
+## Status — built & verified (2026-07-30)
+
+Shipped in `9ff4c73` (with the projection-season fix). Live: **34 rookies seeded**, all ranked, no
+duplicate ids. Also verified the `'sleeper-<id>'` compatibility risk flagged above — **no changes
+needed:**
+
+- **Client draft path** (`fantasyedge-draft.html`), full trace: player ids are used only as opaque
+  keys — `state.drafted` (Set `.has`/`.add`), `byId` (Map `.get`), and `picks`/`roster` store `id`
+  verbatim. A scan for numeric-id assumptions (`parseInt`/`Number`/arithmetic on ids) across the
+  draft path found none; the only `Number(...)` calls are on draft settings (pick/round/teams/
+  position), never ids. Select → ➕/Draft → record/roster/exclude all route through the id as a
+  string.
+- **Server engine** (`api/_lib/draft.js`, `advise.js`): `recommend()` filters
+  `available = players.filter(p => !new Set(drafted).has(p.id))` — opaque keys again — and `advise`
+  loads its pool via `loadPlayers(sport)` (the same cached dataset that now holds the seeded
+  rookies), so client and server share the ids.
+- **Runtime test:** drafted Fernando Mendoza (`sleeper-13269`) through the real engine; it executed
+  cleanly and correctly excluded him from the available candidates afterward.
+
+Method: code-trace + direct runtime exercise of the engine (the decisive test for id-safety), not a
+browser click-through.
