@@ -472,6 +472,11 @@
   .tag-log { background: rgba(255,255,255,0.06); color: var(--gray-light); border: 1px solid rgba(255,255,255,0.2); cursor: pointer; }
   .gamelog-wrap { max-width: 460px; }
   .gamelog-wrap:not(:first-child) { margin-top: 12px; }
+  /* Phase 2 NFL opportunity context (target share + pace), shown in the expandable detail row. */
+  .opp-block { max-width: 460px; margin-bottom: 12px; padding: 9px 11px; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; background: var(--dark2); }
+  .opp-block .opp-hd { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--gold); margin-bottom: 4px; }
+  .opp-block .opp-body { font-size: 13px; color: var(--white); font-weight: 600; }
+  .opp-block .opp-note { font-size: 10px; color: var(--gray); margin-top: 4px; }
   .gamelog-head { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
   .gamelog-title { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--gold); margin-right: auto; }
   /* L15/L30 window toggle — compact take on the board's .pos-btn (gold active fill). */
@@ -671,7 +676,7 @@
   import { nflFpts, nflReplacementLevels, nflBoardCmp } from '/nflScoring.js';
   // Shared player-display primitives (stars, category pills, formatStat, tag/trend/tier badges) —
   // the SAME code the Mock Draft detail sidebar renders through, so both views are identical.
-  import { getStarCount, getStarLabel, renderStars, renderStarsBlock, formatStat, getTrendHTML, getTagHTML, getTierHTML } from '/playerDisplay.js';
+  import { getStarCount, getStarLabel, renderStars, renderStarsBlock, formatStat, getTrendHTML, getTagHTML, getTierHTML, renderOpportunity } from '/playerDisplay.js';
 
   let currentSport = 'mlb';
   let currentType = 'H'; // MLB player-type tab: 'H' hitters | 'P' pitchers (other sports ignore it)
@@ -1067,7 +1072,10 @@
       // PGA recent tournament finishes — a separate, name-keyed path (golfers carry no athlete id),
       // NOT the gamelog registry. Rides the same detail row / expansion as everything else.
       const pgaResultsDetail = (isPga && p.name) ? renderPgaResultsSection(p) : '';
-      const detailHtml = prospectDetail + bvpDetail + rollingDetail + gamelogDetail + pgaResultsDetail;
+      // Phase 2 NFL opportunity context (target share + pace). Rides the SAME expandable detail row —
+      // NFL skill players already open it for their game log, so this needs no chip of its own.
+      const opportunityDetail = (currentSport === 'nfl') ? renderOpportunity(p, 'block') : '';
+      const detailHtml = opportunityDetail + prospectDetail + bvpDetail + rollingDetail + gamelogDetail + pgaResultsDetail;
       const hasDetail = !!detailHtml;
       // Exactly one expand caret, on the first present chip (priority: prospect, BvP, form, log, results).
       const caretOn = prospectDetail ? 'prospect' : bvpActionable ? 'bvp' : rollingDetail ? 'form' : gamelogDetail ? 'gamelog' : pgaResultsDetail ? 'pga' : null;

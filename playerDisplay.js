@@ -107,6 +107,33 @@ export function renderCategoryList(p, sortMode = 'natural') {
   }).join('')}</div>`;
 }
 
+// NFL "Opportunity" context (Phase 2): a skill player's team target share + offensive pace, from
+// the backend `opportunity: { label, targetShare, paceIndex, paceBucket, applied, appliedTilt,
+// season }`. In-season these NUDGE the blended ranking (a capped tilt on the current-pace leg,
+// applied by nflBlend) — `applied` is true. In the offseason the same figures are LAST season's
+// usage, shown as context only and never applied — the projection already prices in new-team roles.
+// `variant`: 'compact' (one inline line, for the draft board) or 'block' (a small labeled section).
+// Returns '' when there's nothing notable to show (no team context, or an average-pace QB).
+export function renderOpportunity(p, variant = 'block') {
+  const o = p && p.opportunity;
+  if (!o || !o.label) return '';
+  const applied = !!o.applied;
+  if (variant === 'compact') {
+    return `<div class="opp">Opportunity: ${o.label}${applied ? '' : ' · context only'}</div>`;
+  }
+  const seasonTag = o.season ? `${o.season} usage` : 'prior usage';
+  let foot;
+  if (applied) {
+    const pct = Math.round((o.appliedTilt || 0) * 100);
+    foot = pct !== 0
+      ? `<div class="opp-note">${pct > 0 ? '+' : ''}${pct}% on current-pace value</div>`
+      : `<div class="opp-note">Applied to the ranking (current-pace leg)</div>`;
+  } else {
+    foot = `<div class="opp-note">Context only (${seasonTag}) — not applied to the ranking out of season.</div>`;
+  }
+  return `<div class="opp-block"><div class="opp-hd">Opportunity</div><div class="opp-body">${o.label}</div>${foot}</div>`;
+}
+
 // Prior-year full-season line (e.g. an NFL player's TDs, or the full roto line for other
 // sports), from the backend `prevYear: { season, headline, line: [{cat,val}] }`. Empty
 // when the pipeline had no prior season for that player.
