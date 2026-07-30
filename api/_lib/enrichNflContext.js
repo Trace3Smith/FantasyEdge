@@ -33,11 +33,15 @@ const SHARE_MAX = 0.06;  // share component's own cap
 // Pace buckets for the label (index 1.0 = league average).
 const PACE_FAST = 1.04, PACE_SLOW = 0.96;
 
-// Only players with a non-trivial share count toward a positional baseline (excludes deep-bench
-// bodies that would drag the average down); below this many qualifiers, fall back to a constant.
-const MIN_SHARE_FOR_BASELINE = 0.03;
-const MIN_QUALIFIERS = 8;
-const FALLBACK_BASELINE = { WR: 0.15, TE: 0.13, RB: 0.11 };
+// The positional target-share baseline is built from STARTERS only — each team's top pass-catchers
+// at the position — so it reflects a typical starter's share, not the league-wide average that deep
+// rosters (WR4+, backup TE/RB) drag down. A starter-level baseline makes the tilt separate ELITE
+// usage from merely-good, rather than rewarding any every-week starter. Players who missed most of
+// the season are excluded too, since their season-total share is diluted by the games they sat.
+const STARTER_SLOTS = { WR: 2, TE: 1, RB: 1 }; // per-team slots that count as "starters" for the baseline
+const STARTER_GAMES_FRAC = 0.5;                // must have played ≥ half the games to be rateable
+const MIN_QUALIFIERS = 8;                       // below this pool size, fall back to a constant
+const FALLBACK_BASELINE = { WR: 0.18, TE: 0.14, RB: 0.12 }; // starter-level fallbacks
 
 const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 const r3 = (v) => Math.round((Number(v) || 0) * 1000) / 1000;
@@ -62,15 +66,26 @@ export function enrichNflContext(dataset) {
     return p.tgt / t.targets;
   };
 
-  // Self-calibrating positional target-share baselines (mean share among real contributors),
-  // with a constant fallback when the pool is too thin (e.g. early in the season).
+  // Self-calibrating positional target-share baselines, computed over STARTERS only: each team's
+  // top STARTER_SLOTS pass-catchers at the position, among players who played enough to be rateable.
+  // Falls back to a constant when the pool is too thin (e.g. early in the season).
+  const maxGames = dataset.counts?.maxGames || 0;
+  const minGames = Math.max(1, maxGames > 0 ? STARTER_GAMES_FRAC * maxGames : 0);
   const baselines = {};
   for (const pos of ['WR', 'TE', 'RB']) {
-    const shares = [];
+    // Bucket each team's rateable contributors by share, then keep only that team's top starter slots.
+    const byTeam = new Map();
     for (const p of dataset.players) {
-      if (p.pos !== pos || p.searchOnly || !(p.games > 0)) continue;
+      if (p.pos !== pos || p.searchOnly || !(p.games >= minGames)) continue;
       const s = shareOf(p);
-      if (s != null && s >= MIN_SHARE_FOR_BASELINE) shares.push(s);
+      if (s == null || s <= 0) continue;
+      if (!byTeam.has(p.teamId)) byTeam.set(p.teamId, []);
+      byTeam.get(p.teamId).push(s);
+    }
+    const shares = [];
+    for (const teamShares of byTeam.values()) {
+      teamShares.sort((a, b) => b - a);
+      for (const s of teamShares.slice(0, STARTER_SLOTS[pos])) shares.push(s);
     }
     baselines[pos] = shares.length >= MIN_QUALIFIERS
       ? shares.reduce((a, b) => a + b, 0) / shares.length
@@ -119,6 +134,10 @@ export function enrichNflContext(dataset) {
 
   dataset.counts = {
     ...dataset.counts,
-    opportunity: { inSeason, season: datasetSeason, tagged, teams: Object.keys(tc).length, leagueAvgPace: r2(leagueAvgPace) },
+    opportunity: {
+      inSeason, season: datasetSeason, tagged, teams: Object.keys(tc).length,
+      leagueAvgPace: r2(leagueAvgPace),
+      baselines: { WR: r3(baselines.WR), TE: r3(baselines.TE), RB: r3(baselines.RB) }, // starter-level share baselines
+    },
   };
 }
