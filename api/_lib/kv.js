@@ -23,8 +23,8 @@ export const DATASET_VERSION = 11;
 //   XWALK_KEY — cached FanGraphs playerId -> MLBAM id crosswalk (Chadwick-derived).
 export const PROSPECT_STATE_KEY = 'prospects:mlb';
 export const XWALK_KEY = 'xwalk:fg_mlbam';
-// FantasyPros consensus NFL projections (raw scrape), refreshed by the daily cron and
-// merged onto the NFL dataset. Persisted separately so a failed scrape degrades to the
+// Consensus NFL projections from Sleeper (season-long), refreshed by the daily cron and
+// merged onto the NFL dataset. Persisted separately so a failed pull degrades to the
 // last good projections instead of dropping them.
 export const PROJECTIONS_KEY = 'projections:nfl';
 // NFL consensus ADP (PPR + Standard + native Half-PPR) from the Fantasy Football

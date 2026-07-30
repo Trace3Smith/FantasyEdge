@@ -16,6 +16,7 @@ import { enrichRollingEspn } from '../_lib/enrichRollingEspn.js';
 import { buildBvp } from '../_lib/enrichBvp.js';
 import { enrichNflProjections } from '../_lib/fantasyProjections.js';
 import { enrichNflAdp } from '../_lib/fantasyAdp.js';
+import { enrichNflBlend } from '../_lib/nflBlend.js';
 import { buildNflPickem } from '../_lib/nflPickem.js';
 import { buildCfbBowl } from '../_lib/cfbBowl.js';
 import { buildCfbWeek } from '../_lib/cfbWeek.js';
@@ -126,8 +127,8 @@ export default async function handler(req, res) {
             built.counts = { ...built.counts, rollingError: err.message };
           }
         }
-        // NFL: bolt on FantasyPros consensus projections for the draft cards.
-        // Additive + failure-tolerant — falls back to the last good scrape in KV.
+        // NFL: Sleeper consensus projections (draft cards + Coach) feeding the blended-value
+        // ranking below. Additive + failure-tolerant — falls back to the last good pull in KV.
         if (s.sport === 'nfl') {
           try {
             await enrichNflProjections(built, redis);
@@ -140,6 +141,13 @@ export default async function handler(req, res) {
             await enrichNflAdp(built, redis);
           } catch (err) {
             built.counts = { ...built.counts, adpError: err.message };
+          }
+          // Blended-value ranking: reweight fpPpr/fpStd = projection + last-year + current pace by
+          // season progress (needs projections above). Additive + failure-tolerant.
+          try {
+            enrichNflBlend(built);
+          } catch (err) {
+            built.counts = { ...built.counts, blendError: err.message };
           }
         }
         built.version = DATASET_VERSION; // keep cache in sync with the handler's check

@@ -213,16 +213,27 @@ async function fetchPrevYearNfl(priorSeasonParam) {
       const at = a.athlete || {};
       if (at.id == null) continue;
       const num = (c, k) => val(a, c, k) || 0;
-      const passTD = num('passing', 'passingTouchdowns'), rushTD = num('rushing', 'rushingTouchdowns'), recTD = num('receiving', 'receivingTouchdowns');
+      const passYd = num('passing', 'passingYards'), passTD = num('passing', 'passingTouchdowns'), passInt = num('passing', 'interceptions');
+      const rushYd = num('rushing', 'rushingYards'), rushTD = num('rushing', 'rushingTouchdowns');
+      const rec = num('receiving', 'receptions'), recYd = num('receiving', 'receivingYards'), recTD = num('receiving', 'receivingTouchdowns');
+      const fumLost = num('rushing', 'rushingFumblesLost') + num('receiving', 'receivingFumblesLost');
+      const twoPt = num('scoring', 'totalTwoPointConvs');
       const raw = [
-        ['PaYd', num('passing', 'passingYards')], ['PaTD', passTD],
-        ['RuYd', num('rushing', 'rushingYards')], ['RuTD', rushTD],
-        ['Rec', num('receiving', 'receptions')], ['ReYd', num('receiving', 'receivingYards')], ['ReTD', recTD],
+        ['PaYd', passYd], ['PaTD', passTD], ['RuYd', rushYd], ['RuTD', rushTD],
+        ['Rec', rec], ['ReYd', recYd], ['ReTD', recTD],
       ];
       const line = raw.filter(([, v]) => v > 0).map(([cat, v]) => ({ cat, val: String(v) }));
       if (!line.length) continue;
       const totalTD = passTD + rushTD + recTD;
-      out.set(String(at.id), { season, headline: totalTD > 0 ? `${totalTD} TD` : '', line });
+      // Prior-season fantasy points in the SAME scoring as the current-season build, so the blend
+      // model can regress this season's pace toward last year's actual production. Half is exact.
+      const ppr = passYd * PASS_YD + passTD * PASS_TD + passInt * PASS_INT + rushYd * RUSH_YD +
+        rushTD * RUSH_TD + rec * REC + recYd * REC_YD + recTD * REC_TD + fumLost * FUMBLE_LOST + twoPt * TWO_PT;
+      const std = ppr - rec * REC;
+      out.set(String(at.id), {
+        season, headline: totalTD > 0 ? `${totalTD} TD` : '', line,
+        pts: { ppr: r1(ppr), std: r1(std), half: r1((ppr + std) / 2) },
+      });
     }
   } catch { /* prior season unavailable — no-op */ }
   return out;

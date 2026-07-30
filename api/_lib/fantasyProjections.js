@@ -1,52 +1,26 @@
-// FantasyPros consensus draft-season projections for the NFL, scraped daily by the
-// refresh cron and merged onto the cached NFL dataset so each draft card can show a
-// player's projected stat line alongside last season's actuals.
+// NFL season-long projections from Sleeper's free, no-key JSON API, fetched daily by the
+// refresh cron and merged onto the cached NFL dataset so each draft card, the Coach, and the
+// blended-value ranking can read a player's projected line + projected fantasy points.
 //
-// FantasyPros has no public API, so we parse the projections tables (one page per
-// position). The markup is stable: every player row carries fp-player-name="..." and
-// a trailing team abbreviation, followed by ordered numeric <td class="center"> cells
-// whose meaning per position is fixed (see COLUMNS). DST rows are the team itself, so
-// they carry no trailing abbr and are matched by team name instead.
+// Why Sleeper (replaced a FantasyPros scrape): FantasyPros only server-renders ~10 players
+// per position to a no-JS client (the rest is JS-loaded) and its full-roster feed needs a paid
+// key — too thin to anchor a full-roster ranking. Sleeper's projections endpoint returns the
+// FULL slate (~3k players) as clean JSON, with points in all three scoring formats natively.
 //
-// Failure-tolerant by design: a position page that fails to fetch/parse is skipped,
-// and enrichNflProjections falls back to the last good scrape stored in KV so one bad
-// run never wipes existing projections.
+//   GET https://api.sleeper.com/projections/nfl/{season}?season_type=regular&position[]=QB…
+//   -> [ { player:{first_name,last_name,team,fantasy_positions,...}, stats:{pts_ppr,pts_std,
+//          pts_half_ppr, pass_yd, pass_td, rush_yd, rush_td, rec, rec_yd, rec_td, ...} }, … ]
+//
+// Failure-tolerant: a failed fetch falls back to the last good pull stored in KV, so one bad
+// run never wipes projections. Attaches `proj = { fpts, line[], scoring, pts:{ppr,std,half} }`
+// per matched player — same shape the cards/Coach already read, plus `pts` for the blend model.
 import { PROJECTIONS_KEY } from './kv.js';
 
-const BASE = 'https://www.fantasypros.com/nfl/projections';
-const UA = {
-  'User-Agent': 'Mozilla/5.0 (compatible; FantasyEdge/1.0; +https://fantasy-edge-nine.vercel.app)',
-};
-const SCORING = 'PPR'; // matches the draft board's default (fp = PPR-anchored)
+const API = 'https://api.sleeper.com/projections/nfl';
+const UA = { 'User-Agent': 'FantasyEdge/1.0 (+https://fantasy-edge-nine.vercel.app)' };
+const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']; // Sleeper uses DEF; we map it to DST
 
-// Ordered labels for each position's center-cell values (last is always FPTS). Values
-// are aligned to these from the RIGHT, so FPTS always lands even if a layout ever
-// gains a leading column.
-const COLUMNS = {
-  QB: ['PaAtt', 'Cmp', 'PaYd', 'PaTD', 'INT', 'RuAtt', 'RuYd', 'RuTD', 'FL', 'FPTS'],
-  RB: ['RuAtt', 'RuYd', 'RuTD', 'Rec', 'ReYd', 'ReTD', 'FL', 'FPTS'],
-  WR: ['Rec', 'ReYd', 'ReTD', 'RuAtt', 'RuYd', 'RuTD', 'FL', 'FPTS'],
-  TE: ['Rec', 'ReYd', 'ReTD', 'FL', 'FPTS'],
-  K: ['FG', 'FGA', 'XP', 'FPTS'],
-  DST: ['Sack', 'INT', 'FR', 'FF', 'TD', 'Safety', 'PA', 'YdsAgn', 'FPTS'],
-};
-
-// The compact, draft-relevant subset shown on each card (projected FPTS is shown
-// separately as the headline number).
-const DISPLAY = {
-  QB: ['PaYd', 'PaTD', 'INT', 'RuYd', 'RuTD'],
-  RB: ['RuYd', 'RuTD', 'Rec', 'ReYd', 'ReTD'],
-  WR: ['Rec', 'ReYd', 'ReTD', 'RuYd'],
-  TE: ['Rec', 'ReYd', 'ReTD'],
-  K: ['FG', 'XP'],
-  DST: ['Sack', 'INT', 'TD', 'PA'],
-};
-
-const num = (s) => {
-  const n = parseFloat(String(s).replace(/,/g, ''));
-  return isFinite(n) ? n : 0;
-};
-const round1 = (v) => Math.round(v * 10) / 10;
+const round1 = (v) => Math.round((Number(v) || 0) * 10) / 10;
 
 // Normalize a player name for cross-source matching: lowercase, drop punctuation and
 // generational suffixes (Jr/Sr/II-V), collapse whitespace.
@@ -60,86 +34,106 @@ export function normName(name) {
     .trim();
 }
 
-// Normalize a team-defense identity: strip the "D/ST"/"Defense" designator so
-// FantasyPros's "Houston Texans" matches ESPN's "Houston Texans D/ST".
+// Normalize a team-defense identity: strip the "D/ST"/"Defense" designator so Sleeper's
+// "Los Angeles Rams" matches ESPN's "Los Angeles Rams D/ST".
 function teamKey(name) {
   return normName(String(name || '').replace(/d\/?st|defense|special teams/gi, ''));
 }
 
-// Index key a player record matches on: name+pos for skill, team identity for DST.
+// Index key a player record matches on: name+pos for skill/K, team identity for DST.
 // Exported so the ADP enricher matches players against the dataset identically.
 export function keyFor(pos, name) {
   return pos === 'DST' ? `DST|${teamKey(name)}` : `${pos}|${normName(name)}`;
 }
 
-// Parse one position page into [{ name, team, pos, fpts, stats:{label:val} }].
-function parsePage(html, pos) {
-  const t = html.indexOf('id="data"');
-  if (t < 0) return [];
-  const tbodyStart = html.indexOf('<tbody', t);
-  const tbodyEnd = html.indexOf('</tbody>', tbodyStart);
-  if (tbodyStart < 0 || tbodyEnd < 0) return [];
-  const body = html.slice(tbodyStart, tbodyEnd);
-  const labels = COLUMNS[pos] || [];
-  const rows = [];
-  const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
-  let m;
-  while ((m = rowRe.exec(body))) {
-    const row = m[1];
-    const name =
-      (row.match(/fp-player-name="([^"]+)"/) || [])[1] ||
-      (row.match(/class="player-name[^"]*"[^>]*>([^<]+)/) || [])[1];
-    if (!name) continue;
-    const team = pos === 'DST' ? null : (row.match(/<\/a>\s*([A-Za-z]{2,4})\s*<\/td>/) || [])[1] || null;
-    const vals = [...row.matchAll(/<td[^>]*class="center"[^>]*>\s*([\d.,\-]+)/g)].map((x) => num(x[1]));
-    if (!vals.length) continue;
-    // Align values to labels from the right so FPTS (the last label) always lines up.
-    const stats = {};
-    for (let i = 1; i <= labels.length && i <= vals.length; i++) {
-      stats[labels[labels.length - i]] = vals[vals.length - i];
-    }
-    rows.push({ name: name.trim(), team, pos, fpts: stats.FPTS ?? vals[vals.length - 1], stats });
-  }
-  return rows;
+// The compact, draft-relevant subset shown on each card, as [displayLabel, sleeperStatKey].
+// A '__'-prefixed key is a computed field (see statValue). Projected FPTS is the headline,
+// shown separately. Mirrors the labels the UI already renders.
+const DISPLAY = {
+  QB: [['PaYd', 'pass_yd'], ['PaTD', 'pass_td'], ['INT', 'pass_int'], ['RuYd', 'rush_yd'], ['RuTD', 'rush_td']],
+  RB: [['RuYd', 'rush_yd'], ['RuTD', 'rush_td'], ['Rec', 'rec'], ['ReYd', 'rec_yd'], ['ReTD', 'rec_td']],
+  WR: [['Rec', 'rec'], ['ReYd', 'rec_yd'], ['ReTD', 'rec_td'], ['RuYd', 'rush_yd']],
+  TE: [['Rec', 'rec'], ['ReYd', 'rec_yd'], ['ReTD', 'rec_td']],
+  K: [['FG', '__fg'], ['XP', 'xpm']],
+  DST: [['Sack', 'sack'], ['INT', 'int'], ['TD', '__deftd']],
+};
+
+// Read a (possibly computed) stat from a Sleeper stats object.
+function statValue(st, key) {
+  if (key === '__fg') return Object.keys(st).filter((k) => /^fgm_\d/.test(k)).reduce((a, k) => a + (st[k] || 0), 0);
+  if (key === '__deftd') return (st.def_fum_td || 0) + (st.def_kr_td || 0) + (st.def_st_td || 0) + (st.def_td || 0);
+  return st[key];
 }
 
-// Scrape every position page. Returns { builtAt, scoring, players: [...] }; positions
-// that fail are simply absent.
-export async function scrapeFantasyProjections() {
-  const positions = ['qb', 'rb', 'wr', 'te', 'k', 'dst'];
+// Sleeper fantasy_positions[0] -> our position code (DEF -> DST); null for anything we don't rank.
+function posOf(pl) {
+  const p = (pl.fantasy_positions || [])[0];
+  if (p === 'DEF') return 'DST';
+  return ['QB', 'RB', 'WR', 'TE', 'K'].includes(p) ? p : null;
+}
+
+// Fetch one position's season projections from Sleeper. Returns normalized rows; [] on failure.
+async function fetchPosition(season, sleeperPos) {
+  try {
+    const url = `${API}/${season}?season_type=regular&position[]=${sleeperPos}&order_by=pts_ppr`;
+    const res = await fetch(url, { headers: UA });
+    if (!res.ok) return [];
+    const arr = await res.json();
+    if (!Array.isArray(arr)) return [];
+    const rows = [];
+    for (const r of arr) {
+      const pl = r.player || {};
+      const pos = posOf(pl);
+      if (!pos) continue;
+      const st = r.stats || {};
+      const name = pos === 'DST'
+        ? `${pl.first_name || ''} ${pl.last_name || ''}`.trim() // "Los Angeles Rams"
+        : `${pl.first_name || ''} ${pl.last_name || ''}`.trim();
+      if (!name) continue;
+      const stats = {};
+      for (const [label, key] of (DISPLAY[pos] || [])) {
+        const v = statValue(st, key);
+        if (v != null) stats[label] = round1(v);
+      }
+      rows.push({
+        name, team: pl.team || null, pos,
+        pts: { ppr: round1(st.pts_ppr), std: round1(st.pts_std ?? st.pts_ppr), half: round1(st.pts_half_ppr ?? st.pts_ppr) },
+        stats,
+      });
+    }
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
+// Pull every position and return { builtAt, season, scoring, players:[...] }. Positions that
+// fail are simply absent (the whole run only "fails" if nothing came back at all).
+export async function fetchSleeperProjections(season) {
   const players = [];
-  for (const p of positions) {
-    try {
-      const res = await fetch(`${BASE}/${p}.php?scoring=${SCORING}&week=draft`, { headers: UA });
-      if (!res.ok) continue;
-      const html = await res.text();
-      players.push(...parsePage(html, p.toUpperCase()));
-    } catch {
-      /* skip this position */
-    }
-  }
-  return { builtAt: new Date().toISOString(), scoring: SCORING, players };
+  for (const sp of POSITIONS) players.push(...await fetchPosition(season, sp));
+  return { builtAt: new Date().toISOString(), season, scoring: 'PPR', players };
 }
 
-// Scrape FantasyPros and attach a `proj` object to each matching NFL dataset player.
-// Stores the raw scrape in KV (PROJECTIONS_KEY) and reuses the last good one if this
-// run scrapes nothing. Mutates dataset in place; additive and failure-tolerant.
+// Fetch Sleeper projections and attach a `proj` object to each matching NFL dataset player.
+// Stores the raw pull in KV (PROJECTIONS_KEY) and reuses the last good one if this run pulls
+// nothing. Mutates dataset in place; additive and failure-tolerant.
 export async function enrichNflProjections(dataset, redis) {
   if (!dataset?.players?.length) return;
+  const season = dataset.counts?.season || new Date().getFullYear();
 
-  let scrape = await scrapeFantasyProjections();
-  if (scrape.players.length) {
-    await redis.set(PROJECTIONS_KEY, scrape);
+  let pull = await fetchSleeperProjections(season);
+  if (pull.players.length) {
+    await redis.set(PROJECTIONS_KEY, pull);
   } else {
     const cached = await redis.get(PROJECTIONS_KEY);
-    if (cached?.players?.length) scrape = cached;
+    if (cached?.players?.length) pull = cached;
   }
-  if (!scrape.players?.length) return;
+  if (!pull.players?.length) return;
 
-  // First projection per key wins (rows are ranked best-first, so this keeps the
-  // starter when a name collides).
+  // First projection per key wins (rows arrive best-first by pts_ppr, so the starter keeps the key).
   const byKey = new Map();
-  for (const r of scrape.players) {
+  for (const r of pull.players) {
     const k = keyFor(r.pos, r.name);
     if (!byKey.has(k)) byKey.set(k, r);
   }
@@ -148,15 +142,15 @@ export async function enrichNflProjections(dataset, redis) {
   for (const pl of dataset.players) {
     const r = byKey.get(keyFor(pl.pos, pl.name));
     if (!r) continue;
-    const line = (DISPLAY[pl.pos] || [])
-      .map((label) => ({ label, val: r.stats[label] }))
-      .filter((s) => s.val != null);
-    pl.proj = { fpts: round1(r.fpts || 0), line, scoring: scrape.scoring };
+    const line = Object.entries(r.stats).map(([label, val]) => ({ label, val }));
+    // `pts` (all three formats) feeds the blended-value ranking; `fpts` (PPR headline) + `line`
+    // are what the draft cards and Coach already render.
+    pl.proj = { fpts: r.pts.ppr, line, scoring: pull.scoring, pts: r.pts };
     matched++;
   }
 
   dataset.counts = {
     ...dataset.counts,
-    projections: { matched, scraped: scrape.players.length, builtAt: scrape.builtAt },
+    projections: { matched, pulled: pull.players.length, source: 'sleeper', builtAt: pull.builtAt },
   };
 }
