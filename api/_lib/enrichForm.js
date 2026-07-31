@@ -17,7 +17,11 @@
 // with GAA computed from time-on-ice. Same 2+-categories verdict, reason text, full-roster coverage,
 // and last-15 window (last-15 appearances for goalies).
 //
-// The remaining sports (NBA/WNBA/NFL) still use the older recent-vs-own-average model until ported.
+// NBA uses the SAME fixed-absolute model, but only PTS/FG% are two-sided — FT% and the specialty
+// counting cats (3PM/AST/REB/STL/BLK) are HOT-ONLY, since a fixed COLD bar on a position-shaped stat
+// would false-flag by role (a guard never blocks; a center never shoots threes or FTs well). See NBA block.
+//
+// The remaining sports (WNBA/NFL) still use the older recent-vs-own-average model until ported.
 //
 // Cost control + gating: top-N ranked players, in-season only (detected from the data), daily cron.
 // Failure-tolerant per player and overall.
@@ -339,10 +343,104 @@ async function enrichNhlForm(dataset) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// LEGACY: recent-vs-own-average model (NBA / WNBA / NFL — unchanged)
+// NBA: fixed-absolute per-category HOT/COLD (mirrors the MLB hitter model)
+// ════════════════════════════════════════════════════════════════════════════
+const NBA_GL = 'https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes';
+const NBA_WINDOW = 15, NBA_MIN = 8, NBA_GAP_DAYS = 14; // last 15 games; reset at a >14-day gap; need >= 8 to badge
+const NBA_FORM_CONC = 8, NBA_FORM_SOFT_MS = 90000;
+
+// ESPN gives FG/3PT/FT as "made-attempted" strings ("8-18"); split to component totals.
+const madeAtt = (s) => { const [m, a] = String(s ?? '0-0').split('-'); return [num(m), num(a)]; };
+
+// ── Only PTS/FG% are two-sided; FT% + the specialty counting cats (3PM/AST/REB/STL/BLK) are HOT-ONLY. ──
+// Basketball roto cats are heavily position-shaped (a guard gets ~0 BLK, a center ~0 3PM), so a fixed
+// COLD bar on any of them would false-flag by role — the NHL-defenseman problem, worse. The COLD side
+// rides only the position-robust signals PTS + FG%: a slumping scorer of any position reads low PTS AND
+// low FG%, while a low-usage big stays EFFICIENT (FG% not cold) so the 2+ rule leaves him neutral.
+// FT% is HOT-ONLY on purpose: it's the one rate where bigs are the WORST, so a two-sided FT% re-leaked
+// the role problem (poor-FT bigs like Gobert false-flagged COLD on PTS+FT% baseline, not a slump) —
+// live verification caught it. Specialty cats stay hot-only so each archetype (guard 3PM/FT%, big
+// REB/BLK, playmaker AST) can earn HOT its own way. Counting cats are per-game averages over the window;
+// FG%/FT% are window make/attempt totals.
+const NBA_HOT = { PTS: 25.0, FG: 0.520, FT: 0.900, TPM: 3.5, AST: 8.0, REB: 12.0, STL: 2.2, BLK: 2.0 };
+const NBA_COLD = { PTS: 12.0, FG: 0.400 };
+function nbaBadge(win) {
+  const gp = win.length;
+  const ppg = sum(win, 'pts') / gp;
+  const fga = sum(win, 'fga'), fgm = sum(win, 'fgm'), fg = fga ? fgm / fga : 0;
+  const fta = sum(win, 'fta'), ftm = sum(win, 'ftm'), ft = fta ? ftm / fta : 0;
+  const tpm = sum(win, 'tpm') / gp, ast = sum(win, 'ast') / gp, reb = sum(win, 'reb') / gp;
+  const stl = sum(win, 'stl') / gp, blk = sum(win, 'blk') / gp;
+  const H = [], C = [];
+  // two-sided (position-robust): PTS + FG%
+  if (ppg >= NBA_HOT.PTS) H.push(ppg.toFixed(1) + ' PTS'); else if (ppg <= NBA_COLD.PTS) C.push(ppg.toFixed(1) + ' PTS');
+  if (fga && fg >= NBA_HOT.FG) H.push(fmt3(fg) + ' FG%'); else if (fga && fg <= NBA_COLD.FG) C.push(fmt3(fg) + ' FG%');
+  // hot-only: FT% (bigs are chronically poor → no cold side) + specialty counting cats
+  if (fta && ft >= NBA_HOT.FT) H.push(fmt3(ft) + ' FT%');
+  if (tpm >= NBA_HOT.TPM) H.push(tpm.toFixed(1) + ' 3PM');
+  if (ast >= NBA_HOT.AST) H.push(ast.toFixed(1) + ' AST');
+  if (reb >= NBA_HOT.REB) H.push(reb.toFixed(1) + ' REB');
+  if (stl >= NBA_HOT.STL) H.push(stl.toFixed(1) + ' STL');
+  if (blk >= NBA_HOT.BLK) H.push(blk.toFixed(1) + ' BLK');
+  if (H.length >= 2 && H.length > C.length) return { tag: 'hot', reason: H.join(', ') };
+  if (C.length >= 2 && C.length > H.length) return { tag: 'cold', reason: C.join(', ') };
+  return null;
+}
+
+// Per-game NBA log. DNP rows (0 minutes) dropped so the window is 15 real appearances.
+async function nbaGames(id) {
+  const gl = await getJson(`${NBA_GL}/${id}/gamelog`);
+  const idx = new Map((gl.names || []).map((n, i) => [n, i]));
+  const events = gl.events || {};
+  const st = (gl.seasonTypes || []).find((s) => /regular season/i.test(s.displayName || ''));
+  if (!st) return [];
+  const gi = (s, name) => s[idx.get(name)];
+  const games = [];
+  for (const cat of st.categories || []) for (const ev of cat.events || []) {
+    const s = ev.stats || [];
+    if (num(gi(s, 'minutes')) <= 0) continue; // DNP
+    const [fgm, fga] = madeAtt(gi(s, 'fieldGoalsMade-fieldGoalsAttempted'));
+    const [ftm, fta] = madeAtt(gi(s, 'freeThrowsMade-freeThrowsAttempted'));
+    const [tpm] = madeAtt(gi(s, 'threePointFieldGoalsMade-threePointFieldGoalsAttempted'));
+    const d = events[ev.eventId]?.gameDate;
+    games.push({
+      date: d ? new Date(d).toISOString() : '',
+      pts: num(gi(s, 'points')), reb: num(gi(s, 'totalRebounds')), ast: num(gi(s, 'assists')),
+      stl: num(gi(s, 'steals')), blk: num(gi(s, 'blocks')), tpm, fgm, fga, ftm, fta,
+    });
+  }
+  return games;
+}
+
+async function enrichNbaForm(dataset) {
+  // Full-roster coverage: every non-searchOnly NBA player, sorted by rank for graceful degradation.
+  const targets = dataset.players
+    .filter((p) => !p.searchOnly && p.id != null)
+    .sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
+  const deadline = Date.now() + NBA_FORM_SOFT_MS;
+  let hot = 0, cold = 0, checked = 0, skipped = 0;
+  await mapLimit(targets, NBA_FORM_CONC, async (p) => {
+    if (Date.now() > deadline) { skipped++; return; }
+    checked++;
+    try {
+      const g = await nbaGames(p.id);
+      g.sort((a, b) => (a.date < b.date ? 1 : -1)); // newest first
+      const win = recentWindow(g, NBA_WINDOW, NBA_GAP_DAYS);
+      if (win.length < NBA_MIN) return;
+      const b = nbaBadge(win);
+      if (!b) return;
+      p.tag = b.tag; p.trend = b.tag === 'hot' ? 'up' : 'down'; p.trendVal = '';
+      p.formReason = `${b.reason} · last ${win.length}`;
+      if (b.tag === 'hot') hot++; else cold++;
+    } catch { /* per-player failure is non-fatal */ }
+  });
+  dataset.counts = { ...dataset.counts, formActive: true, formHot: hot, formCold: cold, formChecked: checked, formTargets: targets.length, formSkipped: skipped };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// LEGACY: recent-vs-own-average model (WNBA / NFL — unchanged)
 // ════════════════════════════════════════════════════════════════════════════
 const FORM = {
-  nba: { minGames: 10, full: 82, recent: 5, path: 'basketball/nba' },
   wnba: { minGames: 10, full: 44, recent: 5, path: 'basketball/wnba' },
   nfl: { minGames: 4, full: 17, recent: 3, path: 'football/nfl' },
 };
@@ -399,8 +497,8 @@ async function enrichFormLegacy(dataset, { sport }) {
   dataset.counts = { ...dataset.counts, formActive: true, formHot: hot, formCold: cold, formChecked: top.length };
 }
 
-// Mutates dataset.players: sets tag 'hot'|'cold' (+ trend, formReason for MLB/NHL). MLB and NHL use the
-// fixed-absolute per-category model with full-roster coverage; NBA/WNBA/NFL use the legacy model.
+// Mutates dataset.players: sets tag 'hot'|'cold' (+ trend, formReason). MLB, NHL, and NBA use the
+// fixed-absolute per-category model with full-roster coverage; WNBA/NFL use the legacy model.
 // No-op (and no fetches) when the sport is out of season.
 export async function enrichForm(dataset, { sport, season }) {
   if (!Array.isArray(dataset.players)) return;
@@ -415,6 +513,13 @@ export async function enrichForm(dataset, { sport, season }) {
     const maxGames = dataset.counts?.maxGames;
     if (maxGames == null || maxGames >= 82) { dataset.counts = { ...dataset.counts, formActive: false }; return; }
     try { await enrichNhlForm(dataset); }
+    catch (err) { dataset.counts = { ...dataset.counts, formActive: false, formError: String(err?.message || err) }; }
+    return;
+  }
+  if (sport === 'nba') {
+    const maxGames = dataset.counts?.maxGames;
+    if (maxGames == null || maxGames >= 82) { dataset.counts = { ...dataset.counts, formActive: false }; return; }
+    try { await enrichNbaForm(dataset); }
     catch (err) { dataset.counts = { ...dataset.counts, formActive: false, formError: String(err?.message || err) }; }
     return;
   }
