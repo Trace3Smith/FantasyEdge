@@ -12,8 +12,12 @@
 // on ERA/K9/WHIP (ERA/WHIP inverted — lower is hotter). A SINGLE category clearing the league top/
 // bottom-20% bar earns the badge, guarded by a drop-best-game consistency check.
 //
-// The OTHER sports (NBA/NHL/WNBA/NFL) still use the older recent-vs-own-average model (unchanged)
-// until they're ported.
+// NHL (in-season) uses the SAME fixed-absolute per-category model as MLB hitters, split by role:
+// SKATERS on G/A/SOG (two-sided) + PPP (hot-only); GOALIES on SV%/GAA/W (two-sided) + SO (hot-only),
+// with GAA computed from time-on-ice. Same 2+-categories verdict, reason text, full-roster coverage,
+// and last-15 window (last-15 appearances for goalies).
+//
+// The remaining sports (NBA/WNBA/NFL) still use the older recent-vs-own-average model until ported.
 //
 // Cost control + gating: top-N ranked players, in-season only (detected from the data), daily cron.
 // Failure-tolerant per player and overall.
@@ -228,12 +232,118 @@ async function enrichMlbForm(dataset, season) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// LEGACY: recent-vs-own-average model (NBA / NHL / WNBA / NFL — unchanged)
+// NHL: fixed-absolute per-category HOT/COLD (mirrors the MLB hitter model)
+// ════════════════════════════════════════════════════════════════════════════
+const NHL_GL = 'https://site.web.api.espn.com/apis/common/v3/sports/hockey/nhl/athletes';
+const NHL_WINDOW = 15, NHL_MIN = 8, NHL_GAP_DAYS = 14; // last 15 games (appearances for goalies); reset at a >14-day gap; need >= 8 to badge
+const NHL_FORM_CONC = 8;                               // concurrent ESPN gamelog fetches
+const NHL_FORM_SOFT_MS = 90000;                        // soft time budget so full-roster form can't dominate the shared cron
+
+// "mm:ss" time-on-ice → minutes (num() would keep only the whole-minute part).
+const toiMin = (s) => { const [m, sec] = String(s ?? '0:0').split(':'); return (parseInt(m) || 0) + (parseInt(sec) || 0) / 60; };
+
+// ── SKATERS: G/A/SOG two-sided + PPP hot-only, over the last-15-game window (totals) ──
+// Bars are fixed 15-game production, not league/self-relative. HOT ≈ elite pace: 8 G (~44-goal pace),
+// 10 A (~55-assist pace), 50 SOG (top-15 shot volume), 6 PPP (~33 PPP/82). COLD = a clear drought.
+// PPP is hot-only (a scoreless PP stretch usually means off PP1, i.e. deployment, not cold form).
+//
+// ROLE TIER (from live verification): DEFENSEMEN are HOT-ONLY. G/A/SOG all scale with offensive role,
+// so a normal defenseman line ("0 G, 15 SOG") clears two cold bars just by being a defenseman — 55% of
+// D-men false-flagged COLD in testing. The high HOT bars stay role-appropriate (only a genuine
+// offensive-D run like Fox's 14 A / 11 PPP clears two), so D keeps HOT and drops COLD entirely.
+const SK_HOT = { G: 8, A: 10, SOG: 50, PPP: 6 };
+const SK_COLD = { G: 1, A: 2, SOG: 22 };
+function nhlSkaterBadge(win, isD) {
+  const g = sum(win, 'g'), a = sum(win, 'a'), sog = sum(win, 'sog'), ppp = sum(win, 'ppp');
+  const H = [], C = []; // isD → cold side suppressed (C stays empty, so a defenseman can never go cold)
+  if (g >= SK_HOT.G) H.push(g + ' G'); else if (!isD && g <= SK_COLD.G) C.push(g + ' G');
+  if (a >= SK_HOT.A) H.push(a + ' A'); else if (!isD && a <= SK_COLD.A) C.push(a + ' A');
+  if (sog >= SK_HOT.SOG) H.push(sog + ' SOG'); else if (!isD && sog <= SK_COLD.SOG) C.push(sog + ' SOG');
+  if (ppp >= SK_HOT.PPP) H.push(ppp + ' PPP'); // hot-only
+  if (H.length >= 2 && H.length > C.length) return { tag: 'hot', reason: H.join(', ') };
+  if (C.length >= 2 && C.length > H.length) return { tag: 'cold', reason: C.join(', ') };
+  return null; // single-category edge or an even tie → neutral
+}
+
+// ── GOALIES: SV%/GAA/W two-sided + SO hot-only, over the last-15-appearance window ──
+// SV% and GAA are aggregated from the window's raw totals (saves/shots-against and goals-against/TOI),
+// not by averaging per-game rates. GAA is inverted (lower = elite). SO is hot-only (0 is normal).
+const G_HOT = { SVPCT: 0.925, GAA: 2.40, W: 10, SO: 2 };
+const G_COLD = { SVPCT: 0.890, GAA: 3.30, W: 4 };
+function nhlGoalieBadge(win) {
+  const ga = sum(win, 'ga'), toi = sum(win, 'toi'), sa = sum(win, 'sa'), sv = sum(win, 'sv'), w = sum(win, 'w'), so = sum(win, 'so');
+  const svpct = sa ? sv / sa : 0;
+  const gaa = toi ? ga * 60 / toi : 0;
+  const H = [], C = [];
+  if (svpct >= G_HOT.SVPCT) H.push(fmt3(svpct) + ' SV%'); else if (svpct <= G_COLD.SVPCT) C.push(fmt3(svpct) + ' SV%');
+  if (gaa <= G_HOT.GAA) H.push(gaa.toFixed(2) + ' GAA'); else if (gaa >= G_COLD.GAA) C.push(gaa.toFixed(2) + ' GAA'); // inverted
+  if (w >= G_HOT.W) H.push(w + ' W'); else if (w <= G_COLD.W) C.push(w + ' W');
+  if (so >= G_HOT.SO) H.push(so + ' SO'); // hot-only
+  if (H.length >= 2 && H.length > C.length) return { tag: 'hot', reason: H.join(', ') };
+  if (C.length >= 2 && C.length > H.length) return { tag: 'cold', reason: C.join(', ') };
+  return null;
+}
+
+// Per-game NHL log, split by role. Skaters carry G/A/SOG/PPP totals; goalies carry the raw
+// components SV%/GAA are rebuilt from (plus wins/shutouts). Goalie DNPs (0 TOI) are dropped so the
+// window is 15 real appearances.
+async function nhlGames(id, isGoalie) {
+  const gl = await getJson(`${NHL_GL}/${id}/gamelog`);
+  const idx = new Map((gl.names || []).map((n, i) => [n, i]));
+  const events = gl.events || {};
+  const st = (gl.seasonTypes || []).find((s) => /regular season/i.test(s.displayName || ''));
+  if (!st) return [];
+  const at = (s, name) => num(s[idx.get(name)]);
+  const games = [];
+  for (const cat of st.categories || []) for (const ev of cat.events || []) {
+    const s = ev.stats || [];
+    const d = events[ev.eventId]?.gameDate;
+    const date = d ? new Date(d).toISOString() : '';
+    if (isGoalie) {
+      const toi = toiMin(s[idx.get('timeOnIcePerGame')]);
+      if (toi <= 0) continue; // didn't actually play
+      games.push({ date, toi, ga: at(s, 'goalsAgainst'), sa: at(s, 'shotsAgainst'), sv: at(s, 'saves'), w: at(s, 'wins'), so: at(s, 'shutouts') });
+    } else {
+      games.push({ date, g: at(s, 'goals'), a: at(s, 'assists'), sog: at(s, 'shotsTotal'), ppp: at(s, 'powerPlayGoals') + at(s, 'powerPlayAssists') });
+    }
+  }
+  return games;
+}
+
+async function enrichNhlForm(dataset) {
+  // Full-roster coverage: every non-searchOnly NHL player (rankedSk + rankedG). Sorted by rank so if
+  // the soft time guard trips, the most fantasy-relevant players are already done.
+  const targets = dataset.players
+    .filter((p) => !p.searchOnly && p.id != null)
+    .sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
+  const deadline = Date.now() + NHL_FORM_SOFT_MS;
+  let hot = 0, cold = 0, checked = 0, skipped = 0;
+  await mapLimit(targets, NHL_FORM_CONC, async (p) => {
+    if (Date.now() > deadline) { skipped++; return; } // past the soft budget — leave the rest unbadged this run
+    checked++;
+    try {
+      const pos = (p.pos || '').toUpperCase();
+      const isG = pos === 'G';
+      const g = await nhlGames(p.id, isG);
+      g.sort((a, b) => (a.date < b.date ? 1 : -1)); // newest first
+      const win = recentWindow(g, NHL_WINDOW, NHL_GAP_DAYS);
+      if (win.length < NHL_MIN) return; // too few appearances (early season / just returned / backup)
+      const b = isG ? nhlGoalieBadge(win) : nhlSkaterBadge(win, pos === 'D');
+      if (!b) return;
+      p.tag = b.tag; p.trend = b.tag === 'hot' ? 'up' : 'down'; p.trendVal = '';
+      p.formReason = `${b.reason} · last ${win.length}`;
+      if (b.tag === 'hot') hot++; else cold++;
+    } catch { /* per-player failure is non-fatal */ }
+  });
+  dataset.counts = { ...dataset.counts, formActive: true, formHot: hot, formCold: cold, formChecked: checked, formTargets: targets.length, formSkipped: skipped };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// LEGACY: recent-vs-own-average model (NBA / WNBA / NFL — unchanged)
 // ════════════════════════════════════════════════════════════════════════════
 const FORM = {
   nba: { minGames: 10, full: 82, recent: 5, path: 'basketball/nba' },
   wnba: { minGames: 10, full: 44, recent: 5, path: 'basketball/wnba' },
-  nhl: { minGames: 10, full: 82, recent: 5, path: 'hockey/nhl' },
   nfl: { minGames: 4, full: 17, recent: 3, path: 'football/nfl' },
 };
 const HOT = 1.20, COLD = 0.80;
@@ -289,7 +399,8 @@ async function enrichFormLegacy(dataset, { sport }) {
   dataset.counts = { ...dataset.counts, formActive: true, formHot: hot, formCold: cold, formChecked: top.length };
 }
 
-// Mutates dataset.players: sets tag 'hot'|'cold' (+ trend, formReason for MLB) on the top players.
+// Mutates dataset.players: sets tag 'hot'|'cold' (+ trend, formReason for MLB/NHL). MLB and NHL use the
+// fixed-absolute per-category model with full-roster coverage; NBA/WNBA/NFL use the legacy model.
 // No-op (and no fetches) when the sport is out of season.
 export async function enrichForm(dataset, { sport, season }) {
   if (!Array.isArray(dataset.players)) return;
@@ -297,6 +408,13 @@ export async function enrichForm(dataset, { sport, season }) {
     const teamGames = dataset.counts?.teamGames;
     if (teamGames == null || teamGames >= 162) { dataset.counts = { ...dataset.counts, formActive: false }; return; }
     try { await enrichMlbForm(dataset, season); }
+    catch (err) { dataset.counts = { ...dataset.counts, formActive: false, formError: String(err?.message || err) }; }
+    return;
+  }
+  if (sport === 'nhl') {
+    const maxGames = dataset.counts?.maxGames;
+    if (maxGames == null || maxGames >= 82) { dataset.counts = { ...dataset.counts, formActive: false }; return; }
+    try { await enrichNhlForm(dataset); }
     catch (err) { dataset.counts = { ...dataset.counts, formActive: false, formError: String(err?.message || err) }; }
     return;
   }
