@@ -7,7 +7,7 @@
 // Claude call is unavailable or returns anything unparseable, so advice always ships.
 // Free users get advice through round 7 (FREE_MAX_ROUND); later rounds return an upsell.
 import { getEntitlement, sendError, HttpError, FREE_MAX_ROUND } from '../_lib/auth.js';
-import { loadPlayers, recommend, DEFAULT_SETTINGS, isRoto } from '../_lib/draft.js';
+import { loadPlayers, recommend, DEFAULT_SETTINGS, isRoto, resolveStarters } from '../_lib/draft.js';
 import { NBA_CATS } from '../../nbaScoring.js';
 import { MLB_CATS } from '../../mlbScoring.js';
 import { NHL_CATS } from '../../nhlScoring.js';
@@ -248,7 +248,15 @@ export default async function handler(req, res) {
     if ([8, 10, 12, 14].includes(Number(o.teams))) settings.teams = Number(o.teams);
     if (premium) {
       if (!isRoto(sport) && (o.scoring === 'standard' || o.scoring === 'ppr' || o.scoring === 'half')) settings.scoring = o.scoring;
-      if (Number.isInteger(o.rounds) && o.rounds >= 10 && o.rounds <= 20) settings.rounds = o.rounds;
+      // Custom NFL roster layout (drives need/forced/scarcity in recommend). Rounds = starters + bench.
+      const cs = !isRoto(sport) ? resolveStarters(o.starters) : null;
+      if (cs) {
+        settings.starters = cs;
+        const startCount = Object.values(cs).reduce((a, b) => a + b, 0);
+        settings.rounds = Math.max(startCount, Math.min(20, Number(o.rounds) || startCount + 6));
+      } else if (Number.isInteger(o.rounds) && o.rounds >= 10 && o.rounds <= 20) {
+        settings.rounds = o.rounds;
+      }
     }
     const players = await loadPlayers(sport);
     const roster = Array.isArray(b.roster) ? b.roster : [];

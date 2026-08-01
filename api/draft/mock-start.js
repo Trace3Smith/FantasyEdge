@@ -2,7 +2,7 @@
 // premium users get unlimited mocks and may tweak settings. Returns the league setup
 // the frontend uses to simulate the snake draft (AI opponents pick client-side).
 import { getEntitlement, consumeMockQuota, getMockUsage, sendError, FREE_MAX_ROUND } from '../_lib/auth.js';
-import { DEFAULT_SETTINGS, isRoto } from '../_lib/draft.js';
+import { DEFAULT_SETTINGS, isRoto, resolveStarters } from '../_lib/draft.js';
 
 // Sports whose mock draft we can start (a roto sport, or the NFL points flow).
 const SUPPORTED = new Set(['nfl', 'nba', 'wnba', 'mlb', 'nhl']);
@@ -34,10 +34,18 @@ export default async function handler(req, res) {
     if ([8, 10, 12, 14].includes(Number(o.teams))) settings.teams = Number(o.teams);
 
     if (premium) {
-      // Premium may also override scoring/rounds (Phase 2 will load saved settings). The
-      // points-format override is NFL-only — roto leagues have no PPR/Standard toggle.
+      // Premium may also override scoring/rounds and (NFL) the roster layout. The points-format
+      // override is NFL-only — roto leagues have no PPR/Standard toggle.
       if (!roto && (o.scoring === 'standard' || o.scoring === 'ppr' || o.scoring === 'half')) settings.scoring = o.scoring;
-      if (Number.isInteger(o.rounds) && o.rounds >= 10 && o.rounds <= 20) settings.rounds = o.rounds;
+      // Custom NFL roster layout: position counts + bench drive the draft; rounds = starters + bench.
+      const cs = !roto ? resolveStarters(o.starters) : null;
+      if (cs) {
+        settings.starters = cs;
+        const startCount = Object.values(cs).reduce((a, b) => a + b, 0);
+        settings.rounds = Math.max(startCount, Math.min(20, Number(o.rounds) || startCount + 6));
+      } else if (Number.isInteger(o.rounds) && o.rounds >= 10 && o.rounds <= 20) {
+        settings.rounds = o.rounds;
+      }
     } else {
       // Free tier: enforce the daily quota (settings otherwise stay basic).
       await consumeMockQuota(userId);

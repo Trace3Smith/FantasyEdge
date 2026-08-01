@@ -37,6 +37,10 @@
 
   .panel { background: var(--dark2); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
   .start-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  /* Custom roster inputs (NFL setup): compact per-position steppers + bench. */
+  #rosterWrap { display: inline-flex; align-items: center; gap: 8px; }
+  .rs-lbl { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; font-size: 10px; letter-spacing: 0.3px; color: var(--gray); text-transform: uppercase; }
+  .rs-lbl input { width: 40px; text-align: center; padding: 3px; font-size: 12px; background: var(--dark3); color: var(--white); border: 1px solid rgba(255,255,255,0.12); border-radius: 5px; }
   /* League chooser (mock mode, no sport in URL) */
   .league-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-top: 8px; }
   @media (max-width: 760px) { .league-grid { grid-template-columns: repeat(2, 1fr); } }
@@ -297,9 +301,9 @@
       <label class="muted" style="font-size:13px">Your draft position
         <select id="posSel"></select>
       </label>
-      <label class="muted" style="font-size:13px">Rounds
+      <span id="roundsWrap"><label class="muted" style="font-size:13px">Rounds
         <select id="roundsSel"><option>12</option><option selected>13</option><option>14</option><option>15</option><option>16</option><option>17</option></select>
-      </label>
+      </label></span>
       <label class="muted" style="font-size:13px">Format
         <select id="formatSel"><option value="snake">Snake</option><option value="linear">Linear</option></select>
       </label>
@@ -307,6 +311,15 @@
         <label class="muted" style="font-size:13px">Scoring
           <select id="scoringSel"><option value="ppr">PPR</option><option value="half">Half PPR</option><option value="standard">Standard</option></select>
         </label>
+      </span>
+      <span class="premium-only" id="rosterWrap">
+        <span class="muted" style="font-size:13px">Roster</span>
+        <label class="rs-lbl">QB<input type="number" id="rsQB" min="1" max="2" value="1"></label>
+        <label class="rs-lbl">RB<input type="number" id="rsRB" min="1" max="4" value="2"></label>
+        <label class="rs-lbl">WR<input type="number" id="rsWR" min="1" max="4" value="2"></label>
+        <label class="rs-lbl">TE<input type="number" id="rsTE" min="1" max="2" value="1"></label>
+        <label class="rs-lbl">FLEX<input type="number" id="rsFLEX" min="0" max="3" value="1"></label>
+        <label class="rs-lbl">Bench<input type="number" id="rsBench" min="0" max="10" value="6"></label>
       </span>
       <span class="muted" id="usageNote"></span>
     </div>
@@ -591,9 +604,24 @@ function applyMode() {
 // Reflect the chosen sport in the setup controls: NBA is 9-cat (no PPR/Standard toggle) and
 // drafts ~13 rounds; NFL keeps its scoring select and 15-round default. Re-runs applyMode so
 // the ADP/value copy matches. Pool is fetched fresh at Start, so changing sport here is safe.
+// Collect the NFL custom roster layout from the setup inputs → { starters, rounds }. Roto sports have
+// no roster customization (they use the module lineup), so this returns null and the caller keeps its
+// rounds-select path. Mirrors the server clamps in resolveStarters; K/DST are fixed at 1, rounds =
+// total starters + bench.
+function collectRoster() {
+  if (isRoto()) return null;
+  const g = (id, lo, hi, d) => Math.min(hi, Math.max(lo, Math.round(Number($(id).value) || d)));
+  const starters = { QB: g('rsQB', 1, 2, 1), RB: g('rsRB', 1, 4, 2), WR: g('rsWR', 1, 4, 2), TE: g('rsTE', 1, 2, 1), FLEX: g('rsFLEX', 0, 3, 1), K: 1, DST: 1 };
+  const bench = g('rsBench', 0, 10, 6);
+  return { starters, rounds: Object.values(starters).reduce((a, b) => a + b, 0) + bench };
+}
+
 function syncSportUI() {
-  $('scoringWrap').style.display = isRoto() ? 'none' : '';
-  $('roundsSel').value = isRoto() ? '13' : '15';
+  const roto = isRoto();
+  $('scoringWrap').style.display = roto ? 'none' : '';
+  $('rosterWrap').style.display = roto ? 'none' : '';   // custom roster is NFL-only (roto uses its module lineup)
+  $('roundsWrap').style.display = roto ? '' : 'none';   // NFL derives rounds from starters + bench, not a select
+  $('roundsSel').value = roto ? '13' : '15';
   applyMode();
 }
 // Normalize any sport string to one we support, defaulting to NFL.
@@ -698,7 +726,9 @@ async function startMock() {
   const settings = { teams };
   if (window.FE?.isPremium()) {
     if (!isRoto()) settings.scoring = $('scoringSel').value; // roto is always category (server-set)
-    settings.rounds = Number($('roundsSel').value) || (isRoto() ? 13 : 15);
+    const r = collectRoster();
+    if (r) { settings.starters = r.starters; settings.rounds = r.rounds; } // NFL: custom roster + derived rounds
+    else settings.rounds = Number($('roundsSel').value) || 13;             // roto: rounds select
   }
   const { ok, status, data } = await window.FE.apiPost('/api/draft/mock-start', { sport, settings, position });
   $('startBtn').disabled = false;
@@ -948,7 +978,8 @@ function assignLineup() {
   return { cells, bench };
 }
 function renderRoster() {
-  if (!state.roster.length) { $('rosterList').innerHTML = '<li class="muted">No picks yet</li>'; return; }
+  // Render the full slot list from the start — an empty roster shows every slot as "Empty" (assignLineup
+  // yields all-empty cells), so the person sees the lineup they're drafting for before pick one.
   const { cells, bench } = assignLineup();
   const slotRow = (c) => c.player
     ? `<li class="lu-slot filled"><span class="lu-tag">${c.slot}</span><span class="pos ${posClass(c.player.pos)}">${c.player.pos}</span> ${escapeHtml(c.player.name)} <span class="muted">${c.player.team}</span></li>`
@@ -1127,11 +1158,13 @@ async function startOffline() {
 
   const teams = Number($('teamsSel').value);
   const position = Math.min(Math.max(1, Number($('posSel').value) || 1), teams);
+  const r = collectRoster();
   const settings = {
     teams,
     sport,
-    rounds: Number($('roundsSel').value) || (isRoto() ? 13 : 15),
+    rounds: r ? r.rounds : (Number($('roundsSel').value) || (isRoto() ? 13 : 15)),
     scoring: isRoto() ? 'roto' : ($('scoringSel') ? $('scoringSel').value : 'ppr'),
+    ...(r ? { starters: r.starters } : {}),
   };
   const format = $('formatSel').value === 'linear' ? 'linear' : 'snake';
 

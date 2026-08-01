@@ -68,7 +68,33 @@ const MIN_ROSTER = { QB: 1, RB: 2, WR: 2, TE: 1, K: 1, DST: 1 };
 // Roughly how many starters the league as a whole wants at each position. Used to
 // gauge scarcity: when the count of startable players left at a position drops toward
 // (teams × demand), the position is drying up and urgency to grab one should rise.
+// Fallback shape only — leagueDemandFrom derives the live values from the league's starters.
 const LEAGUE_DEMAND = { QB: 1, RB: 2.5, WR: 2.5, TE: 1, K: 1, DST: 1 };
+
+// Sanitize a client-sent custom NFL roster layout (premium only). K/DST are fixed at 1; the rest are
+// clamped to sane ranges. Returns null (→ caller keeps the default starters) for absent/invalid input.
+// Shared by mock-start and advise so both endpoints validate identically and can't diverge.
+export function resolveStarters(rawStarters) {
+  if (!rawStarters || typeof rawStarters !== 'object') return null;
+  const clamp = (v, lo, hi, d) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+  return {
+    QB: clamp(rawStarters.QB, 1, 2, 1), RB: clamp(rawStarters.RB, 1, 4, 2), WR: clamp(rawStarters.WR, 1, 4, 2),
+    TE: clamp(rawStarters.TE, 1, 2, 1), FLEX: clamp(rawStarters.FLEX, 0, 3, 1), K: 1, DST: 1,
+  };
+}
+// The mandatory per-position starting slots (FLEX excluded — it's soft demand, filled by extra
+// RB/WR/TE depth). Derived from the league's starters so a custom roster drives need/forced/scarcity.
+function minRosterFrom(settings) {
+  const s = (settings && settings.starters) || DEFAULT_SETTINGS.starters;
+  return { QB: s.QB || 0, RB: s.RB || 0, WR: s.WR || 0, TE: s.TE || 0, K: s.K || 0, DST: s.DST || 0 };
+}
+// League-wide starter demand for scarcity, folding the FLEX slots across RB/WR/TE (the same soft-demand
+// split the VORP replacement depths use) so a deeper-FLEX league values those positions more.
+function leagueDemandFrom(settings) {
+  const s = (settings && settings.starters) || DEFAULT_SETTINGS.starters;
+  const flex = s.FLEX || 0;
+  return { QB: s.QB || 0, RB: (s.RB || 0) + flex * 0.5, WR: (s.WR || 0) + flex * 0.4, TE: (s.TE || 0) + flex * 0.1, K: s.K || 0, DST: s.DST || 0 };
+}
 
 // Load a sport's player list from cache, rebuilding on a miss (mirrors api/sports.js).
 export async function loadPlayers(sport = 'nfl') {
@@ -144,7 +170,7 @@ function deadlinePressure(slack) {
 // The wide spread lets real need override the raw-VORP edge that made every pick an RB.
 function needFactor(pos, counts, board) {
   const have = counts[pos] || 0;
-  const min = MIN_ROSTER[pos] || 0;
+  const min = (board.minRoster || MIN_ROSTER)[pos] || 0;
   const gap = Math.max(0, min - have); // unfilled starting slots at this position
 
   // (1) Desire from our own roster. Below the minimum we want it badly; once the slot
@@ -163,7 +189,7 @@ function needFactor(pos, counts, board) {
   // (2) Scarcity from the board: startable (above-replacement) players left vs. how many
   // the league still wants. As the pool thins toward demand, urgency climbs — but it's
   // muted for slots we've already filled (a scarce position we're set at isn't our problem).
-  const demand = (board.teams || 10) * (LEAGUE_DEMAND[pos] || 1);
+  const demand = (board.teams || 10) * ((board.demand || LEAGUE_DEMAND)[pos] || 1);
   const left = board.startableLeft[pos] || 0;
   const ratio = demand > 0 ? left / demand : 1;
   let scarcity = 1 + Math.max(0, 1 - ratio);            // 1.0 (plenty) .. 2.0 (nearly gone)
@@ -285,6 +311,8 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
   const scoring = settings.scoring || 'ppr';
   const levels = replacementLevels(players, scoring, settings);
   const counts = countByPos(roster);
+  const minRoster = minRosterFrom(settings);   // mandatory slots for THIS league (drives need/forced)
+  const demand = leagueDemandFrom(settings);   // per-position scarcity demand (FLEX folded in)
   const teams = settings.teams || 10;
   const totalRounds = settings.rounds || 15;
 
@@ -302,7 +330,7 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
   // requirements become "forced" and sort ahead of pure value so we never end the draft
   // missing a starter (e.g. no kicker), which raw VORP would otherwise never pick.
   let mandatoryRemaining = 0;
-  for (const [pos, m] of Object.entries(MIN_ROSTER)) mandatoryRemaining += Math.max(0, m - (counts[pos] || 0));
+  for (const [pos, m] of Object.entries(minRoster)) mandatoryRemaining += Math.max(0, m - (counts[pos] || 0));
   const picksLeft = Math.max(0, totalRounds - roster.length);
   const slack = picksLeft - mandatoryRemaining;
 
@@ -322,8 +350,8 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
       // guarantees a kicker/defense gets drafted once the roster cushion runs out.
       const isKD = p.pos === 'K' || p.pos === 'DST';
       const vorp = isKD ? 0 : Math.max(0, v - (levels[p.pos] ?? 0));
-      const gap = Math.max(0, (MIN_ROSTER[p.pos] || 0) - (counts[p.pos] || 0));
-      const factor = needFactor(p.pos, counts, { startableLeft, teams, slack, run: runSet.has(p.pos) });
+      const gap = Math.max(0, (minRoster[p.pos] || 0) - (counts[p.pos] || 0));
+      const factor = needFactor(p.pos, counts, { startableLeft, teams, slack, run: runSet.has(p.pos), minRoster, demand });
 
       // ADP value: a player still on the board well past his average draft position is
       // a falling value. Bump priority by how far he's slipped, capped at ~two rounds
@@ -362,7 +390,7 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
   // there's no cushion left — those needs are also `forced` above; `fillSoon` is the
   // one-pick-early heads-up so the user isn't squeezed into back-to-back forced picks.
   const needs = [];
-  for (const [pos, m] of Object.entries(MIN_ROSTER)) {
+  for (const [pos, m] of Object.entries(minRoster)) {
     const gap = Math.max(0, m - (counts[pos] || 0));
     if (gap > 0) needs.push({ pos, gap });
   }
