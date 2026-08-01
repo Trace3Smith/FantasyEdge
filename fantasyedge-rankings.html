@@ -310,6 +310,10 @@
   .pos-btn:hover { border-color: var(--gold); color: var(--gold); }
   .pos-btn.active { background: var(--gold); border-color: var(--gold); color: var(--black); }
   .nfl-settings { flex-wrap: wrap; gap: 8px; }
+  .nfl-personalize { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; padding-left: 10px; border-left: 1px solid rgba(255,255,255,0.12); }
+  .nfl-personal-status { font-size: 11px; color: var(--gray); }
+  .nfl-personal-status.ok { color: #9FD3EE; }
+  .nfl-personal-status.err { color: var(--orange); }
   .nfl-sel {
     padding: 6px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1);
     background: var(--black); color: var(--gray-light); font-size: 12px; font-weight: 600;
@@ -630,6 +634,11 @@
     <label class="nfl-set">FLEX<input type="number" id="rsFLEX" min="0" max="4" step="1" value="1"></label>
     <label class="nfl-set">K<input type="number" id="rsK" min="0" max="2" step="1" value="1"></label>
     <label class="nfl-set">DST<input type="number" id="rsDST" min="0" max="2" step="1" value="1"></label>
+    <span class="nfl-personalize" id="nflPersonalize" style="display:none">
+      <span class="filter-group-label">Form badges</span>
+      <select id="nflLeagueSel" class="nfl-sel"><option value="">Standard PPR</option></select>
+      <span class="nfl-personal-status" id="nflPersonalStatus"></span>
+    </span>
   </div>
   <div class="type-tabs" id="typeTabs" style="display:none">
     <button class="type-tab-btn active" data-type="H">Hitters</button>
@@ -686,6 +695,11 @@
   // NFL VORP league setup — drives replacement depth so the board reflects the user's
   // own league (size + starting lineup), the same inputs the draft board uses.
   let nflLeague = { teams: 12, starters: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 } };
+  // NFL personalized form badges (Premium + linked ESPN league). The cron bakes default standard-PPR
+  // badges into p.tag; picking a league re-scores them under that league's real scoring via nflForm.
+  let nflLeaguesCache = null;   // linked NFL leagues, fetched once per session
+  let nflPersonalSel = '';      // '' = standard-PPR default; else 'leagueId:season'
+  let nflDefaultBadges = null;  // snapshot of the default badges, to restore on reset
   let searchTerm = '';
   let allPlayers = [];
   let rollingWindows = null; // { l15: {start,end,tgMin,tgMax}, l30: {...} } — MLB only
@@ -1884,6 +1898,7 @@
       document.getElementById('nflTeamsSel').value = '12';
       const d = nflLeague.starters;
       for (const pos of Object.keys(d)) document.getElementById('rs' + pos).value = d[pos];
+      initNflPersonalize(); // populate the linked-league dropdown for Premium personalization
     }
   }
 
@@ -1891,6 +1906,72 @@
   function readRosterInputs() {
     const g = (id) => Math.max(0, Number(document.getElementById(id).value) || 0);
     nflLeague.starters = { QB: g('rsQB'), RB: g('rsRB'), WR: g('rsWR'), TE: g('rsTE'), FLEX: g('rsFLEX'), K: g('rsK'), DST: g('rsDST') };
+  }
+
+  // ---- NFL personalized form badges ------------------------------------------------------------
+  function snapshotNflDefaults() {
+    nflDefaultBadges = new Map();
+    for (const p of allPlayers) nflDefaultBadges.set(p.id, { tag: p.tag || null, formReason: p.formReason || '', trend: p.trend || 'flat' });
+  }
+  function restoreNflDefaults() {
+    if (!nflDefaultBadges) return;
+    for (const p of allPlayers) { const d = nflDefaultBadges.get(p.id); if (d) { p.tag = d.tag; p.formReason = d.formReason; p.trend = d.trend; } }
+  }
+  // Replace NFL skill badges with a personalized set; skill players not in the set go neutral.
+  function applyNflBadges(badges) {
+    const skill = new Set(['QB', 'RB', 'WR', 'TE']);
+    const map = new Map(badges.map((b) => [String(b.id), b]));
+    for (const p of allPlayers) {
+      if (!skill.has(p.pos)) continue;
+      const b = map.get(String(p.id));
+      if (b) { p.tag = b.tag; p.formReason = b.reason; p.trend = b.tag === 'hot' ? 'up' : 'down'; }
+      else { p.tag = null; p.formReason = ''; p.trend = 'flat'; }
+    }
+  }
+  function setNflStatus(msg, kind) {
+    const el = document.getElementById('nflPersonalStatus');
+    if (el) { el.textContent = msg || ''; el.className = 'nfl-personal-status' + (kind ? ' ' + kind : ''); }
+  }
+  // Populate the league dropdown for Premium users with linked NFL leagues (called on each NFL load).
+  async function initNflPersonalize() {
+    const wrap = document.getElementById('nflPersonalize');
+    const sel = document.getElementById('nflLeagueSel');
+    wrap.style.display = 'none';
+    nflPersonalSel = ''; nflDefaultBadges = null; setNflStatus('');
+    sel.innerHTML = '<option value="">Standard PPR</option>';
+    if (!(window.FE && window.FE.isPremium && window.FE.isPremium() && window.FE.apiPost)) return;
+    if (nflLeaguesCache == null) {
+      try { const r = await window.FE.apiPost('/api/espn', { action: 'leagues', sport: 'nfl' }); nflLeaguesCache = (r && r.ok && r.data && r.data.leagues) ? r.data.leagues : []; }
+      catch { nflLeaguesCache = []; }
+    }
+    if (currentSport !== 'nfl' || !nflLeaguesCache.length) return; // sport may have switched while awaiting
+    for (const lg of nflLeaguesCache) {
+      const opt = document.createElement('option');
+      opt.value = `${lg.leagueId}:${lg.season}`;
+      opt.textContent = lg.leagueName || `League ${lg.leagueId}`;
+      sel.appendChild(opt);
+    }
+    wrap.style.display = '';
+  }
+  async function onNflLeagueChange() {
+    const val = document.getElementById('nflLeagueSel').value;
+    nflPersonalSel = val;
+    if (!val) { restoreNflDefaults(); setNflStatus(''); renderTable(allPlayers); updateStrip(allPlayers); return; }
+    const [leagueId, season] = val.split(':');
+    setNflStatus('Personalizing...');
+    try {
+      const r = await window.FE.apiPost('/api/espn', { action: 'nflForm', leagueId, season: Number(season) });
+      if (currentSport !== 'nfl' || nflPersonalSel !== val) return; // user moved on — ignore a stale result
+      if (!r || !r.ok || !r.data) { setNflStatus('Could not load league scoring', 'err'); return; }
+      if (!r.data.badges) { // unrecognized scoring format → keep the standard-PPR default
+        restoreNflDefaults(); renderTable(allPlayers); updateStrip(allPlayers);
+        setNflStatus('Standard PPR (custom scoring not detected)', 'err'); return;
+      }
+      if (!nflDefaultBadges) snapshotNflDefaults();
+      applyNflBadges(r.data.badges);
+      renderTable(allPlayers); updateStrip(allPlayers);
+      setNflStatus(`Personalized · ${(r.data.scoring && r.data.scoring.label) || 'your league'}`, 'ok');
+    } catch { setNflStatus('Could not personalize', 'err'); }
   }
 
   document.getElementById('posFilters').addEventListener('click', e => {
@@ -1985,6 +2066,8 @@
     nflLeague.teams = Number(e.target.value) || 12;
     renderTable(allPlayers);
   });
+
+  document.getElementById('nflLeagueSel').addEventListener('change', onNflLeagueChange);
 
   document.getElementById('nflLeagueSettings').addEventListener('input', e => {
     if (!e.target.matches('input[type="number"]')) return;
