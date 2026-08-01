@@ -1,6 +1,10 @@
 # NFL Consistency / Floor–Ceiling (Option C) — scoping
 
-**Status:** proposed, not built. **Date:** 2026-08-01.
+**Status:** SHIPPED (commit `c6fb382`, 2026-08-01) — `api/_lib/enrichNflConsistency.js` + cron wiring +
+the C1 client display. Final decisions: consistency = **P25/P50** (floor vs typical week, not P25/P90 —
+real data showed floor÷ceiling penalizes big ceilings, reading backwards for reliability); **ceiling =
+P90 stored separately** as a distinct upside stat; **single score**; **C1** (replaces the positional
+tier); **PPR-only** v1. Populates on the next cron run.
 
 Fast-follow to the NFL star-rating removal. The roto "Stars = categories cleared" rating was dropped for
 NFL and replaced with a **positional tier** (RB4 / WR12 / QB1 — commit `6144b92`). This doc specs the
@@ -76,11 +80,18 @@ Compute against last season's real logs; spot-check archetypes (a steady RB1 →
 a big-play WR → high ceiling + high boom AND bust). Confirm rookies / K/DST show `—`, and offseason
 shows last-season values.
 
-## Open decisions
-1. **Ceiling = P75 or P90?** (P90 makes "ceiling" mean the spike weeks.)
-2. **Range vs single score** — show `12–28 · boom 41%`, or one consistency number?
-3. **Display: C1 (replace tier) / C2 (add column) / C3 (detail-only)?**
-4. **PPR-only v1** OK, or must it follow the scoring toggle?
+## Decisions (resolved)
+1. **Ceiling = P90** — kept as a distinct upside stat, NOT folded into the consistency number.
+2. **Single consistency score** = `round(100 × P25 / P50)` (floor relative to a typical week). Chosen
+   over P25/P90 after real-data review: floor÷ceiling penalized big ceilings (Amon-Ra St. Brown, the
+   archetypal safe WR, read as middling), which is backwards for a reliability metric.
+3. **Display: C1** — replaces the positional tier in the rate column with `consistency ⌃ceiling`.
+4. **PPR-only v1** — the scoring toggle does not change it (accepted approximation).
+
+## Possible follow-ups (not built)
+- Per-format consistency (follow the PPR/Half/Standard toggle) if the PPR approximation proves off.
+- C2 instead of C1 (keep the positional tier AND add a consistency column) if losing the tier is missed.
+- Share the game-log fetch with the form enrichment in-season (currently a separate fetch).
 
 ## Related
 Positional tier (the thing this would replace/augment): commit `6144b92`. Form-badge model + the
