@@ -620,6 +620,12 @@
     <button class="pos-btn" data-scoring="HALF">Half-PPR</button>
     <button class="pos-btn" data-scoring="STD">Standard</button>
   </div>
+  <div class="pos-filters league-filters" id="nflBasisFilters" style="display:none">
+    <span class="filter-group-label">Rank by</span>
+    <button class="pos-btn active" data-basis="blend" title="0.65 projection + 0.35 last year — our default">Blend</button>
+    <button class="pos-btn" data-basis="proj" title="Rank + stats by 2026 consensus projection">Projection</button>
+    <button class="pos-btn" data-basis="actual" title="Rank + points by last season's actual finish">Last Year</button>
+  </div>
   <div class="pos-filters league-filters nfl-settings" id="nflLeagueSettings" style="display:none">
     <span class="filter-group-label">Teams</span>
     <select id="nflTeamsSel" class="nfl-sel">
@@ -693,6 +699,7 @@
   let currentPos = 'ALL';
   let currentLeague = 'ALL';
   let currentScoring = 'PPR'; // NFL only: PPR | HALF | STD
+  let nflBasis = 'blend';     // NFL only: 'blend' (default) | 'proj' (2026) | 'actual' (last year) — ranks/FPTS/stats basis
   // NFL VORP league setup — drives replacement depth so the board reflects the user's
   // own league (size + starting lineup), the same inputs the draft board uses.
   let nflLeague = { teams: 12, starters: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 } };
@@ -855,12 +862,21 @@
     if (s.startsWith('half')) return o.half != null ? o.half : (o.ppr + o.std) / 2;
     return o.ppr;
   }
+  // Fantasy points under the active NFL basis toggle: blended ranking value (default), 2026 projection,
+  // or last season's actual — all in the active scoring format. Null when the basis value is missing.
+  function nflBasisPts(p) {
+    if (nflBasis === 'proj') return nflPtsFmt(p.proj?.pts);
+    if (nflBasis === 'actual') return nflPtsFmt(p.actual);
+    return nflFpts(p, currentScoring);
+  }
   function cellVal(p, i) {
     if (boardWindow === 'season') {
       if (currentSport === 'nfl') {
-        if (i === 5 && p.fpPpr != null) return nflFpts(p, currentScoring).toFixed(1); // FPTS (blend) reflects scoring
-        if (i === 6) { const v = nflPtsFmt(p.proj?.pts); return v == null ? null : v.toFixed(1); }  // Proj 2026
-        if (i === 7) { const v = nflPtsFmt(p.actual); return v == null ? null : v.toFixed(1); }       // 2025 actual
+        if (i === 5 && p.fpPpr != null) { const v = nflBasisPts(p); return v == null ? null : v.toFixed(1); } // FPTS = active basis
+        if (i === 6) { const v = nflPtsFmt(p.proj?.pts); return v == null ? null : v.toFixed(1); }  // Proj 2026 (always shown)
+        if (i === 7) { const v = nflPtsFmt(p.actual); return v == null ? null : v.toFixed(1); }       // 2025 actual (always shown)
+        // Projection basis: the stat columns show the projected line, matched by label; missing → '—'.
+        if (nflBasis === 'proj' && i <= 4) { const lab = p.statLabels?.[i]; const hit = (p.proj?.line || []).find(x => x.label === lab); return hit ? hit.val : null; }
       }
       return p['s' + (i + 1)];
     }
@@ -1016,12 +1032,28 @@
     const nflFp = (p) => nflFpts(p, currentScoring);
     let nflLevels = {};
     if (isNfl) {
-      nflLevels = nflReplacementLevels(players, currentScoring, nflLeague);
-      nflRank = new Map();
-      players.filter(p => !p.searchOnly && p.rank != null)
-        .slice()
-        .sort((a, b) => nflBoardCmp(a, b, currentScoring, nflLevels))
-        .forEach((p, i) => nflRank.set(p.id, i + 1));
+      // Basis toggle: rank by the chosen value. Reuse the VORP machinery by temporarily pointing
+      // fpPpr/fpStd at the basis (2026 projection or last-year actual). The try/finally GUARANTEES the
+      // blend values are restored even if ranking throws, so the shared player array can't be corrupted.
+      let nflSaved = null;
+      try {
+        if (nflBasis !== 'blend') {
+          nflSaved = [];
+          for (const p of players) {
+            nflSaved.push([p, p.fpPpr, p.fpStd]);
+            const src = nflBasis === 'proj' ? p.proj?.pts : p.actual;
+            p.fpPpr = src ? src.ppr : 0; p.fpStd = src ? src.std : 0; // no proj/actual (K/DST) → sinks
+          }
+        }
+        nflLevels = nflReplacementLevels(players, currentScoring, nflLeague);
+        nflRank = new Map();
+        players.filter(p => !p.searchOnly && p.rank != null)
+          .slice()
+          .sort((a, b) => nflBoardCmp(a, b, currentScoring, nflLevels))
+          .forEach((p, i) => nflRank.set(p.id, i + 1));
+      } finally {
+        if (nflSaved) for (const [p, a, b] of nflSaved) { p.fpPpr = a; p.fpStd = b; }
+      }
     }
     // Type-tab sports split by player type first (Hitters/Pitchers or Skaters/Goalies), then position.
     let filtered = players;
@@ -1046,7 +1078,10 @@
       filtered = filtered.filter(p => !p.searchOnly);
     }
     // NFL rows are ordered by VORP for the league setup (same as the rank map above).
-    if (isNfl) filtered = filtered.slice().sort((a, b) => nflBoardCmp(a, b, currentScoring, nflLevels));
+    // Order by the NFL rank computed above — nflRank already encodes nflBoardCmp on the active basis, so
+    // no live fpPpr is needed here (the basis swap is fully contained in the guarded block above).
+    // Unranked (searchOnly) rows sink to the bottom.
+    if (isNfl) filtered = filtered.slice().sort((a, b) => (nflRank.get(a.id) ?? Infinity) - (nflRank.get(b.id) ?? Infinity));
     // Ordering precedence: a category COMBINE (2+ checked) re-ranks by the summed season z of the
     // checked cats; a single checked category (or a header-text click) is the normal single-column
     // value sort (window-aware); otherwise the default rank order. Missing values always sink.
@@ -1881,6 +1916,7 @@
     currentPos = 'ALL';
     currentLeague = 'ALL';
     currentScoring = 'PPR';
+    nflBasis = 'blend';
     // Columns differ by sport/type, so a stale window/sort can't carry over — back to Season + rank order.
     boardWindow = 'season';
     sortStat = null;
@@ -1915,6 +1951,9 @@
     const sf = document.getElementById('scoringFilters');
     sf.style.display = sport === 'nfl' ? '' : 'none';
     sf.querySelectorAll('.pos-btn').forEach(b => b.classList.toggle('active', b.dataset.scoring === 'PPR'));
+    const bf = document.getElementById('nflBasisFilters');
+    bf.style.display = sport === 'nfl' ? '' : 'none';
+    bf.querySelectorAll('.pos-btn').forEach(b => b.classList.toggle('active', b.dataset.basis === 'blend'));
     const ns = document.getElementById('nflLeagueSettings');
     ns.style.display = sport === 'nfl' ? '' : 'none';
     if (sport === 'nfl') {
@@ -2083,6 +2122,15 @@
     document.querySelectorAll('#scoringFilters .pos-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentScoring = btn.dataset.scoring;
+    renderTable(allPlayers);
+  });
+
+  document.getElementById('nflBasisFilters').addEventListener('click', e => {
+    const btn = e.target.closest('.pos-btn');
+    if (!btn) return;
+    document.querySelectorAll('#nflBasisFilters .pos-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    nflBasis = btn.dataset.basis;
     renderTable(allPlayers);
   });
 
