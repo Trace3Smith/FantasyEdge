@@ -944,10 +944,17 @@ function rotoStatLine(p) {
 
 function renderAvailable(filter = '') {
   const f = filter.toLowerCase();
-  // Order the board by the active sport's value — identical to the rankings tab.
+  // Default board order: ADP (average draft position) for NFL — how real drafts actually flow — with
+  // no-ADP players (K/DST/depth) sinking to their board rank + ~2 rounds (mirrors bestForAI). Roto
+  // sports have no ADP, so they order by category value (the same metric as the rankings tab).
+  const byAdp = (a, b) => {
+    const scoring = state.settings.scoring || 'ppr';
+    const v = (p) => { const x = adpFor(p, scoring); return x != null ? x : (p.rank != null ? p.rank + 24 : 999); };
+    return v(a) - v(b);
+  };
   const list = players
     .filter((p) => !state.drafted.has(p.id) && (!f || p.name.toLowerCase().includes(f) || p.pos.toLowerCase() === f))
-    .sort(boardCmp)
+    .sort(isRoto() ? boardCmp : byAdp)
     .slice(0, 60);
   $('availList').innerHTML = list.map((p) => {
     const rk = rankMap.get(p.id) ?? '—';
