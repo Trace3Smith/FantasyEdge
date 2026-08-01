@@ -18,6 +18,7 @@ import { enrichNflProjections } from '../_lib/fantasyProjections.js';
 import { enrichNflAdp } from '../_lib/fantasyAdp.js';
 import { enrichNflContext } from '../_lib/enrichNflContext.js';
 import { enrichNflBlend } from '../_lib/nflBlend.js';
+import { enrichNflConsistency } from '../_lib/enrichNflConsistency.js';
 import { buildNflPickem } from '../_lib/nflPickem.js';
 import { buildCfbBowl } from '../_lib/cfbBowl.js';
 import { buildCfbWeek } from '../_lib/cfbWeek.js';
@@ -158,6 +159,13 @@ export default async function handler(req, res) {
             enrichNflBlend(built);
           } catch (err) {
             built.counts = { ...built.counts, blendError: err.message };
+          }
+          // Weekly consistency (P25/P50) + ceiling (P90) from per-game points — year-round (offseason =
+          // last completed season). Per-player game-log fetches, soft-budgeted; additive + fail-tolerant.
+          try {
+            await enrichNflConsistency(built);
+          } catch (err) {
+            built.counts = { ...built.counts, consistencyError: err.message };
           }
         }
         built.version = DATASET_VERSION; // keep cache in sync with the handler's check

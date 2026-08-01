@@ -530,8 +530,10 @@
   /* PGA DFS value tiers (replace the star rating on the golf board). */
   .tier-cell { min-width: 110px; }
   .tier-badge { display: inline-block; padding: 3px 9px; border-radius: 3px; font-size: 11px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; }
-  /* NFL positional tier (RB4/WR12/…) — replaces the roto star rating, which doesn't map to a points league. */
-  .pos-tier { display: inline-block; padding: 3px 9px; border-radius: 3px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; background: rgba(212,160,23,0.12); color: var(--gold-light, #F0C040); border: 1px solid rgba(212,160,23,0.35); }
+  /* NFL consistency score (weekly floor vs typical game) + a separate ceiling (upside) — replaces the
+     roto star rating, which doesn't map to a points league. */
+  .consist { display: inline-block; padding: 3px 9px; border-radius: 3px; font-size: 12px; font-weight: 800; letter-spacing: 0.5px; background: rgba(212,160,23,0.12); color: var(--gold-light, #F0C040); border: 1px solid rgba(212,160,23,0.35); }
+  .consist-ceil { font-size: 10px; font-weight: 600; color: var(--gray); white-space: nowrap; }
   .tier-value { background: rgba(76,175,80,0.18); color: var(--green); border: 1px solid rgba(76,175,80,0.5); }
   .tier-chalk { background: rgba(212,160,23,0.18); color: var(--gold-light); border: 1px solid rgba(212,160,23,0.5); }
   .tier-solid { background: rgba(255,255,255,0.07); color: var(--gray-light); border: 1px solid rgba(255,255,255,0.18); }
@@ -1030,7 +1032,6 @@
     // QBs on top. K/DST are buried at the bottom, below bench skill (nflBoardCmp). nflFp()
     // still drives the FPTS column with real format points.
     let nflRank = null;
-    let nflPosRank = null; // id -> positional tier string ('RB4'), from the same basis-adjusted order
     const isNfl = currentSport === 'nfl';
     const nflFp = (p) => nflFpts(p, currentScoring);
     let nflLevels = {};
@@ -1050,16 +1051,10 @@
         }
         nflLevels = nflReplacementLevels(players, currentScoring, nflLeague);
         nflRank = new Map();
-        nflPosRank = new Map();
-        const posN = {};
         players.filter(p => !p.searchOnly && p.rank != null)
           .slice()
           .sort((a, b) => nflBoardCmp(a, b, currentScoring, nflLevels))
-          .forEach((p, i) => {
-            nflRank.set(p.id, i + 1);
-            posN[p.pos] = (posN[p.pos] || 0) + 1;
-            nflPosRank.set(p.id, (p.pos || '?') + posN[p.pos]); // positional tier under the active basis, e.g. 'RB4'
-          });
+          .forEach((p, i) => nflRank.set(p.id, i + 1));
       } finally {
         if (nflSaved) for (const [p, a, b] of nflSaved) { p.fpPpr = a; p.fpStd = b; }
       }
@@ -1190,7 +1185,7 @@
         <td class="gp-col">${formatStat(gpDisplay(p), null)}</td>
         <td>${formatStat(cellVal(p, 0), showInline ? p.statLabels?.[0] : null)}</td><td>${formatStat(cellVal(p, 1), showInline ? p.statLabels?.[1] : null)}</td><td>${formatStat(cellVal(p, 2), showInline ? p.statLabels?.[2] : null)}</td><td>${formatStat(cellVal(p, 3), showInline ? p.statLabels?.[3] : null)}</td><td>${formatStat(cellVal(p, 4), showInline ? p.statLabels?.[4] : null)}</td><td>${formatStat(cellVal(p, 5), showInline ? p.statLabels?.[5] : null)}</td>
         <td class="extra-col">${formatStat(cellVal(p, 6), showInline ? (currentSport === 'nfl' ? 'Proj' : p.statLabels?.[6]) : null)}</td><td class="extra-col">${formatStat(cellVal(p, 7), showInline ? (currentSport === 'nfl' ? "'25" : p.statLabels?.[7]) : null)}</td>
-        <td class="${(isPga || isNfl) ? 'tier-cell' : 'stars-cell'}">${so ? muted : isPga ? getTierHTML(p.tier, p.inField) : isNfl ? (nflPosRank && nflPosRank.get(p.id) ? `<span class="pos-tier">${nflPosRank.get(p.id)}</span>` : muted) : renderStarsBlock(cats)}</td>
+        <td class="${(isPga || isNfl) ? 'tier-cell' : 'stars-cell'}">${so ? muted : isPga ? getTierHTML(p.tier, p.inField) : isNfl ? (p.consistency != null ? `<span class="consist" title="Consistency — weekly floor vs a typical game (P25/P50); higher = steadier">${p.consistency}</span>${p.ceiling != null ? ` <span class="consist-ceil" title="Ceiling — 90th-percentile game (upside), PPR">⌃${p.ceiling}</span>` : ''}` : muted) : renderStarsBlock(cats)}</td>
         <td>${so ? muted : getTrendHTML(p.trend, p.trendVal)}</td>
         <td class="own-pct">${so ? '—' : (p.own!=null?p.own+'%':'—')}</td>
       </tr>`;
@@ -1936,7 +1931,7 @@
     document.getElementById('hPos').textContent = isPga ? 'Country' : 'Pos';
     // Two extra sortable columns: PGA's CUT%/FIT, or NFL's Proj/'25 points. PGA also swaps stars→tier.
     document.getElementById('rankingsTable').classList.toggle('show-extra-cols', isPga || sport === 'nfl');
-    document.getElementById('hRate').textContent = (isPga || sport === 'nfl') ? 'Tier' : 'Stars';
+    document.getElementById('hRate').textContent = isPga ? 'Tier' : sport === 'nfl' ? 'Consistency' : 'Stars';
     // Type-tab sports (MLB Hitters/Pitchers, NHL Skaters/Goalies) show their tabs above the position
     // sub-filters, built from TYPE_TABS; other sports hide the row.
     const tt = document.getElementById('typeTabs');
