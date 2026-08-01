@@ -91,7 +91,16 @@
   .adp-stamp { font-size: 11px; color: var(--gray); margin: -6px 0 10px; }
   .adp-stamp:empty { display: none; }
   .roster-list, .pick-list { list-style: none; font-size: 13px; }
-  .roster-list li, .pick-list li { padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; gap: 8px; }
+  .roster-list li, .pick-list li { padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; gap: 8px; align-items: center; }
+  /* Lineup slots: each starting slot (QB/RB/WR/TE/FLEX/…) shows its label and either the drafted
+     player or an empty placeholder, so picks visibly fill the roster the person is drafting for. */
+  .lu-slot .lu-tag { min-width: 40px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; color: var(--gray); text-transform: uppercase; }
+  .lu-slot.empty { opacity: 0.5; }
+  .lu-slot.empty .lu-empty { font-style: italic; color: var(--gray); }
+  .lu-bench-hd { padding-top: 11px !important; border-bottom: none !important; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray); }
+  /* The Coach's recommended player, highlighted on the board and scrolled into view. */
+  .cand.cand-suggested { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); background: rgba(212,160,23,0.08); }
+  .cand-sug { margin-left: 6px; font-size: 10px; font-weight: 700; color: var(--gold); letter-spacing: 0.3px; white-space: nowrap; }
   .pos-q{color:#e85d75}.pos-r{color:#4ec9b0}.pos-w{color:#7aa2f7}.pos-t{color:#e0af68}.pos-k{color:#bb9af7}.pos-d{color:#9ece6a}
 
   .lock-overlay { position: relative; }
@@ -367,9 +376,9 @@
 // ranks players identically (no separate ranking system). NFL is points/VORP; NBA/WNBA/MLB/NHL
 // are category (roto) z-score games. We import all and dispatch on the active sport via a shim.
 import { nflFpts, nflReplacementLevels, nflBoardCmp } from '/nflScoring.js';
-import { nbaPlayerValue, nbaBoardCmp, nbaRankMap } from '/nbaScoring.js';
-import { value as mlbValue, boardCmp as mlbBoardCmp, rankMap as mlbRankMap } from '/mlbScoring.js';
-import { value as nhlValue, boardCmp as nhlBoardCmp, rankMap as nhlRankMap } from '/nhlScoring.js';
+import { nbaPlayerValue, nbaBoardCmp, nbaRankMap, DEFAULT_LINEUP as nbaLineup, eligibleSlots as nbaElig } from '/nbaScoring.js';
+import { value as mlbValue, boardCmp as mlbBoardCmp, rankMap as mlbRankMap, DEFAULT_LINEUP as mlbLineup, eligibleSlots as mlbElig } from '/mlbScoring.js';
+import { value as nhlValue, boardCmp as nhlBoardCmp, rankMap as nhlRankMap, DEFAULT_LINEUP as nhlLineup, eligibleSlots as nhlElig } from '/nhlScoring.js';
 // Shared player-display module — the SAME code Player Rankings renders through, so the detail
 // sidebar's stars, category pills, tags/trends, sortable category list, and prior-year line match it.
 import { renderStarsBlock, renderCategoryList, renderPrevYear, renderOpportunity, getTagHTML, getTrendHTML } from '/playerDisplay.js';
@@ -382,6 +391,8 @@ let rankMap = new Map();    // id -> big-board rank for the draft's format
 let selectedId = null;      // player currently shown in the detail sidebar (inspect, not drafted)
 let detailSort = 'natural'; // sidebar category sort: 'natural' | 'value' | 'impact'
 let levels = {};            // NFL: per-position replacement levels (unused for roto sports)
+let suggestedId = null;     // the Coach's currently-recommended player — highlighted + scrolled-to on the board
+let suggestedReason = null; // 'value' | 'need' | 'must-fill' — why he's suggested, for the board tag
 
 // Active sport: from ?sport= (default NFL). NBA/WNBA/MLB/NHL are category leagues; everything
 // else is the NFL points flow. Resolved at load and again when the setup Sport select changes.
@@ -393,10 +404,10 @@ let sport = sportInUrl ? urlSport : 'nfl';
 // value function, board label, and stat-line renderer. NFL is absent (points flow). nbaStatLine
 // / rotoStatLine are hoisted function declarations defined below.
 const ROTO = {
-  nba:  { cmp: nbaBoardCmp, rank: nbaRankMap, val: nbaPlayerValue, label: '9-CAT', stat: nbaStatLine },
-  wnba: { cmp: nbaBoardCmp, rank: nbaRankMap, val: nbaPlayerValue, label: '9-CAT', stat: nbaStatLine },
-  mlb:  { cmp: mlbBoardCmp, rank: mlbRankMap, val: mlbValue, label: 'ROTO', stat: rotoStatLine },
-  nhl:  { cmp: nhlBoardCmp, rank: nhlRankMap, val: nhlValue, label: 'ROTO', stat: rotoStatLine },
+  nba:  { cmp: nbaBoardCmp, rank: nbaRankMap, val: nbaPlayerValue, label: '9-CAT', stat: nbaStatLine, lineup: nbaLineup, elig: nbaElig },
+  wnba: { cmp: nbaBoardCmp, rank: nbaRankMap, val: nbaPlayerValue, label: '9-CAT', stat: nbaStatLine, lineup: nbaLineup, elig: nbaElig },
+  mlb:  { cmp: mlbBoardCmp, rank: mlbRankMap, val: mlbValue, label: 'ROTO', stat: rotoStatLine, lineup: mlbLineup, elig: mlbElig },
+  nhl:  { cmp: nhlBoardCmp, rank: nhlRankMap, val: nhlValue, label: 'ROTO', stat: rotoStatLine, lineup: nhlLineup, elig: nhlElig },
 };
 const isRoto = () => !!ROTO[sport];
 const rotoMod = () => ROTO[sport];
@@ -797,6 +808,7 @@ function userDraft(playerId) {
   const p = byId.get(playerId);
   if (!p || state.drafted.has(p.id)) return;
   recordPick(p, state.userTeam);
+  suggestedId = null; suggestedReason = null; // pick made — drop the suggestion highlight
   renderRoster();
   renderRecent();
   advance();
@@ -838,6 +850,7 @@ let lastBoard = null;
 
 // User's turn: render roster/board, then have the Coach open with the analyst's pick.
 function renderUserTurn() {
+  suggestedId = null; suggestedReason = null; // cleared until the analyst's pick arrives (set in analystOpening)
   const round = roundOf(state.pickIndex, state.settings.teams);
   $('clock').innerHTML = `Round <b>${round}</b> · Pick <b>${state.pickIndex + 1}</b> — <span class="on-clock-you">You're on the clock</span>`;
   renderRoster();
@@ -885,6 +898,13 @@ async function analystOpening() {
   lastBoard = data.board || null;
   const top = data.candidates[0];
   lastReco = { name: top.name, pos: top.pos, team: top.team, rationale: data.rationale || '', reach: !!data.reach };
+  // Highlight + scroll to the recommended player on the board so it's found without scrolling. The
+  // reason (reach = falling value, forced/need = roster slot) drives the on-row label so a lower pick
+  // reads as intentional. Re-render with the current search preserved, then bring the row into view.
+  suggestedId = top.id;
+  suggestedReason = data.reach ? 'value' : (top.forced ? 'must-fill' : (top.need ? 'need' : 'value'));
+  renderAvailable($('availSearch').value || '');
+  scrollToSuggested();
   const reachLine = data.reach
     ? (isRoto() ? ' — a clearly superior all-around player, worth the reach' : ' — an elite value falling past his ADP, worth the reach')
     : '';
@@ -894,11 +914,49 @@ async function analystOpening() {
 }
 
 // Renders ----------------------------------------------------------------------
+// NFL FLEX eligibility: RB/WR/TE fill FLEX after their own slot; everyone else is exact-only.
+function nflElig(pos) {
+  return (pos === 'RB' || pos === 'WR' || pos === 'TE') ? [pos, 'FLEX'] : [pos];
+}
+// Lineup slot config for the active sport, read from the LEAGUE'S ACTUAL setup — NFL from the
+// settings starters (default or premium-tweaked at setup), roto from the sport's module lineup —
+// so the panel matches the roster the person is really drafting for, not a generic default.
+function lineupConfig() {
+  if (isRoto()) return { slots: rotoMod().lineup, elig: rotoMod().elig };
+  const starters = (state.settings && state.settings.starters) || { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 };
+  return { slots: starters, elig: nflElig };
+}
+// Assign drafted players to starting slots in pick order — each takes his highest-priority open slot
+// (exact position before FLEX/UTIL, since elig() is most-specific-first). Extras land on the bench.
+function assignLineup() {
+  const { slots, elig } = lineupConfig();
+  const cells = [];
+  for (const [slot, n] of Object.entries(slots)) for (let i = 0; i < (n || 0); i++) cells.push({ slot, player: null });
+  const open = { ...slots };
+  const bench = [];
+  for (const r of state.roster) {
+    const p = byId.get(r.id); if (!p) continue;
+    let placed = false;
+    for (const s of elig(p.pos)) {
+      if ((open[s] || 0) > 0) {
+        const cell = cells.find((c) => c.slot === s && !c.player);
+        if (cell) { cell.player = p; open[s] -= 1; placed = true; break; }
+      }
+    }
+    if (!placed) bench.push(p);
+  }
+  return { cells, bench };
+}
 function renderRoster() {
-  $('rosterList').innerHTML = state.roster.map((r) => {
-    const p = byId.get(r.id);
-    return `<li><span class="pos ${posClass(p.pos)}">${p.pos}</span> ${p.name} <span class="muted">${p.team}</span></li>`;
-  }).join('') || '<li class="muted">No picks yet</li>';
+  if (!state.roster.length) { $('rosterList').innerHTML = '<li class="muted">No picks yet</li>'; return; }
+  const { cells, bench } = assignLineup();
+  const slotRow = (c) => c.player
+    ? `<li class="lu-slot filled"><span class="lu-tag">${c.slot}</span><span class="pos ${posClass(c.player.pos)}">${c.player.pos}</span> ${escapeHtml(c.player.name)} <span class="muted">${c.player.team}</span></li>`
+    : `<li class="lu-slot empty"><span class="lu-tag">${c.slot}</span><span class="lu-empty">Empty</span></li>`;
+  const benchRows = bench.length
+    ? '<li class="lu-bench-hd">Bench</li>' + bench.map((p) => `<li class="lu-slot bench"><span class="pos ${posClass(p.pos)}">${p.pos}</span> ${escapeHtml(p.name)} <span class="muted">${p.team}</span></li>`).join('')
+    : '';
+  $('rosterList').innerHTML = cells.map(slotRow).join('') + benchRows;
 }
 function renderRecent() {
   $('recentList').innerHTML = state.picks.slice(-12).reverse().map((p) => {
@@ -942,6 +1000,20 @@ function rotoStatLine(p) {
   return parts.length ? `<div class="proj">${parts.join(' · ')}</div>` : '';
 }
 
+// Board tag for the Coach's suggested player — says WHY, so a lower-ranked (need-driven) pick reads as
+// intentional rather than a mistake. A pure value pick is near the top of the ADP board already.
+function sugLabel(reason, pos) {
+  if (reason === 'must-fill') return `★ Coach — must fill ${pos}`;
+  if (reason === 'need') return `★ Coach — fills your ${pos}`;
+  return '★ Coach — top value';
+}
+// Bring the Coach's recommended player into view on the board (called when a new pick arrives).
+function scrollToSuggested() {
+  if (suggestedId == null) return;
+  const el = $('availList').querySelector(`.cand[data-id="${suggestedId}"]`);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 function renderAvailable(filter = '') {
   const f = filter.toLowerCase();
   // Default board order: ADP (average draft position) for NFL — how real drafts actually flow — with
@@ -956,6 +1028,12 @@ function renderAvailable(filter = '') {
     .filter((p) => !state.drafted.has(p.id) && (!f || p.name.toLowerCase().includes(f) || p.pos.toLowerCase() === f))
     .sort(isRoto() ? boardCmp : byAdp)
     .slice(0, 60);
+  // Guarantee the Coach's suggested player is on the board even if a deep need-fill sits past the
+  // top 60, so the highlight + scroll-to always land (skipped when a search filter is active).
+  if (suggestedId != null && !f) {
+    const sugP = players.find((p) => p.id === suggestedId && !state.drafted.has(p.id));
+    if (sugP && !list.includes(sugP)) list.push(sugP);
+  }
   $('availList').innerHTML = list.map((p) => {
     const rk = rankMap.get(p.id) ?? '—';
     let meta, extra = '';
@@ -972,7 +1050,8 @@ function renderAvailable(filter = '') {
       meta = ` · ${p.team} · #${rk}${fpts != null ? ' · ' + fpts + ' FPTS' : ''}${adpStr != null ? ' · ADP ' + adpStr : ''}`;
       extra = projLine(p) + renderOpportunity(p, 'compact');
     }
-    return `<div class="cand${selectedId === p.id ? ' selected' : ''}" data-id="${p.id}"><div class="cand-main"><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>
+    const sug = p.id === suggestedId;
+    return `<div class="cand${selectedId === p.id ? ' selected' : ''}${sug ? ' cand-suggested' : ''}" data-id="${p.id}"><div class="cand-main"><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>${sug ? ` <span class="cand-sug">${sugLabel(suggestedReason, p.pos)}</span>` : ''}
       <span class="meta">${meta}</span>${extra}</div><button class="cand-add" data-add="${p.id}" title="Draft ${p.name.replace(/"/g, '&quot;')}">+</button></div>`;
   }).join('');
   // Row click = inspect (open the detail sidebar); the + button = draft. So browsing stats never
