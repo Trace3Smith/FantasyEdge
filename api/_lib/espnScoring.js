@@ -21,7 +21,21 @@ const MLB_STAT = {
   5: 'hr', 20: 'r', 21: 'rbi', 23: 'sb', 2: 'avg', 17: 'obp',   // hitting
   53: 'w', 57: 'sv', 48: 'k', 47: 'era', 41: 'whip',            // pitching
 };
-const STAT_MAP_BY_SPORT = { wnba: HOOPS_STAT, nba: HOOPS_STAT, mlb: MLB_STAT };
+// ESPN football (ffl) statId → our per-game scoring key. NFL is a POINTS league: parseScoringSettings
+// reads each item's `points` value, so `weights` comes back as the league's actual point-per-unit for
+// each stat — which captures PPR TYPE (receptions weight = 1 full / 0.5 half / 0 or absent standard)
+// AND custom TD/yardage values in one pass, no separate PPR detection. Only stats that ALSO appear in
+// the ESPN gamelog are mapped, so per-game fantasy points stay recomputable from the box score; 2-pt
+// conversions and yardage bonuses aren't in the gamelog and are intentionally out of scope for the form
+// badge. Ids are ESPN's fantasy-football scoring schema — spot-check against a real league's
+// scoringItems if a detected weight looks off (same defensive stance as the maps above).
+const NFL_STAT = {
+  3: 'passYds', 4: 'passTD', 20: 'passInt',   // passing
+  24: 'rushYds', 25: 'rushTD',                // rushing
+  42: 'recYds', 43: 'recTD', 53: 'rec',       // receiving (53 = receptions → the PPR knob)
+  72: 'fumLost',                              // turnovers (lost fumbles)
+};
+const STAT_MAP_BY_SPORT = { wnba: HOOPS_STAT, nba: HOOPS_STAT, mlb: MLB_STAT, nfl: NFL_STAT };
 
 // Min recognized scored stats before we trust derived POINTS weights (else default).
 const MIN_RECOGNIZED = 4;

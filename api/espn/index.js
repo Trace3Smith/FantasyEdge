@@ -22,6 +22,7 @@ import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
 import { parseScoringSettings, scoringKey, categoryRanks } from '../_lib/espnScoring.js';
 import { getWatch, setWatch, prospectIndex, reconcileWatch, applyWatchOp } from '../_lib/prospectWatch.js';
 import { normName } from '../_lib/golf.js';
+import { nflFormBadge } from '../_lib/nflForm.js';
 
 // connect/leagues make several ESPN calls; trade actions also call Claude (10-20s).
 // Raise above the 10s Hobby default (Hobby caps at 60s).
@@ -191,6 +192,7 @@ export default async function handler(req, res) {
       case 'disconnect': return await disconnect(res, userId);
       case 'leagues':    return await leagues(req, res, userId);
       case 'apply':      return await applyLineup(req, res, userId);
+      case 'nflForm':    return await nflForm(req, res, userId);
       case 'autopilot':  return await autopilotPref(req, res, userId);
       case 'addLeague':  return await addLeague(req, res, userId);
       case 'removeLeague': return await removeLeague(req, res, userId);
@@ -422,6 +424,52 @@ async function applyLineup(req, res, userId) {
     throw new HttpError(502, 'ESPN rejected the lineup change', { error: 'apply_failed', detail: String(err.message || err) });
   }
   return res.json({ applied: result.applied, moves: sugg.moves, skippedLocked: result.skippedLocked || [] });
+}
+
+// Personalized NFL HOT/COLD form under a linked league's ACTUAL scoring. The cron already stored each
+// eligible skill player's raw last-4 game lines on the shared dataset (p.recentGames) + a default-PPR
+// badge; here we recompute FPPG under THIS league's point weights (which captures PPR type + custom
+// TD/bonus values, with the position bars scaled to that league's scoring volume — see nflForm.js).
+// Returns the COMPLETE hot/cold set so the client replaces the default badges wholesale; a player not
+// in the list is neutral under this league. Body: { leagueId, season }.
+async function nflForm(req, res, userId) {
+  const { leagueId, season } = req.body || {};
+  if (!leagueId || !season) throw new HttpError(400, 'Missing league', { error: 'missing_league' });
+
+  // Scoring weights: prefer the per-league scoring already cached by the leagues/apply flows; otherwise
+  // fetch the league once (view=mSettings) and cache it. parseScoringSettings now maps NFL stat ids.
+  let scoring = await redis.get(scoringKey('nfl', season, leagueId)).catch(() => null);
+  if (!scoring || !scoring.weights) {
+    const creds = await getCreds(redis, userId);
+    if (!creds) throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
+    let league;
+    try {
+      league = await fetchLeagueByOwner(creds, { leagueId: String(leagueId), seasonId: Number(season) });
+    } catch (err) {
+      if (err instanceof EspnAuthError) throw new HttpError(409, 'ESPN cookies expired', { error: 'espn_auth', reconnect: true });
+      throw err;
+    }
+    scoring = parseScoringSettings(league.scoringRaw, 'nfl');
+    if (scoring) redis.set(scoringKey('nfl', season, leagueId), scoring).catch(() => {});
+  }
+
+  // No confident custom weights (unrecognized format) → the client keeps the shared default-PPR badge.
+  const weights = scoring?.weights;
+  if (!weights) return res.json({ badges: null, fallback: 'default', scoring: scoring ? { label: scoring.label } : null });
+
+  const ds = await redis.get(NFL_DATASET_KEY);
+  const players = ds?.players || [];
+  if (!players.length) throw new HttpError(503, 'NFL form unavailable', { error: 'no_dataset' });
+
+  // Recompute from the stored lines only — no gamelog fetching at request time (the whole point of the
+  // hybrid). Only players the cron gated in have recentGames, so the relevance gate is inherited.
+  const badges = [];
+  for (const p of players) {
+    if (!p.recentGames || p.id == null) continue;
+    const b = nflFormBadge(p.recentGames, p.pos, weights);
+    if (b) badges.push({ id: p.id, tag: b.tag, reason: b.reason });
+  }
+  return res.json({ badges, scoring: { label: scoring.label }, count: badges.length });
 }
 
 // Get or set the per-league autopilot preference. Body { league:{leagueId,season,

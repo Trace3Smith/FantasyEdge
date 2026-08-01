@@ -28,6 +28,7 @@
 // Failure-tolerant per player and overall.
 
 import { getJson } from './espn.js';
+import { nflFormBadge, NFL_PPR, NFL_WINDOW, NFL_MIN, NFL_GAP_DAYS } from './nflForm.js';
 
 const num = (v) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isFinite(n) ? n : 0; };
 
@@ -66,7 +67,6 @@ const HIT_WINDOW = 15, HIT_MIN_APPEAR = 6, HIT_GAP_DAYS = 14; // player's own la
 const SP_WINDOW = 8, SP_MIN = 5;             // last 8 starts; need >= 5
 const RP_WINDOW = 15, RP_MIN = 8;            // last 15 relief appearances; need >= 8
 const POOL_MIN = 20;                          // season games/starts to count toward the bars
-const MLB_TOP_N = 75;                         // legacy ESPN sports (NBA/NHL/WNBA/NFL) still cap at top-75 ranked
 const MLB_FORM_CONC = 10;                     // concurrent statsapi game-log fetches (verified well under any throttle)
 const MLB_FORM_SOFT_MS = 90000;               // soft time budget for the MLB form step — stop launching new work past it, so full-roster form can never dominate the shared 300s cron
 
@@ -448,66 +448,88 @@ async function enrichHoopsForm(dataset, base, HOT, COLD) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// LEGACY: recent-vs-own-average model (NFL only — the last sport still to port)
+// NFL: fantasy-points-per-game form (points league — see nflForm.js for the model)
 // ════════════════════════════════════════════════════════════════════════════
-const FORM = {
-  nfl: { minGames: 4, full: 17, recent: 3, path: 'football/nfl' },
-};
-const HOT = 1.20, COLD = 0.80;
+// HYBRID by design: the cron does the expensive gamelog work ONCE — it stores each skill player's raw
+// last-N game lines on `p.recentGames` (so the per-user endpoint can recompute FPPG under that league's
+// own scoring, no network) AND bakes a default STANDARD-PPR badge here for logged-out / free /
+// no-linked-league viewers. Only QB/RB/WR/TE are covered; K/DST are excluded (near-random week to week).
+const NFL_GL = 'https://site.web.api.espn.com/apis/common/v3/sports/football/nfl/athletes';
+const NFL_SKILL = new Set(['QB', 'RB', 'WR', 'TE']);
+const NFL_FORM_CONC = 8, NFL_FORM_SOFT_MS = 90000;
+// Relevance gate: badge only rosterable-caliber skill players (top-N per position by SEASON fantasy
+// value). NFL rosters carry a long non-contributor tail (4-5 RBs, 6-7 WRs per team) that a fixed COLD
+// bar would perma-flag — "not startable" isn't "slumping". Gating by season value (are you rosterable?)
+// while the badge reads recent form (are you slumping?) keeps COLD meaningful: a startable player still
+// has the season value to stay in the gate even mid-slump. Also caps the gamelog fetches to ~150.
+const NFL_DEPTH = { QB: 30, RB: 45, WR: 55, TE: 24 };
 
-function gameValueEspn(sport, pos, v) {
-  if (sport === 'nba' || sport === 'wnba')
-    return v('points') + 1.2 * v('totalRebounds') + 1.5 * v('assists') + 3 * v('steals') + 3 * v('blocks') - v('turnovers');
-  if (sport === 'nhl') {
-    if (pos === 'G') return 2 * v('wins') + 0.2 * v('saves') + 3 * v('shutouts') - 1.5 * v('goalsAgainst');
-    return 3 * v('goals') + 2 * v('assists') + 0.4 * v('shotsTotal') + 0.5 * (v('powerPlayGoals') + v('powerPlayAssists')) + v('plusMinus');
-  }
-  if (sport === 'nfl')
-    return v('passingYards') * 0.04 + v('passingTouchdowns') * 4 - v('interceptions') * 2
-      + v('rushingYards') * 0.1 + v('rushingTouchdowns') * 6
-      + v('receptions') + v('receivingYards') * 0.1 + v('receivingTouchdowns') * 6 - v('fumblesLost') * 2;
-  return 0;
-}
-async function espnGames(path, id, sport, pos) {
-  const gl = await getJson(`https://site.web.api.espn.com/apis/common/v3/sports/${path}/athletes/${id}/gamelog`);
+// Per-game NFL box-score line (raw components any scoring formula needs). Position-specific gamelogs
+// omit the irrelevant fields, so missing stats read as 0 (a WR has no passing columns, etc.).
+async function nflGames(id) {
+  const gl = await getJson(`${NFL_GL}/${id}/gamelog`);
   const idx = new Map((gl.names || []).map((n, i) => [n, i]));
   const events = gl.events || {};
   const st = (gl.seasonTypes || []).find((s) => /regular season/i.test(s.displayName || ''));
   if (!st) return [];
+  const gi = (s, name) => num(s[idx.get(name)]);
   const games = [];
   for (const cat of st.categories || []) for (const ev of cat.events || []) {
-    const v = (name) => num(ev.stats?.[idx.get(name)]);
+    const s = ev.stats || [];
     const d = events[ev.eventId]?.gameDate;
-    games.push({ date: d ? new Date(d).getTime() : 0, value: gameValueEspn(sport, pos, v) });
+    games.push({
+      date: d ? new Date(d).toISOString() : '',
+      passYds: gi(s, 'passingYards'), passTD: gi(s, 'passingTouchdowns'), passInt: gi(s, 'interceptions'),
+      rushYds: gi(s, 'rushingYards'), rushTD: gi(s, 'rushingTouchdowns'),
+      rec: gi(s, 'receptions'), recYds: gi(s, 'receivingYards'), recTD: gi(s, 'receivingTouchdowns'),
+      fumLost: gi(s, 'fumblesLost'),
+    });
   }
   return games;
 }
-async function enrichFormLegacy(dataset, { sport }) {
-  const cfg = FORM[sport];
-  if (!cfg) return;
-  const maxGames = dataset.counts?.maxGames;
-  if (maxGames == null || maxGames >= cfg.full) { dataset.counts = { ...dataset.counts, formActive: false }; return; }
-  const top = dataset.players.filter((p) => !p.searchOnly && p.rank != null).sort((a, b) => a.rank - b.rank).slice(0, MLB_TOP_N);
-  let hot = 0, cold = 0;
-  await mapLimit(top, 8, async (p) => {
+
+async function enrichNflForm(dataset) {
+  // Relevance gate: top-N per position by season fantasy value (fpPpr), so only rosterable-caliber
+  // skill players are badged / get recentGames — the endpoint inherits the gate (no lines to rescore
+  // for a gated-out player). Sorted by rank for graceful degradation under the soft time budget.
+  const byPos = {};
+  for (const p of dataset.players) {
+    if (p.searchOnly || p.id == null || !NFL_SKILL.has(p.pos)) continue;
+    (byPos[p.pos] ||= []).push(p);
+  }
+  const eligible = new Set();
+  for (const pos in byPos) {
+    byPos[pos].sort((a, b) => (b.fpPpr ?? b.fp ?? 0) - (a.fpPpr ?? a.fp ?? 0));
+    for (const p of byPos[pos].slice(0, NFL_DEPTH[pos] ?? 0)) eligible.add(p);
+  }
+  const targets = [...eligible].sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
+  const deadline = Date.now() + NFL_FORM_SOFT_MS;
+  let hot = 0, cold = 0, checked = 0, skipped = 0;
+  await mapLimit(targets, NFL_FORM_CONC, async (p) => {
+    if (Date.now() > deadline) { skipped++; return; }
+    checked++;
     try {
-      const games = await espnGames(cfg.path, p.id, sport, p.pos);
-      if (games.length < cfg.minGames) return;
-      games.sort((a, b) => b.date - a.date);
-      const recent = games.slice(0, cfg.recent);
-      const seasonAvg = games.reduce((a, g) => a + g.value, 0) / games.length;
-      const recentAvg = recent.reduce((a, g) => a + g.value, 0) / recent.length;
-      if (seasonAvg <= 0) return;
-      const ratio = recentAvg / seasonAvg;
-      if (ratio >= HOT) { p.tag = 'hot'; p.trend = 'up'; p.trendVal = '+' + Math.round((ratio - 1) * 100) + '%'; hot++; }
-      else if (ratio <= COLD) { p.tag = 'cold'; p.trend = 'down'; p.trendVal = '-' + Math.round((1 - ratio) * 100) + '%'; cold++; }
-    } catch { /* non-fatal */ }
+      const g = await nflGames(p.id);
+      g.sort((a, b) => (a.date < b.date ? 1 : -1)); // newest first
+      const win = recentWindow(g, NFL_WINDOW, NFL_GAP_DAYS); // gap reset uses ISO dates (a bye ~14d doesn't reset)
+      if (win.length < NFL_MIN) return;
+      // Store the raw window lines (date stripped — it was only for the gap logic) so the per-user
+      // endpoint can recompute FPPG under any league's weights. Stored even when the default badge is
+      // neutral, since a custom league can read hot/cold where standard PPR doesn't.
+      p.recentGames = win.map(({ date, ...line }) => line);
+      const b = nflFormBadge(win, p.pos, NFL_PPR); // default badge = standard PPR
+      if (!b) return;
+      p.tag = b.tag; p.trend = b.tag === 'hot' ? 'up' : 'down'; p.trendVal = '';
+      p.formReason = b.reason;
+      if (b.tag === 'hot') hot++; else cold++;
+    } catch { /* per-player failure is non-fatal */ }
   });
-  dataset.counts = { ...dataset.counts, formActive: true, formHot: hot, formCold: cold, formChecked: top.length };
+  dataset.counts = { ...dataset.counts, formActive: true, formHot: hot, formCold: cold, formChecked: checked, formTargets: targets.length, formSkipped: skipped };
 }
 
-// Mutates dataset.players: sets tag 'hot'|'cold' (+ trend, formReason). MLB, NHL, NBA, and WNBA use the
-// fixed-absolute per-category model with full-roster coverage; NFL uses the legacy model.
+// Mutates dataset.players: sets tag 'hot'|'cold' (+ trend, formReason). All supported sports use the
+// fixed-absolute model with full-roster coverage: MLB/NHL/NBA/WNBA per-category, NFL fantasy-points
+// (which also stores p.recentGames so the per-user endpoint can rescore under a linked league).
 // No-op (and no fetches) when the sport is out of season.
 export async function enrichForm(dataset, { sport, season }) {
   if (!Array.isArray(dataset.players)) return;
@@ -539,5 +561,12 @@ export async function enrichForm(dataset, { sport, season }) {
     catch (err) { dataset.counts = { ...dataset.counts, formActive: false, formError: String(err?.message || err) }; }
     return;
   }
-  return enrichFormLegacy(dataset, { sport, season });
+  if (sport === 'nfl') {
+    const maxGames = dataset.counts?.maxGames;
+    if (maxGames == null || maxGames >= 17) { dataset.counts = { ...dataset.counts, formActive: false }; return; }
+    try { await enrichNflForm(dataset); }
+    catch (err) { dataset.counts = { ...dataset.counts, formActive: false, formError: String(err?.message || err) }; }
+    return;
+  }
+  dataset.counts = { ...dataset.counts, formActive: false }; // unknown sport → no form model
 }
