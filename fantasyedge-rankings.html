@@ -536,8 +536,9 @@
   .tier-punt  { background: rgba(244,67,54,0.12); color: var(--red); border: 1px solid rgba(244,67,54,0.35); }
   .tier-note { display: block; font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--gray); margin-top: 4px; }
   /* PGA-only extra stat columns (CUT% / FIT): hidden until the golf board is active. */
-  .pga-col { display: none; }
-  #rankingsTable.show-pga-cols .pga-col { display: table-cell; }
+  /* Two spare sortable columns beyond the stat line — PGA's CUT%/FIT and NFL's Proj/'25 points. */
+  .extra-col { display: none; }
+  #rankingsTable.show-extra-cols .extra-col { display: table-cell; }
   .own-pct { color: var(--gray-light); font-size: 12px; }
   .loading-row td { text-align: center; padding: 60px 20px; color: var(--gray); }
   .loading-title { font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 2px; color: var(--gold); margin-bottom: 6px; }
@@ -668,7 +669,7 @@
           <th id="hGP" class="sortable" data-stat="GP" title="Games played / team games (season or the active L15/L30 window). Pitchers and NHL goalies show a bare count of starts/appearances — they don't play every team game.">GP</th>
           <th id="h1" class="sortable">AVG</th><th id="h2" class="sortable">HR</th><th id="h3" class="sortable">RBI</th><th id="h4" class="sortable">SB</th>
           <th id="h5" class="sortable">ERA</th><th id="h6" class="sortable">WHIP</th>
-          <th id="h7" class="pga-col sortable">CUT%</th><th id="h8" class="pga-col sortable">FIT</th>
+          <th id="h7" class="extra-col sortable">CUT%</th><th id="h8" class="extra-col sortable">FIT</th>
           <th id="hRate">Stars</th><th>Trend</th><th>Own%</th>
         </tr>
       </thead>
@@ -758,12 +759,14 @@
     nhl_goalie: ['W', 'GAA', 'SV%', 'SO', 'SV', 'SA'],
     // NFL columns vary by position; FPTS (PPR fantasy points) is always last. The
     // ALL view shows dashes because each row carries its own inline labels.
-    nfl_qb:  ['PaYd', 'PaTD', 'INT', 'RuYd', 'RuTD', 'FPTS'],
-    nfl_rb:  ['RuYd', 'RuTD', 'Rec', 'ReYd', 'ReTD', 'FPTS'],
-    nfl_wr:  ['Rec', 'ReYd', 'ReTD', 'Tgt', 'RuYd', 'FPTS'],
-    nfl_k:   ['FGM', 'FGA', 'FG%', 'XPM', 'LNG', 'FPTS'],
-    nfl_dst: ['Sack', 'INT', 'FR', 'TD', 'PA', 'FPTS'],
-    nfl_all: ['—', '—', '—', '—', '—', 'FPTS'],
+    // FPTS is the blended (ranking) value; Proj = 2026 projected pts, '25 = last-season actual pts —
+    // both sortable, so clicking a header re-ranks by projection or by last year (the blend stays default).
+    nfl_qb:  ['PaYd', 'PaTD', 'INT', 'RuYd', 'RuTD', 'FPTS', 'Proj', "'25"],
+    nfl_rb:  ['RuYd', 'RuTD', 'Rec', 'ReYd', 'ReTD', 'FPTS', 'Proj', "'25"],
+    nfl_wr:  ['Rec', 'ReYd', 'ReTD', 'Tgt', 'RuYd', 'FPTS', 'Proj', "'25"],
+    nfl_k:   ['FGM', 'FGA', 'FG%', 'XPM', 'LNG', 'FPTS', 'Proj', "'25"],
+    nfl_dst: ['Sack', 'INT', 'FR', 'TD', 'PA', 'FPTS', 'Proj', "'25"],
+    nfl_all: ['—', '—', '—', '—', '—', 'FPTS', 'Proj', "'25"],
     // PGA (DFS golf): season strokes gained (off-the-tee / approach / putting),
     // scrambling / fairways / greens, then this week's cut probability + course fit.
     // 8 columns — the last two (CUT% / FIT) render in the PGA-only s7/s8 cells.
@@ -843,9 +846,22 @@
 
   // Window-aware value for stat column i (0-5): the season slot, or the active rolling window's stat.
   // Returns null (renders '—') when the window carries no value for that player/stat.
+  // Projected (2026) / prior-season (2025) fantasy points in the ACTIVE scoring format, for the NFL
+  // Proj / '25 columns. proj.pts carries {ppr,std,half}; actual carries {ppr,std} (half = the midpoint).
+  function nflPtsFmt(o) {
+    if (o == null) return null;
+    const s = String(currentScoring).toLowerCase();
+    if (s === 'std' || s === 'standard') return o.std;
+    if (s.startsWith('half')) return o.half != null ? o.half : (o.ppr + o.std) / 2;
+    return o.ppr;
+  }
   function cellVal(p, i) {
     if (boardWindow === 'season') {
-      if (i === 5 && currentSport === 'nfl' && p.fpPpr != null) return nflFpts(p, currentScoring).toFixed(1); // FPTS reflects scoring
+      if (currentSport === 'nfl') {
+        if (i === 5 && p.fpPpr != null) return nflFpts(p, currentScoring).toFixed(1); // FPTS (blend) reflects scoring
+        if (i === 6) { const v = nflPtsFmt(p.proj?.pts); return v == null ? null : v.toFixed(1); }  // Proj 2026
+        if (i === 7) { const v = nflPtsFmt(p.actual); return v == null ? null : v.toFixed(1); }       // 2025 actual
+      }
       return p['s' + (i + 1)];
     }
     const meta = STAT_META[p.statLabels?.[i]];
@@ -907,6 +923,7 @@
   // Numeric sort key for a player under the active window, by stat LABEL. Missing -> null (sinks).
   function sortNum(p, label) {
     if (label === 'GP') return gpVal(p); // the GP column isn't in statLabels; sort on the same value it shows
+    if (label === 'Proj' || label === "'25") { const v = cellVal(p, label === 'Proj' ? 6 : 7); return v == null ? null : parseFloat(String(v)); }
     const idx = p.statLabels?.indexOf(label);
     if (idx == null || idx < 0) return null;
     const v = cellVal(p, idx);
@@ -1128,7 +1145,7 @@
         <td style="color:var(--gray-light)">${p.team||'—'}</td>
         <td class="gp-col">${formatStat(gpDisplay(p), null)}</td>
         <td>${formatStat(cellVal(p, 0), showInline ? p.statLabels?.[0] : null)}</td><td>${formatStat(cellVal(p, 1), showInline ? p.statLabels?.[1] : null)}</td><td>${formatStat(cellVal(p, 2), showInline ? p.statLabels?.[2] : null)}</td><td>${formatStat(cellVal(p, 3), showInline ? p.statLabels?.[3] : null)}</td><td>${formatStat(cellVal(p, 4), showInline ? p.statLabels?.[4] : null)}</td><td>${formatStat(cellVal(p, 5), showInline ? p.statLabels?.[5] : null)}</td>
-        <td class="pga-col">${formatStat(p.s7, showInline ? p.statLabels?.[6] : null)}</td><td class="pga-col">${formatStat(p.s8, showInline ? p.statLabels?.[7] : null)}</td>
+        <td class="extra-col">${formatStat(cellVal(p, 6), showInline ? (currentSport === 'nfl' ? 'Proj' : p.statLabels?.[6]) : null)}</td><td class="extra-col">${formatStat(cellVal(p, 7), showInline ? (currentSport === 'nfl' ? "'25" : p.statLabels?.[7]) : null)}</td>
         <td class="${isPga ? 'tier-cell' : 'stars-cell'}">${so ? muted : isPga ? getTierHTML(p.tier, p.inField) : renderStarsBlock(cats)}</td>
         <td>${so ? muted : getTrendHTML(p.trend, p.trendVal)}</td>
         <td class="own-pct">${so ? '—' : (p.own!=null?p.own+'%':'—')}</td>
@@ -1873,8 +1890,8 @@
     // The Pos column holds country for PGA (golfers have no position); 'Pos' elsewhere.
     const isPga = sport === 'pga';
     document.getElementById('hPos').textContent = isPga ? 'Country' : 'Pos';
-    // PGA shows two extra stat columns (CUT% / FIT) and a DFS value tier instead of stars.
-    document.getElementById('rankingsTable').classList.toggle('show-pga-cols', isPga);
+    // Two extra sortable columns: PGA's CUT%/FIT, or NFL's Proj/'25 points. PGA also swaps stars→tier.
+    document.getElementById('rankingsTable').classList.toggle('show-extra-cols', isPga || sport === 'nfl');
     document.getElementById('hRate').textContent = isPga ? 'Tier' : 'Stars';
     // Type-tab sports (MLB Hitters/Pitchers, NHL Skaters/Goalies) show their tabs above the position
     // sub-filters, built from TYPE_TABS; other sports hide the row.
