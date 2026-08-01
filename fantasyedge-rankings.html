@@ -721,7 +721,9 @@
   // Individual-game-log toggle windows, per sport — each sport uses its own rolling convention
   // (WNBA's 44-game season is L10/L20, like its rolling stats; MLB/NFL are L15/L30). The active
   // window is sticky per board (an L20 pick on WNBA is remembered for WNBA, independent of MLB).
-  const GAMELOG_WINDOWS_BY_SPORT = { mlb: [15, 30], nfl: [15, 30], nba: [15, 30], nhl: [15, 30], wnba: [10, 20] };
+  // NFL is intentionally omitted — one game a week makes a 15/30-game window nearly a whole season, so
+  // its game log shows the full chronological season instead (no toggle; see drawGamelog).
+  const GAMELOG_WINDOWS_BY_SPORT = { mlb: [15, 30], nba: [15, 30], nhl: [15, 30], wnba: [10, 20] };
   const gamelogWinsFor = s => GAMELOG_WINDOWS_BY_SPORT[s] || [15, 30];
   const gamelogWin = {};            // sport -> active window; defaults to that sport's smaller window
   const activeGamelogWin = s => gamelogWin[s] ?? gamelogWinsFor(s)[0];
@@ -1285,7 +1287,9 @@
     const sport = currentSport;
     const kind = sport === 'mlb' ? (isPitcherPos(p) ? 'pitcher' : 'hitter') : '';
     const active = activeGamelogWin(sport);
-    const win = gamelogWinsFor(sport).map(n =>
+    // NFL: no L15/L30 window toggle — the game log is the full chronological season (all of last year in
+    // the offseason; growing week by week once it starts). Other sports keep their window toggle.
+    const win = sport === 'nfl' ? '' : gamelogWinsFor(sport).map(n =>
       `<button class="gl-win-btn${n === active ? ' active' : ''}" data-n="${n}">L${n}</button>`).join('');
     return `<div class="gamelog-wrap" data-pid="${p.id}" data-sport="${sport}" data-kind="${kind}">
       <div class="gamelog-head"><span class="gamelog-title">Game Log</span><span class="gamelog-win">${win}</span></div>
@@ -1476,10 +1480,13 @@
   function drawGamelog(el, raw) {
     const body = el.querySelector('.gamelog-body');
     const titleEl = el.querySelector('.gamelog-title');
-    const n = activeGamelogWin(raw.sport);
+    const nfl = raw.sport === 'nfl';
+    const n = activeGamelogWin(raw.sport); // window for non-NFL sports; NFL shows the full season
     const espn = ESPN_GAMELOG[raw.sport];
     if (espn) {
-      body.innerHTML = renderEspnGamelogRows(raw.names, raw.rows, n, espn.line);
+      // NFL: full chronological log (oldest → newest, by date), no window. Others: last-N window.
+      const rows = nfl ? raw.rows.slice().sort((a, b) => new Date(a.date) - new Date(b.date)) : raw.rows;
+      body.innerHTML = renderEspnGamelogRows(raw.names, rows, nfl ? rows.length : n, espn.line);
       titleEl.textContent = raw.season ? `Game Log · ${raw.season}` : 'Game Log';
     } else {
       body.innerHTML = renderGamelogRows(raw.splits, raw.kind, n);
