@@ -117,8 +117,84 @@ const GENERIC = {
   },
 };
 
-// Registry — Phase 1 (nfl) and Phase 2 (mlb) will register specialized defs here.
-const REGISTRY = { /* nfl: {...}, mlb: {...} */ };
+// --- NFL (Phase 1) ------------------------------------------------------------
+// PPR-framed and season-aware. Draws on the NFL-specific enrichments already on the row: the blended
+// ranking value (nflBlend, p.blend.inSeason), the Sleeper season projection (p.proj), weekly
+// consistency + ceiling (enrichNflConsistency), team-context opportunity (enrichNflContext, in-season
+// only), and the form badge. Offseason → draft framing (rank, projection, floor/ceiling profile);
+// in-season → role/form/start-sit framing.
+const NFL_SKILL = new Set(['QB', 'RB', 'WR', 'TE']);
+const rnd = (v, step) => (v == null ? null : Math.round(v / step)); // bucket a value for the fingerprint
+
+const NFL_DEF = {
+  // Rosterable skill players only — K/DST get no note (thin, near-random signal), search-only excluded.
+  gate: (p) => !!p && !p.searchOnly && p.rank != null && NFL_SKILL.has(p.pos),
+
+  signals: (p, ctx = {}) => ({
+    name: p.name,
+    pos: p.pos,
+    team: p.team && p.team !== '—' ? p.team : null,
+    rank: p.rank ?? null,
+    posRank: ctx.posRank ?? null,                          // e.g. WR3 — the endpoint derives it from the dataset
+    inSeason: p.blend?.inSeason ?? null,
+    games: p.games ?? null,
+    projPts: p.proj?.pts?.ppr ?? (p.blend?.proj ?? null),  // projected season PPR points
+    consistency: p.consistency ?? null,                    // P25/P50, higher = steadier
+    ceiling: p.ceiling ?? null,                            // P90 weekly upside
+    // Opportunity is current-season usage; offseason it's stale/last-season, so surface it ONLY when the
+    // blend actually applied it (in-season). Mirrors how the rankings page treats the same figures.
+    opportunity: (p.opportunity && p.opportunity.applied)
+      ? { label: p.opportunity.label || null, targetShare: p.opportunity.targetShare ?? null, paceBucket: p.opportunity.paceBucket || null }
+      : null,
+    form: (p.tag === 'hot' || p.tag === 'cold') ? { state: p.tag, reason: p.formReason || null } : null,
+    stats: statLine(p).filter((x) => x.label !== 'FPTS'),  // FPTS is the blended value → projPts already covers points
+  }),
+
+  // Regenerate on what moves an NFL take: positional tier, projection/consistency/ceiling buckets, a form
+  // flip, the applied-opportunity bucket, and the season phase. Raw weekly stat totals are excluded (they
+  // tick every week); the bucketed projection/consistency already capture real movement.
+  fp: (s) => ({
+    inSeason: s.inSeason,
+    tier: Math.ceil((s.posRank || s.rank || 999) / 5),
+    proj: rnd(s.projPts, 5),
+    cons: rnd(s.consistency, 5),
+    ceil: rnd(s.ceiling, 3),
+    form: s.form?.state || null,
+    reason: s.form?.reason || null,
+    opp: s.opportunity ? `${s.opportunity.paceBucket || '-'}:${rnd((s.opportunity.targetShare || 0) * 100, 5)}` : null,
+  }),
+
+  system:
+    'You write terse fantasy-football player notes in the style of RotoWire updates, for a PPR manager. ' +
+    'Write 2-3 sentences, present tense. If the note is IN-SEASON, focus on the player\'s current value, recent ' +
+    'form, and a start/sit or buy/sell read. If it is OFFSEASON (projecting the upcoming season), focus on ' +
+    'DRAFT value — his rank, projected points, and his consistency/ceiling profile (steady floor vs ' +
+    'boom-or-bust). Interpret CONSISTENCY as how close a bad week is to a typical week (higher = steadier, out ' +
+    'of 100) and CEILING as weekly upside in points. Be plain and confident with no hedging filler. Use ONLY ' +
+    'the numbers provided — do NOT invent injuries, specific opponents, depth-chart or coaching details, or ' +
+    'anything not given. If a signal is absent, do not mention it. Output only the note, no preamble.',
+
+  user: (s) => {
+    const where = [s.pos, s.team].filter(Boolean).join(', ');
+    const posRank = s.posRank ? `${s.pos}${s.posRank}` : null;
+    const lines = [`Player: ${s.name}${where ? ` (${where})` : ''}`];
+    lines.push(`Rank: ${posRank ? `${posRank} · ` : ''}overall #${s.rank ?? '—'}`);
+    lines.push(s.inSeason
+      ? `Context: in-season${s.games != null ? `, ${s.games} games played` : ''}`
+      : 'Context: offseason — projecting the upcoming season');
+    if (s.projPts != null) lines.push(`Projected PPR points (season): ${s.projPts}`);
+    if (s.consistency != null) lines.push(`Consistency: ${s.consistency}/100 (floor vs a typical week)`);
+    if (s.ceiling != null) lines.push(`Ceiling: ${s.ceiling} pts (weekly upside)`);
+    if (s.form) lines.push(`Recent form: ${s.form.state.toUpperCase()}${s.form.reason ? ` — ${s.form.reason}` : ''}`);
+    if (s.opportunity && s.opportunity.label) lines.push(`Opportunity: ${s.opportunity.label}`);
+    const stats = s.stats.map((x) => `${x.label} ${x.value}`).join(', ');
+    if (stats) lines.push(`Season stat line: ${stats}`);
+    return lines.join('\n');
+  },
+};
+
+// Registry — Phase 2 (mlb) will register its specialized def here too.
+const REGISTRY = { nfl: NFL_DEF };
 
 // Public: register a sport's specialized def (used by the sport phases; exported for testability).
 export function registerSport(sport, def) { REGISTRY[sport] = def; }
@@ -131,7 +207,7 @@ export function synopsisDef(sport) { return REGISTRY[sport] || GENERIC; }
 // without KV or the network.
 export function prepare(sport, player, ctx = {}) {
   const def = synopsisDef(sport);
-  if (!def.gate(player)) return { relevant: false, reason: 'not_relevant' };
+  if (!def.gate(player, ctx)) return { relevant: false, reason: 'not_relevant' };
   const signals = def.signals(player, ctx);
   return {
     relevant: true,

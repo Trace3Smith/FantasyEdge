@@ -51,7 +51,18 @@ export default async function handler(req, res) {
     // Forward-compatible context. Phase 0's generic def ignores it; Phase 2 (MLB) reads ctx.bvp for the
     // day-of batter-vs-pitcher matchup. Load BvP only for MLB, and only if it was built for today, so a
     // stale slate never feeds the note.
-    const ctx = { builtAt: dataset?.builtAt || null, bvp: null };
+    // Positional rank (e.g. WR3) among rosterable same-position players by value — NFL framing uses it;
+    // other sports' defs ignore it. Cheap to compute here where the full dataset is in hand.
+    let posRank = null;
+    if (player.pos && player.pos !== '—') {
+      const peers = players
+        .filter((q) => !q.searchOnly && q.pos === player.pos)
+        .sort((a, b) => (b.fpPpr ?? b.fp ?? b.zTotal ?? 0) - (a.fpPpr ?? a.fp ?? a.zTotal ?? 0));
+      const i = peers.findIndex((q) => String(q.id) === String(player.id));
+      if (i >= 0) posRank = i + 1;
+    }
+
+    const ctx = { builtAt: dataset?.builtAt || null, bvp: null, posRank };
     if (sport === 'mlb') {
       const b = await redis.get(BVP_KEY);
       if (b && b.date === today()) ctx.bvp = b.batters?.[player.id] || null;
