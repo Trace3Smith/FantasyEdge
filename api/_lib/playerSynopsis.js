@@ -193,8 +193,82 @@ const NFL_DEF = {
   },
 };
 
-// Registry — Phase 2 (mlb) will register its specialized def here too.
-const REGISTRY = { nfl: NFL_DEF };
+// --- MLB (Phase 2) ------------------------------------------------------------
+// Roto/category-framed and hitter/pitcher aware. Its differentiator is the DAY-OF matchup: for a hitter
+// facing a named probable starter today, the endpoint passes ctx.bvp = { oppSp, line, advice } (from
+// enrichBvp / bvpAdvice) and the note becomes a start/sit read for today's game. The provided advice
+// already encodes the sample-size rules (stars start regardless; <3 AB is no signal → fall back to
+// form/season), so the prompt is told to respect it rather than re-derive from the raw line. Pitchers
+// get no BvP (it's batter-vs-pitcher) — their note is season value + form. Off-day/offseason (no ctx.bvp)
+// → season value + form for everyone.
+const MLB_PITCHER_POS = new Set(['SP', 'RP']);
+
+const MLB_DEF = {
+  gate: (p) => !!p && !p.searchOnly && p.rank != null,
+
+  signals: (p, ctx = {}) => {
+    const pitcher = MLB_PITCHER_POS.has(p.pos);
+    const bvp = (!pitcher && ctx.bvp) ? ctx.bvp : null; // BvP is hitter-only, and only when built for today
+    return {
+      name: p.name,
+      kind: pitcher ? 'pitcher' : 'hitter',
+      pos: p.pos && p.pos !== '—' ? p.pos : null,
+      team: p.team && p.team !== '—' ? p.team : null,
+      rank: p.rank ?? null,
+      form: (p.tag === 'hot' || p.tag === 'cold') ? { state: p.tag, reason: p.formReason || null } : null,
+      stats: statLine(p),
+      matchup: bvp && bvp.oppSp ? {
+        oppSp: bvp.oppSp.name || null,
+        line: bvp.line ? { ab: bvp.line.ab, h: bvp.line.h, hr: bvp.line.hr, avg: bvp.line.avg, ops: bvp.line.ops } : null,
+        call: bvp.advice?.call || null,       // start | sit | neutral (already sample-size-aware)
+        reason: bvp.advice?.reason || null,
+      } : null,
+    };
+  },
+
+  // Rank tier + form as usual, plus the day-of matchup IDENTITY (opponent + start/sit call). Regenerate
+  // when the opponent or call changes; absent on off-days so a season-value note stays cached across days
+  // rather than churning daily. Raw category totals are excluded (they tick each game).
+  fp: (s) => ({
+    tier: Math.ceil((s.rank || 999) / 5),
+    form: s.form?.state || null,
+    reason: s.form?.reason || null,
+    mu: s.matchup ? `${s.matchup.oppSp || '-'}:${s.matchup.call || '-'}` : null,
+  }),
+
+  system:
+    'You write terse fantasy-baseball player notes in the style of RotoWire updates, for a roto/category ' +
+    'manager. Write 2-3 sentences, present tense. Read the standard category line (hitters: AVG/HR/RBI/R/SB/OBP; ' +
+    'pitchers: K/W/SV/HD/ERA/WHIP) for what the player provides, and weigh any HOT/COLD recent form. If a ' +
+    'TODAY\'S MATCHUP is provided (a hitter facing a named probable starter), give a start/sit call for today: ' +
+    'the provided matchup read already accounts for sample size, so when it says the history is thin or no ' +
+    'signal, lean on recent form and season value instead of the batter-vs-pitcher line. Be plain and confident ' +
+    'with no hedging filler. Use ONLY the data provided — do NOT invent injuries, ballparks, weather, handedness, ' +
+    'lineup spot, or anything not given. Output only the note, no preamble.',
+
+  user: (s) => {
+    const where = [s.pos, s.team].filter(Boolean).join(', ');
+    const lines = [
+      `Player: ${s.name}${where ? ` (${where})` : ''} — ${s.kind}`,
+      `Roto rank: #${s.rank ?? '—'}`,
+    ];
+    if (s.form) lines.push(`Recent form: ${s.form.state.toUpperCase()}${s.form.reason ? ` — ${s.form.reason}` : ''}`);
+    const stats = s.stats.map((x) => `${x.label} ${x.value}`).join(', ');
+    if (stats) lines.push(`Season line: ${stats}`);
+    if (s.matchup) {
+      const L = s.matchup.line;
+      const hist = L && L.ab > 0
+        ? `career ${L.h}-for-${L.ab}${L.avg != null ? `, ${L.avg}` : ''}${L.ops != null ? `/${L.ops} OPS` : ''}${L.hr ? `, ${L.hr} HR` : ''}`
+        : (L && L.ab === 0 ? 'no career history (first matchup)' : 'no BvP data');
+      lines.push(`Today's matchup: faces ${s.matchup.oppSp || 'TBD'} — ${hist}`);
+      if (s.matchup.call) lines.push(`Matchup read: ${s.matchup.call.toUpperCase()}${s.matchup.reason ? ` — ${s.matchup.reason}` : ''}`);
+    }
+    return lines.join('\n');
+  },
+};
+
+// Registry — the built-in specialized sports.
+const REGISTRY = { nfl: NFL_DEF, mlb: MLB_DEF };
 
 // Public: register a sport's specialized def (used by the sport phases; exported for testability).
 export function registerSport(sport, def) { REGISTRY[sport] = def; }
