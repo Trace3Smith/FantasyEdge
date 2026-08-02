@@ -1357,7 +1357,10 @@
   // AI player report (synopsis). Only NFL + MLB are specialized (Phase 1/2); other sports can be lit up
   // later by widening SYNOPSIS_SPORTS (the endpoint already handles them via a generic fallback). NFL is
   // gated to skill players (the endpoint returns not_relevant for K/DST). MLB covers hitters + pitchers.
-  const SYNOPSIS_SPORTS = new Set(['nfl', 'mlb']);
+  // NFL + MLB have specialized defs; NHL/NBA/WNBA use the engine's generic fallback (rank/form/stats note,
+  // no sport-specific matchup data yet — NHL gets its goalie/GA differentiator in Phase 5). PGA stays off
+  // (name-keyed, no athlete-id row the endpoint matches on).
+  const SYNOPSIS_SPORTS = new Set(['nfl', 'mlb', 'nhl', 'nba', 'wnba']);
   const SYNOPSIS_NFL_POS = new Set(['QB', 'RB', 'WR', 'TE']);
   function synopsisSupported(p) {
     if (!SYNOPSIS_SPORTS.has(currentSport) || p.id == null || p.searchOnly) return false;
