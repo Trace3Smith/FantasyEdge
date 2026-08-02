@@ -103,15 +103,15 @@ function buildPricingModal() {
       <div class="fe-plans">
         <div class="fe-plan">
           <div class="fe-plan-name">Monthly</div>
-          <div class="fe-price">$9.99 <span>/ mo</span></div>
+          <div class="fe-price">$5 <span>/ mo</span></div>
           <div class="fe-save">&nbsp;</div>
           <button class="fe-pick" data-interval="month">Choose Monthly</button>
         </div>
         <div class="fe-plan best">
           <span class="fe-tag-best">BEST VALUE</span>
           <div class="fe-plan-name">Annual</div>
-          <div class="fe-price">$79 <span>/ yr</span></div>
-          <div class="fe-save">Save ~34% · 2 months free</div>
+          <div class="fe-price">$50 <span>/ yr</span></div>
+          <div class="fe-save">Save 17% · 2 months free</div>
           <button class="fe-pick" data-interval="year">Choose Annual</button>
         </div>
       </div>
@@ -194,7 +194,7 @@ function wireUpgradeButton(modal) {
         if (ok && data?.url) window.location.href = data.url;
       };
     } else {
-      btn.textContent = 'Get Pro — $9.99/mo';
+      btn.textContent = 'Get Pro — $5/mo';
       btn.onclick = (e) => { e.preventDefault(); openPricing(); };
     }
   });

@@ -1,5 +1,5 @@
 // Creates a Stripe Checkout Session for a Premium subscription. The caller picks the
-// billing interval ('month' = $9.99/mo, 'year' = $79/yr); we map it to the matching
+// billing interval ('month' = $5/mo, 'year' = $50/yr); we map it to the matching
 // Stripe price, ensure the user has a Stripe customer, and hand back a hosted
 // Checkout URL. The webhook (not this endpoint) is what flips the user to premium.
 import { stripe, clerkClient, PRICE_BY_INTERVAL, APP_URL } from '../_lib/billing.js';
