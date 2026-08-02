@@ -10,7 +10,7 @@
 // a null note (200) so the rankings page degrades to "no report" rather than erroring.
 import { requirePremium, sendError } from '../_lib/auth.js';
 import {
-  redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, BVP_KEY,
+  redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, BVP_KEY, NHL_MATCHUP_KEY,
 } from '../_lib/kv.js';
 import { getPlayerSynopsis } from '../_lib/playerSynopsis.js';
 
@@ -62,10 +62,15 @@ export default async function handler(req, res) {
       if (i >= 0) posRank = i + 1;
     }
 
-    const ctx = { builtAt: dataset?.builtAt || null, bvp: null, posRank };
+    const ctx = { builtAt: dataset?.builtAt || null, bvp: null, nhlMatchup: null, posRank };
     if (sport === 'mlb') {
       const b = await redis.get(BVP_KEY);
       if (b && b.date === today()) ctx.bvp = b.batters?.[player.id] || null;
+    } else if (sport === 'nhl') {
+      // Day-of opponent-defense matchup for the player's team (skaters; the def suppresses it for goalies).
+      // Only when built for today, so a stale slate never shows.
+      const m = await redis.get(NHL_MATCHUP_KEY);
+      if (m && m.date === today() && player.team) ctx.nhlMatchup = m.teams?.[player.team] || null;
     }
 
     const out = await getPlayerSynopsis({ sport, player, ctx });

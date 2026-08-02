@@ -14,6 +14,7 @@ import { enrichForm } from '../_lib/enrichForm.js';
 import { enrichRolling } from '../_lib/enrichRolling.js';
 import { enrichRollingEspn } from '../_lib/enrichRollingEspn.js';
 import { buildBvp } from '../_lib/enrichBvp.js';
+import { buildNhlMatchup } from '../_lib/nhlMatchup.js';
 import { enrichNflProjections } from '../_lib/fantasyProjections.js';
 import { enrichNflAdp } from '../_lib/fantasyAdp.js';
 import { enrichNflContext } from '../_lib/enrichNflContext.js';
@@ -23,7 +24,7 @@ import { buildNflPickem } from '../_lib/nflPickem.js';
 import { buildCfbBowl } from '../_lib/cfbBowl.js';
 import { buildCfbWeek } from '../_lib/cfbWeek.js';
 import { buildMarchMadness } from '../_lib/marchMadness.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, DATASET_VERSION } from '../_lib/kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NHL_MATCHUP_KEY, DATASET_VERSION } from '../_lib/kv.js';
 
 // Secondary sports (ESPN-sourced, no prospects/enrichment). Each is built and
 // cached independently so one league's source failure can't drop another's
@@ -127,6 +128,18 @@ export default async function handler(req, res) {
             await enrichRollingEspn(built, { sport: s.sport });
           } catch (err) {
             built.counts = { ...built.counts, rollingError: err.message };
+          }
+        }
+        // NHL: day-of opponent-defense matchup (the BvP analog), stored under its own key from the free
+        // NHL schedule + team-defense feeds. Empty out of season. Additive + failure-tolerant — only
+        // overwrite on a successful build so a bad day keeps the last good payload.
+        if (s.sport === 'nhl') {
+          try {
+            const m = await buildNhlMatchup({});
+            await redis.set(NHL_MATCHUP_KEY, m);
+            built.counts = { ...built.counts, nhlMatchup: m.counts };
+          } catch (err) {
+            built.counts = { ...built.counts, nhlMatchupError: err.message };
           }
         }
         // NFL: Sleeper consensus projections (draft cards + Coach) feeding the blended-value

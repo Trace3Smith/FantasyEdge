@@ -267,8 +267,72 @@ const MLB_DEF = {
   },
 };
 
+// --- NHL (Phase 5) ------------------------------------------------------------
+// Roto/category-framed, skater/goalie aware. Its differentiator is the DAY-OF opponent-defense matchup
+// (nhlMatchup.js): for a SKATER with a game today, the endpoint passes ctx.nhlMatchup = { opp, oppGaRank,
+// oppPkRank, lean, reason } — the note factors in whether tonight's opponent is a soft or elite defense.
+// Goalies get season value + form only: their matchup hinges on being the confirmed starter, which the
+// free API doesn't reliably expose pre-game, so that piece is DEFERRED. Off-day / offseason (no ctx) →
+// season value + form for everyone.
+const NHL_GOALIE_POS = new Set(['G']);
+
+const NHL_DEF = {
+  gate: (p) => !!p && !p.searchOnly && p.rank != null,
+
+  signals: (p, ctx = {}) => {
+    const goalie = NHL_GOALIE_POS.has((p.pos || '').toUpperCase());
+    const mu = (!goalie && ctx.nhlMatchup) ? ctx.nhlMatchup : null; // opponent-defense matchup is for skaters
+    return {
+      name: p.name,
+      kind: goalie ? 'goalie' : 'skater',
+      pos: p.pos && p.pos !== '—' ? p.pos : null,
+      team: p.team && p.team !== '—' ? p.team : null,
+      rank: p.rank ?? null,
+      form: (p.tag === 'hot' || p.tag === 'cold') ? { state: p.tag, reason: p.formReason || null } : null,
+      stats: statLine(p),
+      matchup: mu ? {
+        opp: mu.opp?.abbrev || null, isHome: !!mu.isHome,
+        lean: mu.lean || null, reason: mu.reason || null,
+      } : null,
+    };
+  },
+
+  // Rank tier + form, plus the day-of matchup identity (opponent + lean). Regenerate when the opponent or
+  // lean changes; absent on off-days so a season-value note stays cached. Raw category totals excluded.
+  fp: (s) => ({
+    tier: Math.ceil((s.rank || 999) / 5),
+    form: s.form?.state || null,
+    reason: s.form?.reason || null,
+    mu: s.matchup ? `${s.matchup.opp || '-'}:${s.matchup.lean || '-'}` : null,
+  }),
+
+  system:
+    'You write terse fantasy-hockey player notes in the style of RotoWire updates, for a roto/category ' +
+    'manager. Write 2-3 sentences, present tense. Read the standard category line (skaters: G/A/PTS/+-/SOG/PPP; ' +
+    'goalies: W/GAA/SV%/SO/SV/SA) for what the player provides, and weigh any HOT/COLD form. If a TONIGHT\'S ' +
+    'MATCHUP is provided (a skater\'s opponent-defense read — favorable, tough, or neutral), factor it into a ' +
+    'start/stream call for tonight. Be plain and confident with no hedging filler. Use ONLY the data provided — ' +
+    'do NOT invent injuries, line or power-play-unit assignments, or a confirmed starting goalie (starters are ' +
+    'not provided). Output only the note, no preamble.',
+
+  user: (s) => {
+    const where = [s.pos, s.team].filter(Boolean).join(', ');
+    const lines = [
+      `Player: ${s.name}${where ? ` (${where})` : ''} — ${s.kind}`,
+      `Roto rank: #${s.rank ?? '—'}`,
+    ];
+    if (s.form) lines.push(`Recent form: ${s.form.state.toUpperCase()}${s.form.reason ? ` — ${s.form.reason}` : ''}`);
+    const stats = s.stats.map((x) => `${x.label} ${x.value}`).join(', ');
+    if (stats) lines.push(`Season line: ${stats}`);
+    if (s.matchup) {
+      lines.push(`Tonight's matchup (${s.matchup.lean || 'neutral'}): ${s.matchup.reason || (s.matchup.opp ? `${s.matchup.isHome ? 'vs' : '@'} ${s.matchup.opp}` : '')}`);
+    }
+    return lines.join('\n');
+  },
+};
+
 // Registry — the built-in specialized sports.
-const REGISTRY = { nfl: NFL_DEF, mlb: MLB_DEF };
+const REGISTRY = { nfl: NFL_DEF, mlb: MLB_DEF, nhl: NHL_DEF };
 
 // Public: register a sport's specialized def (used by the sport phases; exported for testability).
 export function registerSport(sport, def) { REGISTRY[sport] = def; }

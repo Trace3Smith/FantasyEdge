@@ -56,6 +56,12 @@ export const MM_KEY = 'bracket:mm';
 // the refresh cron owns. Served via api/sports.js for display; read in-run by the start-sit
 // logic. Shape: { date, builtAt, batters: { [id]: { oppSp:{id,name}, line:{ab,h,hr,rbi,avg,ops} } } }.
 export const BVP_KEY = 'bvp:mlb';
+// NHL day-of opponent-defense matchup (the BvP analog for hockey), keyed by team abbrev. Built by the
+// daily refresh cron from free NHL APIs (schedule + team-defense ranks), stored separately from the NHL
+// dataset. Empty out of season / on off-days. Shape: { date, builtAt, rated, teams: { [abbrev]: { opp,
+// isHome, oppGaRank, oppPkRank, lean, reason } } }. Starting-goalie confirmation is deferred (the free
+// API doesn't reliably expose pre-game starters) — this carries opponent-defense context only.
+export const NHL_MATCHUP_KEY = 'matchup:nhl';
 // Player-synopsis cache (Phase 0). One record per (sport, player): { fp, text, generatedAt, model }.
 // Generated on demand and invalidated by a signal FINGERPRINT, so a player's report regenerates only
 // when the inputs that matter (rank tier, form, projection, matchup, …) actually change — keeping
