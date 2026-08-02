@@ -512,6 +512,17 @@
   .pga-tour-pga  { background: rgba(255,255,255,0.08); color: var(--gray-light); }
   .pga-tour-dpwt { background: rgba(79,163,212,0.18); color: #9FD3EE; }
   .pga-tour-liv  { background: rgba(212,160,23,0.18); color: var(--gold-light); }
+  /* AI player report (synopsis) — rides the same expandable detail row, above the game log. Loaded
+     lazily on first expand for premium users; non-premium sees a compact upsell. */
+  .synopsis-wrap { max-width: 460px; }
+  .synopsis-wrap:not(:first-child) { margin-top: 12px; }
+  .synopsis-head { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+  .synopsis-title { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--gold); }
+  .synopsis-ai { font-size: 8px; font-weight: 700; letter-spacing: .5px; padding: 1px 5px; border-radius: 3px; background: rgba(212,160,23,0.16); color: var(--gold-light); }
+  .synopsis-body { font-size: 12px; line-height: 1.5; color: var(--gray-light); }
+  .synopsis-text { color: var(--white); }
+  .synopsis-lock { color: var(--gray); font-style: italic; }
+  .synopsis-upsell { color: var(--gold); font-style: normal; font-weight: 700; cursor: pointer; text-decoration: underline; }
   .pos-badge { display: inline-block; padding: 4px 8px; border: 1px solid rgba(255,255,255,0.15); border-radius: 3px; font-size: 11px; font-weight: 600; color: var(--gray-light); min-width: 50px; text-align: center; }
   .td-stat { color: var(--gold-light); font-weight: 600; font-size: 13px; }
   .td-stat.muted { color: var(--gray); font-weight: 400; }
@@ -740,6 +751,7 @@
   const gamelogWin = {};            // sport -> active window; defaults to that sport's smaller window
   const activeGamelogWin = s => gamelogWin[s] ?? gamelogWinsFor(s)[0];
   const gamelogCache = {};          // sport:pid:kind -> RAW games (full season), re-sliced on toggle
+  const synopsisCache = {};         // sport:pid -> { text } | { error } | null (hide) — one fetch per session
   const MLB_TEAM_ABBR = {108:"LAA",109:"AZ",110:"BAL",111:"BOS",112:"CHC",113:"CIN",114:"CLE",115:"COL",116:"DET",117:"HOU",118:"KC",119:"LAD",120:"WSH",121:"NYM",133:"ATH",134:"PIT",135:"SD",136:"SEA",137:"SF",138:"STL",139:"TB",140:"TEX",141:"TOR",142:"MIN",143:"PHI",144:"ATL",145:"CWS",146:"MIA",147:"NYY",158:"MIL"};
 
   // AL/NL by team name — fallback when a player record predates the backend
@@ -1147,7 +1159,10 @@
       // Phase 2 NFL opportunity context (target share + pace). Rides the SAME expandable detail row —
       // NFL skill players already open it for their game log, so this needs no chip of its own.
       const opportunityDetail = (currentSport === 'nfl') ? renderOpportunity(p, 'block') : '';
-      const detailHtml = opportunityDetail + prospectDetail + bvpDetail + rollingDetail + gamelogDetail + pgaResultsDetail;
+      // AI report leads the detail row (it's the headline). NFL/MLB ranked players almost always already
+      // open for a game log, so this needs no chip of its own — it rides the existing expansion.
+      const synopsisDetail = synopsisSupported(p) ? renderSynopsisSection(p) : '';
+      const detailHtml = synopsisDetail + opportunityDetail + prospectDetail + bvpDetail + rollingDetail + gamelogDetail + pgaResultsDetail;
       const hasDetail = !!detailHtml;
       // Exactly one expand caret, on the first present chip (priority: prospect, BvP, form, log, results).
       const caretOn = prospectDetail ? 'prospect' : bvpActionable ? 'bvp' : rollingDetail ? 'form' : gamelogDetail ? 'gamelog' : pgaResultsDetail ? 'pga' : null;
@@ -1339,6 +1354,25 @@
   // section renders as a placeholder that the row-expand handler fills on first open — the browser
   // fetches the source directly (both CORS-open, verified), so nothing here touches /api or the
   // cron dataset. data-sport routes the lazy load; MLB also carries data-kind (pitcher/hitter).
+  // AI player report (synopsis). Only NFL + MLB are specialized (Phase 1/2); other sports can be lit up
+  // later by widening SYNOPSIS_SPORTS (the endpoint already handles them via a generic fallback). NFL is
+  // gated to skill players (the endpoint returns not_relevant for K/DST). MLB covers hitters + pitchers.
+  const SYNOPSIS_SPORTS = new Set(['nfl', 'mlb']);
+  const SYNOPSIS_NFL_POS = new Set(['QB', 'RB', 'WR', 'TE']);
+  function synopsisSupported(p) {
+    if (!SYNOPSIS_SPORTS.has(currentSport) || p.id == null || p.searchOnly) return false;
+    if (currentSport === 'nfl') return SYNOPSIS_NFL_POS.has((p.pos || '').toUpperCase());
+    return true;
+  }
+  // Placeholder the row-expand handler fills on first open (loadSynopsis). Premium gating + the API call
+  // happen at load time, not here, so the section renders identically before auth resolves.
+  function renderSynopsisSection(p) {
+    return `<div class="synopsis-wrap" data-pid="${p.id}" data-sport="${currentSport}">
+      <div class="synopsis-head"><span class="synopsis-title">Report</span><span class="synopsis-ai">AI</span></div>
+      <div class="synopsis-body"><span class="synopsis-lock">Loading report…</span></div>
+    </div>`;
+  }
+
   function renderGamelogSection(p) {
     const sport = currentSport;
     const kind = sport === 'mlb' ? (isPitcherPos(p) ? 'pitcher' : 'hitter') : '';
@@ -1549,6 +1583,51 @@
       titleEl.textContent = 'Game Log';
     }
     el.querySelectorAll('.gl-win-btn').forEach(b => b.classList.toggle('active', Number(b.dataset.n) === n));
+  }
+
+  // Paint a synopsis wrap from a resolved state: text, error, or null (not-relevant/disabled → hide the
+  // whole section so an empty "Report" header never lingers).
+  function renderSynopsisBody(el, out) {
+    if (out == null) { el.style.display = 'none'; return; }
+    const body = el.querySelector('.synopsis-body');
+    if (out.text) {
+      body.innerHTML = '<span class="synopsis-text"></span>';
+      body.firstChild.textContent = out.text; // textContent, not innerHTML — model output is untrusted
+    } else if (out.lock) {
+      body.innerHTML = `<span class="synopsis-lock">AI player report — <a class="synopsis-upsell">Go Premium</a></span>`;
+    } else {
+      body.innerHTML = `<span class="synopsis-lock">Report unavailable right now.</span>`;
+    }
+  }
+  // Fill the AI-report placeholder on first expand. Premium-gated: non-premium users see an inline upsell
+  // and NO API call is made. Premium users hit /api/synopsis (authed) — the server generates on demand and
+  // caches by fingerprint, so this is usually a cache hit. Result cached per session so re-opens are free.
+  async function loadSynopsis(el) {
+    const pid = el.dataset.pid, sport = el.dataset.sport;
+    const cacheKey = sport + ':' + pid;
+    if (synopsisCache[cacheKey] !== undefined) { renderSynopsisBody(el, synopsisCache[cacheKey]); el.classList.add('loaded'); return; }
+    // Premium decided at load time (auth has resolved by the time a user clicks to expand).
+    if (!(window.FE && window.FE.isPremium && window.FE.isPremium())) {
+      synopsisCache[cacheKey] = { lock: true };
+      renderSynopsisBody(el, synopsisCache[cacheKey]);
+      el.classList.add('loaded');
+      return;
+    }
+    el.classList.add('loading');
+    try {
+      const { ok, data } = await window.FE.apiPost('/api/synopsis', { sport, playerId: pid });
+      let out;
+      if (ok && data && data.text) out = { text: data.text };
+      else if (data && (data.reason === 'not_relevant' || data.reason === 'disabled')) out = null; // hide
+      else out = { error: true };
+      synopsisCache[cacheKey] = out;
+      renderSynopsisBody(el, out);
+      el.classList.add('loaded');
+    } catch {
+      renderSynopsisBody(el, { error: true }); // don't cache a transient failure — allow a retry on re-open
+    } finally {
+      el.classList.remove('loading');
+    }
   }
 
   // Fill a game-log placeholder on first expand, routed by sport. The RAW games are cached per
@@ -1816,6 +1895,8 @@
     if (row.classList.contains('row-expand') && detail && detail.classList.contains('row-detail') && !row.classList.contains('open')) {
       row.classList.add('open');
       detail.classList.add('open');
+      const sy = detail.querySelector('.synopsis-wrap:not(.loaded):not(.loading)');
+      if (sy) loadSynopsis(sy);
       const gl = detail.querySelector('.gamelog-wrap:not(.loaded):not(.loading)');
       if (gl) loadGamelog(gl);
       const pr = detail.querySelector('.pga-results-wrap:not(.loaded):not(.loading)');
@@ -2181,6 +2262,8 @@
     detail.classList.toggle('open');
     // Lazy-load the game log (MLB/ESPN sports) or PGA recent finishes the first time this row opens.
     if (detail.classList.contains('open')) {
+      const sy = detail.querySelector('.synopsis-wrap:not(.loaded):not(.loading)');
+      if (sy) loadSynopsis(sy);
       const gl = detail.querySelector('.gamelog-wrap:not(.loaded):not(.loading)');
       if (gl) loadGamelog(gl);
       const pr = detail.querySelector('.pga-results-wrap:not(.loaded):not(.loading)');
@@ -2188,6 +2271,13 @@
       // Clicking the HOT/COLD badge itself is a "take me to this player" gesture — center the row.
       if (e.target.closest('.tag-fire, .tag-slump')) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
+  });
+
+  // The AI-report upsell link (shown to non-premium users in the detail row) opens the pricing modal.
+  // It lives in a .row-detail row, so it never collides with the .row-expand toggle handler above.
+  document.getElementById('tableBody').addEventListener('click', e => {
+    if (!e.target.closest('.synopsis-upsell')) return;
+    if (window.FE && window.FE.openPricing) window.FE.openPricing();
   });
 
   // Auth resolves after first paint. If the user is sitting on a premium sport when
