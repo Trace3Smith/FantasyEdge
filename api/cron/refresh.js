@@ -16,6 +16,7 @@ import { enrichRollingEspn } from '../_lib/enrichRollingEspn.js';
 import { buildBvp } from '../_lib/enrichBvp.js';
 import { buildNhlMatchup } from '../_lib/nhlMatchup.js';
 import { buildNbaMatchup } from '../_lib/nbaMatchup.js';
+import { buildNflDvp } from '../_lib/nflDvp.js';
 import { enrichNflProjections } from '../_lib/fantasyProjections.js';
 import { enrichNflAdp } from '../_lib/fantasyAdp.js';
 import { enrichNflContext } from '../_lib/enrichNflContext.js';
@@ -25,7 +26,7 @@ import { buildNflPickem } from '../_lib/nflPickem.js';
 import { buildCfbBowl } from '../_lib/cfbBowl.js';
 import { buildCfbWeek } from '../_lib/cfbWeek.js';
 import { buildMarchMadness } from '../_lib/marchMadness.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NHL_MATCHUP_KEY, NBA_MATCHUP_KEY, WNBA_MATCHUP_KEY, DATASET_VERSION } from '../_lib/kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NHL_MATCHUP_KEY, NBA_MATCHUP_KEY, WNBA_MATCHUP_KEY, NFL_DVP_KEY, DATASET_VERSION } from '../_lib/kv.js';
 
 // Per-league day-of matchup keys for the basketball leagues (built in the secondary loop below).
 const HOOPS_MATCHUP_KEY = { nba: NBA_MATCHUP_KEY, wnba: WNBA_MATCHUP_KEY };
@@ -194,6 +195,18 @@ export default async function handler(req, res) {
             await enrichNflConsistency(built);
           } catch (err) {
             built.counts = { ...built.counts, consistencyError: err.message };
+          }
+          // Defense-vs-position (DvP): the heaviest matchup builder — derived by aggregating game box scores
+          // (ESPN has no ready-made pass/rush yards-allowed splits). Stored under its own key. A weekly
+          // freshness guard (pass the cached payload as prev) skips the ~272-fetch rebuild on days the NFL
+          // week hasn't advanced. Empty out of season. Additive + failure-tolerant.
+          try {
+            const prev = await redis.get(NFL_DVP_KEY);
+            const dvp = await buildNflDvp({ prev });
+            await redis.set(NFL_DVP_KEY, dvp);
+            built.counts = { ...built.counts, nflDvp: dvp.counts, dvpReused: !!dvp.reusedAt };
+          } catch (err) {
+            built.counts = { ...built.counts, nflDvpError: err.message };
           }
         }
         built.version = DATASET_VERSION; // keep cache in sync with the handler's check

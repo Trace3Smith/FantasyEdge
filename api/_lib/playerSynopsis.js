@@ -148,6 +148,10 @@ const NFL_DEF = {
       : null,
     form: (p.tag === 'hot' || p.tag === 'cold') ? { state: p.tag, reason: p.formReason || null } : null,
     stats: statLine(p).filter((x) => x.label !== 'FPTS'),  // FPTS is the blended value → projPts already covers points
+    // Position-relevant defense-vs-position for this week's opponent (RB→rush D, WR/TE/QB→pass D), phrased by
+    // the endpoint. Present in-season only (the DvP payload is empty out of season), so it layers onto the
+    // in-season case exactly as scoped, leaving the offseason draft framing untouched.
+    matchup: ctx.nflDvp ? { opp: ctx.nflDvp.opp || null, isHome: !!ctx.nflDvp.isHome, lean: ctx.nflDvp.lean || null, reason: ctx.nflDvp.reason || null } : null,
   }),
 
   // Regenerate on what moves an NFL take: positional tier, projection/consistency/ceiling buckets, a form
@@ -162,17 +166,21 @@ const NFL_DEF = {
     form: s.form?.state || null,
     reason: s.form?.reason || null,
     opp: s.opportunity ? `${s.opportunity.paceBucket || '-'}:${rnd((s.opportunity.targetShare || 0) * 100, 5)}` : null,
+    // Matchup identity — regenerate when the week's opponent or the DvP lean changes, not per stat tick.
+    mu: s.matchup ? `${s.matchup.opp || '-'}:${s.matchup.lean || '-'}` : null,
   }),
 
   system:
     'You write terse fantasy-football player notes in the style of RotoWire updates, for a PPR manager. ' +
     'Write 2-3 sentences, present tense. If the note is IN-SEASON, focus on the player\'s current value, recent ' +
-    'form, and a start/sit or buy/sell read. If it is OFFSEASON (projecting the upcoming season), focus on ' +
-    'DRAFT value — his rank, projected points, and his consistency/ceiling profile (steady floor vs ' +
-    'boom-or-bust). Interpret CONSISTENCY as how close a bad week is to a typical week (higher = steadier, out ' +
-    'of 100) and CEILING as weekly upside in points. Be plain and confident with no hedging filler. Use ONLY ' +
-    'the numbers provided — do NOT invent injuries, specific opponents, depth-chart or coaching details, or ' +
-    'anything not given. If a signal is absent, do not mention it. Output only the note, no preamble.',
+    'form, and a start/sit or buy/sell read; if a TONIGHT\'S/THIS-WEEK MATCHUP is provided (a defense-vs-position ' +
+    'read for this week\'s opponent — favorable, tough, or neutral), factor it into that call. If it is OFFSEASON ' +
+    '(projecting the upcoming season), focus on DRAFT value — his rank, projected points, and his ' +
+    'consistency/ceiling profile (steady floor vs boom-or-bust). Interpret CONSISTENCY as how close a bad week ' +
+    'is to a typical week (higher = steadier, out of 100) and CEILING as weekly upside in points. Be plain and ' +
+    'confident with no hedging filler. Use ONLY the numbers provided — do NOT invent injuries, snap counts, ' +
+    'target/usage figures, depth-chart or coaching details, or any opponent detail beyond the matchup line ' +
+    'given. If a signal is absent, do not mention it. Output only the note, no preamble.',
 
   user: (s) => {
     const where = [s.pos, s.team].filter(Boolean).join(', ');
@@ -189,6 +197,7 @@ const NFL_DEF = {
     if (s.opportunity && s.opportunity.label) lines.push(`Opportunity: ${s.opportunity.label}`);
     const stats = s.stats.map((x) => `${x.label} ${x.value}`).join(', ');
     if (stats) lines.push(`Season stat line: ${stats}`);
+    if (s.matchup) lines.push(`This week's matchup (${s.matchup.lean || 'neutral'}): ${s.matchup.reason || (s.matchup.opp ? `${s.matchup.isHome ? 'vs' : '@'} ${s.matchup.opp}` : '')}`);
     return lines.join('\n');
   },
 };

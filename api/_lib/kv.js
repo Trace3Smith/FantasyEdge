@@ -69,6 +69,12 @@ export const NHL_MATCHUP_KEY = 'matchup:nhl';
 // lean, reason } } }.
 export const NBA_MATCHUP_KEY = 'matchup:nba';
 export const WNBA_MATCHUP_KEY = 'matchup:wnba';
+// NFL defense-vs-position (DvP), keyed by team abbrev = the DvP of the opponent that team faces THIS WEEK.
+// DERIVED by aggregating game box scores (ESPN exposes no ready-made pass/rush yards-allowed splits), so
+// it's the heaviest matchup builder; the cron rebuilds it ~weekly (a freshness guard skips daily rebuilds).
+// Empty out of season. Shape: { season, week, builtAt, rated, teams: { [abbrev]: { opp, isHome,
+// oppPassYdsAllowed, oppPassDRank, oppRushYdsAllowed, oppRushDRank, n } }, dvp: {…ranks table…} }.
+export const NFL_DVP_KEY = 'matchup:nfl-dvp';
 // Player-synopsis cache (Phase 0). One record per (sport, player): { fp, text, generatedAt, model }.
 // Generated on demand and invalidated by a signal FINGERPRINT, so a player's report regenerates only
 // when the inputs that matter (rank tier, form, projection, matchup, …) actually change — keeping

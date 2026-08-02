@@ -11,11 +11,14 @@
 import { requirePremium, sendError } from '../_lib/auth.js';
 import {
   redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY,
-  BVP_KEY, NHL_MATCHUP_KEY, NBA_MATCHUP_KEY, WNBA_MATCHUP_KEY,
+  BVP_KEY, NHL_MATCHUP_KEY, NBA_MATCHUP_KEY, WNBA_MATCHUP_KEY, NFL_DVP_KEY,
 } from '../_lib/kv.js';
+import { dvpMatchup } from '../_lib/nflDvp.js';
 
 // Per-league day-of matchup keys for the basketball leagues.
 const HOOPS_MATCHUP_KEY = { nba: NBA_MATCHUP_KEY, wnba: WNBA_MATCHUP_KEY };
+// NFL position → defense-vs-position group: RBs care about rush D, WR/TE/QB about pass D.
+const NFL_DVP_GROUP = { RB: 'rush', WR: 'pass', TE: 'pass', QB: 'pass' };
 import { getPlayerSynopsis } from '../_lib/playerSynopsis.js';
 
 // Same sport -> dataset-key map the Coach uses, so the synopsis reads exactly what the rankings show.
@@ -66,7 +69,19 @@ export default async function handler(req, res) {
       if (i >= 0) posRank = i + 1;
     }
 
-    const ctx = { builtAt: dataset?.builtAt || null, bvp: null, nhlMatchup: null, hoopsMatchup: null, posRank };
+    const ctx = { builtAt: dataset?.builtAt || null, bvp: null, nhlMatchup: null, hoopsMatchup: null, nflDvp: null, posRank };
+    if (sport === 'nfl') {
+      // Position-relevant defense-vs-position for this week's opponent (in-season only — the DvP payload is
+      // empty out of season, so this naturally doesn't fire in the offseason draft framing). Phrased here
+      // because the pass-vs-rush split depends on the player's position; the def just renders it.
+      const group = NFL_DVP_GROUP[(player.pos || '').toUpperCase()];
+      if (group) {
+        const d = await redis.get(NFL_DVP_KEY);
+        const entry = d?.teams?.[player.team];
+        const mu = entry ? dvpMatchup(entry, group) : null;
+        if (mu) ctx.nflDvp = { ...mu, opp: entry.opp?.abbrev || null, isHome: !!entry.isHome };
+      }
+    }
     if (sport === 'mlb') {
       const b = await redis.get(BVP_KEY);
       if (b && b.date === today()) ctx.bvp = b.batters?.[player.id] || null;
