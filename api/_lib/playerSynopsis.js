@@ -331,8 +331,59 @@ const NHL_DEF = {
   },
 };
 
+// --- NBA / WNBA (Phase 6) -----------------------------------------------------
+// Roto/category-framed. Differentiator is the DAY-OF opponent pace + defense matchup (nbaMatchup.js):
+// the endpoint passes ctx.hoopsMatchup = { opp, oppDefRank, oppPaceRank, lean, reason } for a player with
+// a game today, and the note factors whether tonight's opponent is a soft/tough defense and fast/slow
+// pace. Applies to every player (no position exclusion). Off-day / offseason (no ctx) → season + form.
+// Shared by both leagues (registered for nba and wnba).
+const HOOPS_DEF = {
+  gate: (p) => !!p && !p.searchOnly && p.rank != null,
+
+  signals: (p, ctx = {}) => ({
+    name: p.name,
+    pos: p.pos && p.pos !== '—' ? p.pos : null,
+    team: p.team && p.team !== '—' ? p.team : null,
+    rank: p.rank ?? null,
+    form: (p.tag === 'hot' || p.tag === 'cold') ? { state: p.tag, reason: p.formReason || null } : null,
+    stats: statLine(p),
+    matchup: ctx.hoopsMatchup ? {
+      opp: ctx.hoopsMatchup.opp?.abbrev || null, isHome: !!ctx.hoopsMatchup.isHome,
+      lean: ctx.hoopsMatchup.lean || null, reason: ctx.hoopsMatchup.reason || null,
+    } : null,
+  }),
+
+  fp: (s) => ({
+    tier: Math.ceil((s.rank || 999) / 5),
+    form: s.form?.state || null,
+    reason: s.form?.reason || null,
+    mu: s.matchup ? `${s.matchup.opp || '-'}:${s.matchup.lean || '-'}` : null,
+  }),
+
+  system:
+    'You write terse fantasy-basketball player notes in the style of RotoWire updates, for a roto/category ' +
+    'manager. Write 2-3 sentences, present tense. Read the standard category line (PTS/REB/AST/3PM/STL/BLK) ' +
+    'for what the player provides, and weigh any HOT/COLD form. If a TONIGHT\'S MATCHUP is provided (an ' +
+    'opponent pace + defense read — favorable, tough, or neutral), factor it into a start/stream call for ' +
+    'tonight; a weak defense and fast pace mean more scoring, a stingy defense and slow pace mean less. Be ' +
+    'plain and confident with no hedging filler. Use ONLY the data provided — do NOT invent injuries, minutes, ' +
+    'starting-lineup or rotation details, or anything not given. Output only the note, no preamble.',
+
+  user: (s) => {
+    const where = [s.pos, s.team].filter(Boolean).join(', ');
+    const lines = [`Player: ${s.name}${where ? ` (${where})` : ''}`, `Roto rank: #${s.rank ?? '—'}`];
+    if (s.form) lines.push(`Recent form: ${s.form.state.toUpperCase()}${s.form.reason ? ` — ${s.form.reason}` : ''}`);
+    const stats = s.stats.map((x) => `${x.label} ${x.value}`).join(', ');
+    if (stats) lines.push(`Season line: ${stats}`);
+    if (s.matchup) {
+      lines.push(`Tonight's matchup (${s.matchup.lean || 'neutral'}): ${s.matchup.reason || (s.matchup.opp ? `${s.matchup.isHome ? 'vs' : '@'} ${s.matchup.opp}` : '')}`);
+    }
+    return lines.join('\n');
+  },
+};
+
 // Registry — the built-in specialized sports.
-const REGISTRY = { nfl: NFL_DEF, mlb: MLB_DEF, nhl: NHL_DEF };
+const REGISTRY = { nfl: NFL_DEF, mlb: MLB_DEF, nhl: NHL_DEF, nba: HOOPS_DEF, wnba: HOOPS_DEF };
 
 // Public: register a sport's specialized def (used by the sport phases; exported for testability).
 export function registerSport(sport, def) { REGISTRY[sport] = def; }

@@ -10,8 +10,12 @@
 // a null note (200) so the rankings page degrades to "no report" rather than erroring.
 import { requirePremium, sendError } from '../_lib/auth.js';
 import {
-  redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, BVP_KEY, NHL_MATCHUP_KEY,
+  redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY,
+  BVP_KEY, NHL_MATCHUP_KEY, NBA_MATCHUP_KEY, WNBA_MATCHUP_KEY,
 } from '../_lib/kv.js';
+
+// Per-league day-of matchup keys for the basketball leagues.
+const HOOPS_MATCHUP_KEY = { nba: NBA_MATCHUP_KEY, wnba: WNBA_MATCHUP_KEY };
 import { getPlayerSynopsis } from '../_lib/playerSynopsis.js';
 
 // Same sport -> dataset-key map the Coach uses, so the synopsis reads exactly what the rankings show.
@@ -62,7 +66,7 @@ export default async function handler(req, res) {
       if (i >= 0) posRank = i + 1;
     }
 
-    const ctx = { builtAt: dataset?.builtAt || null, bvp: null, nhlMatchup: null, posRank };
+    const ctx = { builtAt: dataset?.builtAt || null, bvp: null, nhlMatchup: null, hoopsMatchup: null, posRank };
     if (sport === 'mlb') {
       const b = await redis.get(BVP_KEY);
       if (b && b.date === today()) ctx.bvp = b.batters?.[player.id] || null;
@@ -71,6 +75,10 @@ export default async function handler(req, res) {
       // Only when built for today, so a stale slate never shows.
       const m = await redis.get(NHL_MATCHUP_KEY);
       if (m && m.date === today() && player.team) ctx.nhlMatchup = m.teams?.[player.team] || null;
+    } else if (sport === 'nba' || sport === 'wnba') {
+      // Day-of opponent pace + defense matchup for the player's team. Only when built for today.
+      const m = await redis.get(HOOPS_MATCHUP_KEY[sport]);
+      if (m && m.date === today() && player.team) ctx.hoopsMatchup = m.teams?.[player.team] || null;
     }
 
     const out = await getPlayerSynopsis({ sport, player, ctx });

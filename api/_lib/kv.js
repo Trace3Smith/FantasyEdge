@@ -62,6 +62,13 @@ export const BVP_KEY = 'bvp:mlb';
 // isHome, oppGaRank, oppPkRank, lean, reason } } }. Starting-goalie confirmation is deferred (the free
 // API doesn't reliably expose pre-game starters) — this carries opponent-defense context only.
 export const NHL_MATCHUP_KEY = 'matchup:nhl';
+// NBA/WNBA day-of opponent matchup (the BvP analog for basketball), keyed by team abbrev. Built by the
+// daily refresh cron from free ESPN feeds (schedule + derived opponent points-allowed & pace ranks),
+// stored per league separately from the datasets. Empty out of season / on off-days. Shape mirrors the
+// NHL key: { date, sport, builtAt, rated, teams: { [abbrev]: { opp, isHome, oppDefRank, oppPaceRank,
+// lean, reason } } }.
+export const NBA_MATCHUP_KEY = 'matchup:nba';
+export const WNBA_MATCHUP_KEY = 'matchup:wnba';
 // Player-synopsis cache (Phase 0). One record per (sport, player): { fp, text, generatedAt, model }.
 // Generated on demand and invalidated by a signal FINGERPRINT, so a player's report regenerates only
 // when the inputs that matter (rank tier, form, projection, matchup, …) actually change — keeping

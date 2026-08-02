@@ -15,6 +15,7 @@ import { enrichRolling } from '../_lib/enrichRolling.js';
 import { enrichRollingEspn } from '../_lib/enrichRollingEspn.js';
 import { buildBvp } from '../_lib/enrichBvp.js';
 import { buildNhlMatchup } from '../_lib/nhlMatchup.js';
+import { buildNbaMatchup } from '../_lib/nbaMatchup.js';
 import { enrichNflProjections } from '../_lib/fantasyProjections.js';
 import { enrichNflAdp } from '../_lib/fantasyAdp.js';
 import { enrichNflContext } from '../_lib/enrichNflContext.js';
@@ -24,7 +25,10 @@ import { buildNflPickem } from '../_lib/nflPickem.js';
 import { buildCfbBowl } from '../_lib/cfbBowl.js';
 import { buildCfbWeek } from '../_lib/cfbWeek.js';
 import { buildMarchMadness } from '../_lib/marchMadness.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NHL_MATCHUP_KEY, DATASET_VERSION } from '../_lib/kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NHL_MATCHUP_KEY, NBA_MATCHUP_KEY, WNBA_MATCHUP_KEY, DATASET_VERSION } from '../_lib/kv.js';
+
+// Per-league day-of matchup keys for the basketball leagues (built in the secondary loop below).
+const HOOPS_MATCHUP_KEY = { nba: NBA_MATCHUP_KEY, wnba: WNBA_MATCHUP_KEY };
 
 // Secondary sports (ESPN-sourced, no prospects/enrichment). Each is built and
 // cached independently so one league's source failure can't drop another's
@@ -140,6 +144,17 @@ export default async function handler(req, res) {
             built.counts = { ...built.counts, nhlMatchup: m.counts };
           } catch (err) {
             built.counts = { ...built.counts, nhlMatchupError: err.message };
+          }
+        }
+        // NBA/WNBA: day-of opponent pace + defense matchup (the BvP analog for basketball), stored per
+        // league under its own key from free ESPN feeds. Empty out of season. Additive + failure-tolerant.
+        if (s.sport === 'nba' || s.sport === 'wnba') {
+          try {
+            const m = await buildNbaMatchup({ sport: s.sport });
+            await redis.set(HOOPS_MATCHUP_KEY[s.sport], m);
+            built.counts = { ...built.counts, hoopsMatchup: m.counts };
+          } catch (err) {
+            built.counts = { ...built.counts, hoopsMatchupError: err.message };
           }
         }
         // NFL: Sleeper consensus projections (draft cards + Coach) feeding the blended-value
