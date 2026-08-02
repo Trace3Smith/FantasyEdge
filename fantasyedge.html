@@ -322,6 +322,7 @@
     transition: all 0.3s;
     border: 1px solid transparent;
     cursor: none;
+    display: block; text-decoration: none; color: inherit; /* the whole tile is a link to that sport */
   }
   .sport-card::before {
     content: '';
@@ -711,7 +712,7 @@
   <p class="section-sub reveal">While everyone else focuses on football, we've built the deepest analytics for the sports where you can actually gain an edge.</p>
 
   <div class="sports-grid reveal">
-    <div class="sport-card">
+    <a class="sport-card" href="fantasyedge-rankings.html?sport=mlb">
       <span class="sport-icon">⚾</span>
       <div class="sport-name">Baseball</div>
       <p class="sport-desc">Statcast data, pitcher matchups, ballpark factors, exit velocity trends, and weekly streaming recommendations.</p>
@@ -721,9 +722,9 @@
         <span class="sport-tag-chip">Streamers</span>
       </div>
       <div class="sport-card-corner"></div>
-    </div>
+    </a>
 
-    <div class="sport-card">
+    <a class="sport-card" href="fantasyedge-rankings.html?sport=nhl">
       <span class="sport-icon">🏒</span>
       <div class="sport-name">Hockey</div>
       <p class="sport-desc">Power play units, ice time trends, goalie starts, shot quality metrics, and line combination trackers.</p>
@@ -733,9 +734,9 @@
         <span class="sport-tag-chip">Goalies</span>
       </div>
       <div class="sport-card-corner"></div>
-    </div>
+    </a>
 
-    <div class="sport-card">
+    <a class="sport-card" href="fantasyedge-rankings.html?sport=pga">
       <span class="sport-icon">⛳</span>
       <div class="sport-name">Golf</div>
       <p class="sport-desc">Course history, strokes gained breakdown, DraftKings value picks, cut probability, and weather impact scoring.</p>
@@ -745,9 +746,9 @@
         <span class="sport-tag-chip">Value Picks</span>
       </div>
       <div class="sport-card-corner"></div>
-    </div>
+    </a>
 
-    <div class="sport-card">
+    <a class="sport-card" href="fantasyedge-rankings.html?sport=nba">
       <span class="sport-icon">🏀</span>
       <div class="sport-name">Basketball</div>
       <p class="sport-desc">Usage rate shifts, back-to-back schedules, rest days, matchup grades, and pace-of-play analysis.</p>
@@ -757,9 +758,9 @@
         <span class="sport-tag-chip">Schedule</span>
       </div>
       <div class="sport-card-corner"></div>
-    </div>
+    </a>
 
-    <div class="sport-card">
+    <a class="sport-card" href="fantasyedge-rankings.html?sport=nfl">
       <span class="sport-icon">🏈</span>
       <div class="sport-name">Football</div>
       <p class="sport-desc">Air yards, target share, red zone looks, snap counts, and next-gen stats to complement your instincts.</p>
@@ -769,9 +770,9 @@
         <span class="sport-tag-chip">Red Zone</span>
       </div>
       <div class="sport-card-corner"></div>
-    </div>
+    </a>
 
-    <div class="sport-card">
+    <a class="sport-card" href="fantasyedge-brackets.html">
       <span class="sport-icon">🏆</span>
       <div class="sport-name">Brackets & Bowls</div>
       <p class="sport-desc">March Madness bracket generators, bowl game picks, model-based upset alerts, and historical trend analysis.</p>
@@ -781,7 +782,7 @@
         <span class="sport-tag-chip">Upsets</span>
       </div>
       <div class="sport-card-corner"></div>
-    </div>
+    </a>
   </div>
 </section>
 
