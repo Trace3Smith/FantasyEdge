@@ -56,6 +56,12 @@ export const MM_KEY = 'bracket:mm';
 // the refresh cron owns. Served via api/sports.js for display; read in-run by the start-sit
 // logic. Shape: { date, builtAt, batters: { [id]: { oppSp:{id,name}, line:{ab,h,hr,rbi,avg,ops} } } }.
 export const BVP_KEY = 'bvp:mlb';
+// Player-synopsis cache (Phase 0). One record per (sport, player): { fp, text, generatedAt, model }.
+// Generated on demand and invalidated by a signal FINGERPRINT, so a player's report regenerates only
+// when the inputs that matter (rank tier, form, projection, matchup, …) actually change — keeping
+// Anthropic spend proportional to change, not to roster size. Keyed per player, separate from the
+// daily datasets so it survives the rebuild and never read-modify-writes a dataset key.
+export const synopsisKey = (sport, id) => `synopsis:${sport}:${id}`;
 
 export const redis = new Redis({
   url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL,
