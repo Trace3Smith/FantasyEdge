@@ -129,15 +129,25 @@ function buildPricingModal() {
 
   bg.querySelectorAll('.fe-pick').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      if (!clerk?.user) { close(); clerk.openSignIn(); return; }
+      if (!clerk?.user) { close(); startCheckout(btn.dataset.interval); return; }
       btn.disabled = true;
       btn.textContent = 'Redirecting…';
-      const { ok, data } = await apiPost('/api/stripe/checkout', { interval: btn.dataset.interval });
-      if (ok && data?.url) { window.location.href = data.url; }
-      else { btn.disabled = false; btn.textContent = 'Try again'; }
+      const ok = await startCheckout(btn.dataset.interval);
+      if (!ok) { btn.disabled = false; btn.textContent = 'Try again'; }
     });
   });
   return bg;
+}
+
+// The SINGLE checkout path (pricing modal + homepage toggle both call this), so the billing interval →
+// Stripe price mapping lives in one place. `interval` must be 'month' or 'year' (checkout.js/billing.js
+// key on exactly those; it 400s on anything else, so a wrong value fails loudly rather than mischarging).
+// Signs the user in first when needed. Returns true if it redirected to Stripe Checkout, else false.
+async function startCheckout(interval) {
+  if (!clerk?.user) { clerk.openSignIn(); return false; }
+  const { ok, data } = await apiPost('/api/stripe/checkout', { interval });
+  if (ok && data?.url) { window.location.href = data.url; return true; }
+  return false;
 }
 
 function openPricing() {
@@ -246,6 +256,7 @@ async function boot() {
     isSignedIn: () => !!clerk.user,
     openSignIn: () => clerk.openSignIn(),
     openPricing,
+    startCheckout,
   };
   document.dispatchEvent(new CustomEvent('fe-auth-ready'));
 }

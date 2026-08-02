@@ -431,11 +431,20 @@
     position: relative;
   }
 
+  /* Monthly/Annual billing toggle above the cards. Its data-interval drives BOTH the shown price and
+     the interval sent to Stripe checkout, so they can't disagree. */
+  .billing-toggle { display: flex; width: fit-content; margin: 44px auto 0; gap: 4px; padding: 4px; background: var(--dark2); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; }
+  .bt-opt { background: transparent; border: none; color: var(--gray-light); font: inherit; font-size: 14px; font-weight: 600; padding: 8px 20px; border-radius: 7px; cursor: none; display: inline-flex; align-items: center; gap: 8px; transition: all 0.2s; }
+  .bt-opt.active { background: var(--gold); color: #111; }
+  .bt-save { font-size: 10px; font-weight: 800; letter-spacing: .5px; padding: 2px 6px; border-radius: 4px; background: rgba(76,175,80,0.22); color: #7fd784; text-transform: uppercase; }
+  .bt-opt.active .bt-save { background: rgba(0,0,0,0.18); color: #14481a; }
+  .price-card [data-billing][hidden] { display: none; } /* enforce hidden over any default display */
+
   .pricing-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 2px;
-    margin-top: 60px;
+    margin-top: 40px;
   }
 
   .price-card {
@@ -816,6 +825,11 @@
   <h2 class="section-title reveal">PICK YOUR EDGE</h2>
   <p class="section-sub reveal">No contracts. Cancel anytime. Dominate your league on day one.</p>
 
+  <div class="billing-toggle reveal" role="tablist" aria-label="Billing interval">
+    <button class="bt-opt active" data-interval="month" role="tab" aria-selected="true">Monthly</button>
+    <button class="bt-opt" data-interval="year" role="tab" aria-selected="false">Annual <span class="bt-save">Save 17%</span></button>
+  </div>
+
   <div class="pricing-grid reveal">
     <div class="price-card">
       <div class="price-tier">Free</div>
@@ -836,8 +850,10 @@
     <div class="price-card featured">
       <div class="price-badge">Most Popular</div>
       <div class="price-tier">Premium</div>
-      <div class="price-amount"><sup>$</sup>5<sub>/mo</sub></div>
-      <p class="price-desc">Everything you need to win — or <b>$50/yr</b> billed annually (2 months free).</p>
+      <div class="price-amount" data-billing="month"><sup>$</sup>5<sub>/mo</sub></div>
+      <div class="price-amount" data-billing="year" hidden><sup>$</sup>50<sub>/yr</sub></div>
+      <p class="price-desc" data-billing="month">Everything you need to win.</p>
+      <p class="price-desc" data-billing="year" hidden>Billed annually — <b>Save 17% · 2 months free</b>.</p>
       <ul class="price-features">
         <li>Everything in Free</li>
         <li>Live stat updates (all sports)</li>
@@ -849,7 +865,7 @@
         <li>March Madness bracket optimizer</li>
         <li>Priority support</li>
       </ul>
-      <button class="price-btn price-btn-gold">Get Premium</button>
+      <button class="price-btn price-btn-gold" id="homeGetPremium">Get Premium</button>
     </div>
   </div>
 </section>
@@ -919,6 +935,35 @@
       nav.style.backdropFilter = 'none';
     }
   });
+
+  // BILLING TOGGLE → checkout interval. One value drives BOTH the shown price and the interval sent to
+  // Stripe (read at click time), so the display and the charge can never disagree. 'month'/'year' are
+  // the exact strings checkout.js/billing.js expect — anything else 400s rather than mischarging.
+  (function () {
+    const toggle = document.querySelector('.billing-toggle');
+    if (!toggle) return;
+    let interval = 'month';
+    function apply(iv) {
+      interval = iv;
+      toggle.querySelectorAll('.bt-opt').forEach((b) => {
+        const on = b.dataset.interval === iv;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      document.querySelectorAll('.price-card.featured [data-billing]').forEach((el) => {
+        el.hidden = el.dataset.billing !== iv;
+      });
+    }
+    toggle.addEventListener('click', (e) => {
+      const b = e.target.closest('.bt-opt');
+      if (b) apply(b.dataset.interval);
+    });
+    const btn = document.getElementById('homeGetPremium');
+    if (btn) btn.addEventListener('click', () => {
+      if (window.FE && window.FE.startCheckout) window.FE.startCheckout(interval); // reads the current toggle value
+    });
+    apply('month'); // initial state
+  })();
 </script>
 <script type="module" src="/auth.js"></script>
 </body>
