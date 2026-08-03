@@ -204,6 +204,48 @@ function needFactor(pos, counts, board) {
   return desire * scarcity * runBump * deadline;
 }
 
+const clampNum = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// Structured, non-LLM reason-label for an NFL candidate (board highlight + Claude-unavailable fallback).
+// Leads with roster fit (the team-balance point), then the signal that colors the pick. `depth` is a
+// useful non-need position (RB/WR/TE) where added bodies still matter.
+function nflReasonLabel({ pos, need, forced, falling, consistency, form }) {
+  const chips = [];
+  if (forced) chips.push(`must fill ${pos}`);
+  else if (need) chips.push(`fills ${pos} need`);
+  else if (pos === 'RB' || pos === 'WR' || pos === 'TE') chips.push(`${pos} depth`);
+  if (falling) chips.push('falling past ADP');
+  if (consistency != null) {
+    if (consistency >= 70) chips.push('steady floor');
+    else if (consistency <= 45) chips.push('high-variance');
+  }
+  if (form === 'hot') chips.push('hot');
+  return chips.slice(0, 3).join(' · ');
+}
+
+// Structured reason-label for a roto candidate: which of the ROSTER'S weak categories this player fills
+// (the team-balance point), else his elite categories, plus an open lineup slot. `weight` is categoryNeed's
+// per-cat up-weighting (>1 = the roster is light there); z is the player's per-cat standardized value.
+function rotoReasonLabel(p, weight, cfg, slotPos) {
+  const chips = [];
+  const z = p.z || {};
+  const gapCats = cfg.CAT_KEYS
+    .filter((k) => (weight[k] ?? 1) > 1.1 && (z[k] ?? 0) >= 0.6)  // roster light here AND he's strong here
+    .sort((a, b) => (z[b] || 0) - (z[a] || 0))
+    .slice(0, 2)
+    .map((k) => cfg.CAT_LABEL[k]);
+  if (gapCats.length) {
+    chips.push(`fills your ${gapCats.join('/')} gap`);
+  } else {
+    const strong = cfg.CAT_KEYS
+      .map((k) => ({ k, z: z[k] || 0 })).sort((a, b) => b.z - a.z)
+      .filter((x) => x.z >= 0.8).slice(0, 2).map((x) => cfg.CAT_LABEL[x.k]);
+    if (strong.length) chips.push(`elite ${strong.join('/')}`);
+  }
+  if (slotPos) chips.push(`open ${slotPos} slot`);
+  return chips.slice(0, 2).join(' · ');
+}
+
 // Detect a recent run on a position (scarcity signal) from the last few picks.
 function positionRuns(recentPicks) {
   const counts = {};
@@ -226,8 +268,15 @@ function positionRuns(recentPicks) {
 export function recommend(players, drafted, roster = [], settings = DEFAULT_SETTINGS, round = 1, recentPicks = []) {
   const sport = settings.sport || 'nfl';
   const cfg = ROTO[sport];
-  if (cfg) return recommendRoto(players, drafted, roster, settings, round, recentPicks, cfg);
-  return recommendNfl(players, drafted, roster, settings, round, recentPicks);
+  // Re-hydrate the roster: callers pass [{ id, pos }] (positions + ids only), but the team-balance logic
+  // needs each drafted player's full profile — the per-category z (roto category need) and the signal set
+  // (consistency, form). Join the ids back to the full pool so categoryNeed/adjustedValue/weakCats actually
+  // fire (they skip any entry with no .z, so today they no-op on the bare {id,pos} roster). The roster
+  // entry's own fields win on conflict, so the drafted SLOT (pos) is preserved.
+  const byId = new Map(players.map((p) => [p.id, p]));
+  const hydrated = (roster || []).map((r) => { const full = r && byId.get(r.id); return full ? { ...full, ...r } : r; });
+  if (cfg) return recommendRoto(players, drafted, hydrated, settings, round, recentPicks, cfg);
+  return recommendNfl(players, drafted, hydrated, settings, round, recentPicks);
 }
 
 // --- Roto (category) recommender -------------------------------------------------------------
@@ -281,7 +330,10 @@ function recommendRoto(players, drafted, roster = [], settings = {}, round = 1, 
         forced: fills && slack <= 0,       // out of spare picks — must lock a starter now
         adp: null, picksPastAdp: 0, falling: false, proj: null, // no roto ADP/projections in v1
         z: p.z, n: p.n, cats: p.cats,      // category detail for the analyst layer
+        form: (p.tag === 'hot' || p.tag === 'cold') ? p.tag : null, // in-season only; usually absent preseason
         statLabels: p.statLabels, stats: [p.s1, p.s2, p.s3, p.s4, p.s5, p.s6], // real stat line
+        // Which of the roster's WEAK categories he fills (team-balance point), else his elite cats + open slot.
+        reasonLabel: rotoReasonLabel(p, weight, M, slot),
       };
     })
     .sort((a, b) =>
@@ -360,6 +412,14 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
       const adpDelta = adp != null ? currentPick - adp : 0; // > 0 means falling past ADP
       const adpBoost = adpDelta > 0 ? 1 + (Math.min(adpDelta, 2 * teams) / (2 * teams)) * 0.6 : 1;
 
+      // Consistency as a SMALL tiebreaker (±5% at most, centered at 60): a steady floor breaks near-ties
+      // between comparable players without overriding VORP/need. Absent (offseason/thin) → neutral.
+      const consBoost = p.consistency != null ? 1 + clampNum((p.consistency - 60) / 40, -1, 1) * 0.05 : 1;
+      const need = gap > 0;
+      const forced = gap > 0 && slack <= 0;
+      const falling = adpDelta >= teams;
+      const form = (p.tag === 'hot' || p.tag === 'cold') ? p.tag : null;
+
       return {
         id: p.id,
         name: p.name,
@@ -368,13 +428,18 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
         rank: p.rank,
         value: Math.round(v * 10) / 10,
         vorp: Math.round(vorp * 10) / 10,
-        score: Math.round(vorp * factor * adpBoost * 10) / 10,
-        need: gap > 0,                  // still owe a starting slot here
-        forced: gap > 0 && slack <= 0,  // out of spare picks — must take a need now
+        score: Math.round(vorp * factor * adpBoost * consBoost * 10) / 10,
+        need,                           // still owe a starting slot here
+        forced,                         // out of spare picks — must take a need now
         adp: adp != null ? Math.round(adp * 10) / 10 : null,
         picksPastAdp: adpDelta > 0 ? Math.round(adpDelta) : 0, // how far he's slipped past ADP
-        falling: adpDelta >= teams,     // slipped a full round-plus past expected — a value
+        falling,                        // slipped a full round-plus past expected — a value
         proj: p.proj?.fpts ?? null,     // consensus (Sleeper) projected fantasy points
+        // Fused signals (already on the dataset row): weekly consistency + ceiling, and in-season form.
+        consistency: p.consistency ?? null,
+        ceiling: p.ceiling ?? null,
+        form,
+        reasonLabel: nflReasonLabel({ pos: p.pos, need, forced, falling, consistency: p.consistency ?? null, form }),
       };
     })
     // Forced needs first (so a mandatory slot is never skipped at the buzzer), then by

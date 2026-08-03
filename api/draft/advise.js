@@ -22,7 +22,7 @@ const SYSTEM_NFL = `You are an elite fantasy football draft analyst. The user is
 
 ROSTER NECESSITY OVERRIDE: if the prompt includes a ROSTER NECESSITY note, it overrides everything above — you MUST use this pick to fill one of the named mandatory slots (typically K or DST in the final rounds). An incomplete, illegal lineup is worse than any value you could gain, so take the mandatory slot now rather than a falling-value reach, and set reach=false.
 
-You are given the roster, round, scoring, recent positional runs, positional scarcity, and a numbered shortlist of the best available candidates (already filtered by our model) with each one's signals. Pick THE single best candidate from that shortlist. You may deviate from board order when need, scarcity, or falling value justifies it.
+You are given the roster, round, scoring, recent positional runs, positional scarcity, and a numbered shortlist of the best available candidates (already filtered by our model) with each one's signals — including where given a consistency score (weekly floor, out of 100; higher = steadier) and a points ceiling (weekly upside). Favor a steady floor when locking a starter you need every week, and tolerate a lower floor for a high ceiling on an upside swing. Pick THE single best candidate from that shortlist. You may deviate from board order when need, scarcity, or falling value justifies it.
 
 Respond with ONLY a JSON object — no prose, no markdown fences:
 {"pick": <candidate number>, "rationale": "<2-3 conversational sentences like a sharp friend; speak in projected points, ADP value, roster fit and scarcity; NEVER mention internal jargon like VORP, value-over-replacement, or a 'score'>", "reach": <true only if you are recommending reaching for a falling elite player ahead of a positional need, else false>}`;
@@ -84,6 +84,10 @@ function describeNfl(c, n) {
   if (c.proj != null) bits.push(`~${c.proj} projected pts`);
   if (c.adp != null) bits.push(`ADP ${c.adp}`);
   if (c.picksPastAdp > 0) bits.push(`still on the board ${c.picksPastAdp} picks past his ADP`);
+  // Fused consistency/ceiling (weekly floor vs upside) + in-season form, so the analyst can weigh a steady
+  // starter against a boom-or-bust flier. Absent in the offseason / for thin players → simply omitted.
+  if (c.consistency != null) bits.push(`consistency ${c.consistency}/100 (weekly floor)${c.ceiling != null ? `, ~${c.ceiling}-pt ceiling` : ''}`);
+  if (c.form === 'hot') bits.push('trending up');
   if (c.need) bits.push('fills a roster need');
   if (c.forced) bits.push('mandatory starting slot still unfilled');
   return bits.join(', ');
