@@ -202,6 +202,22 @@
   .suggestion { background: rgba(212,160,23,0.08); border: 1px solid rgba(212,160,23,0.35); border-radius: 10px; padding: 9px 13px; margin-bottom: 12px; font-size: 13px; color: var(--gray-light, #cbd5e1); line-height: 1.6; }
   .suggestion b { color: var(--white); }
   .sug-pick { display: inline-block; margin-right: 6px; }
+  /* Post-draft summary panel */
+  .draft-summary { background: var(--dark2, #16181d); border: 1px solid rgba(212,160,23,0.4); border-radius: 12px; padding: 16px 18px; margin-bottom: 14px; }
+  .ds-head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+  .ds-grade { flex: none; width: 58px; height: 58px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 800; background: rgba(212,160,23,0.14); color: var(--gold, #D4A017); border: 1px solid rgba(212,160,23,0.5); }
+  .ds-grade.g-a { background: rgba(76,175,80,0.16); color: #7fd784; border-color: rgba(76,175,80,0.5); }
+  .ds-grade.g-c { background: rgba(244,67,54,0.12); color: #ef8a80; border-color: rgba(244,67,54,0.4); }
+  .ds-meta { min-width: 0; }
+  .ds-title { font-size: 13px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--gold-light, #F0C040); margin-bottom: 3px; }
+  .ds-analysis { font-size: 13px; color: var(--gray-light, #cbd5e1); line-height: 1.5; }
+  .ds-rank { font-size: 13px; color: var(--white); margin-bottom: 12px; }
+  .ds-rank b { color: var(--gold-light, #F0C040); }
+  .ds-roster { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 14px; }
+  .ds-slot { display: flex; align-items: baseline; gap: 6px; font-size: 12px; padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .ds-prk { flex: none; font-weight: 800; color: var(--gold-light, #F0C040); font-variant-numeric: tabular-nums; min-width: 34px; }
+  .ds-nm { color: var(--white); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ds-tm { color: var(--gray); font-size: 10px; }
   .grade { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: .3px; margin-left: 4px; }
   .g-steal { background: rgba(74,222,128,0.18); color: #86efac; }
   .g-value { background: rgba(148,163,184,0.16); color: #cbd5e1; }
@@ -355,6 +371,9 @@
     <div class="suggestion hidden" id="suggestion"></div>
     <div class="runs hidden" id="runs"></div>
 
+    <!-- Post-draft summary (grade + analysis, league-finish projection, roster with positional ranks) -->
+    <div class="draft-summary hidden" id="draftSummary"></div>
+
     <!-- Board / roster / recent at the bottom -->
     <div class="draft-grid">
       <div class="panel">
@@ -395,6 +414,7 @@ import { value as nhlValue, boardCmp as nhlBoardCmp, rankMap as nhlRankMap, DEFA
 // Shared player-display module — the SAME code Player Rankings renders through, so the detail
 // sidebar's stars, category pills, tags/trends, sortable category list, and prior-year line match it.
 import { renderStarsBlock, renderCategoryList, renderPrevYear, renderOpportunity, getTagHTML, getTrendHTML } from '/playerDisplay.js';
+import { positionalRanks, posRankLabel, leagueRanking, draftGrade } from '/draftSummary.js';
 
 // --- Mock draft controller ----------------------------------------------------
 let players = [];           // full player pool for the active sport
@@ -504,6 +524,7 @@ function renderSuggestion(myTurn) {
 // Extracted so offline (manual) and linked (Sleeper) drive the exact same board readout.
 function renderClock() {
   if (state.pickIndex >= state.totalPicks) return;
+  $('draftSummary')?.classList.add('hidden'); // clear any prior summary while a draft is in progress
   const onClock = teamOnClock(state.pickIndex, state.settings.teams, state.format);
   const until = picksUntilUserTurn();
   const round = roundOf(state.pickIndex, state.settings.teams);
@@ -1150,10 +1171,50 @@ function renderDetail() {
   el.querySelectorAll('.pd-sort button').forEach((b) => b.addEventListener('click', () => { detailSort = b.dataset.sort; renderDetail(); }));
 }
 
+// Post-draft summary: grade + analysis, league-finish projection, and the roster with each player's
+// positional rank — all off the SAME board value function (boardValue) and per-pick deltas used live
+// (draftSummary.js). Additive: reads state, changes no draft logic. Gated to when we have real data.
+function renderDraftSummary() {
+  const el = $('draftSummary');
+  if (!el || !state || !players?.length) return;
+  const userPicks = state.picks.filter((p) => p.teamIndex === state.userTeam && p.id != null);
+  if (!userPicks.length) { el.classList.add('hidden'); return; }
+
+  const g = draftGrade(userPicks.map((p) => ({ pos: p.pos, delta: p.grade?.delta })), gradeThreshold());
+  const prMap = positionalRanks(players, boardValue);
+
+  // All teams' rosters (mock/linked carry every team; offline-real may lack opponents → league rank hidden).
+  const teamsMap = new Map();
+  for (const pk of state.picks) {
+    if (pk.id == null) continue;
+    const pl = byId.get(pk.id); if (!pl) continue;
+    if (!teamsMap.has(pk.teamIndex)) teamsMap.set(pk.teamIndex, { teamIndex: pk.teamIndex, isUser: pk.teamIndex === state.userTeam, roster: [] });
+    teamsMap.get(pk.teamIndex).roster.push(pl);
+  }
+  const lr = leagueRanking([...teamsMap.values()], boardValue);
+
+  const gc = g.grade.startsWith('A') ? 'g-a' : /^[CDF]/.test(g.grade) ? 'g-c' : '';
+  const rankLine = (lr.teams >= 2 && lr.userRank)
+    ? `<div class="ds-rank">Projected finish: <b>#${lr.userRank}</b> of ${lr.teams} teams</div>` : '';
+  const order = { QB: 0, RB: 1, WR: 2, TE: 3, K: 4, DST: 5 };
+  const rosterRows = userPicks
+    .map((p) => ({ p, pr: prMap.get(p.id) }))
+    .sort((a, b) => (order[a.p.pos] ?? 9) - (order[b.p.pos] ?? 9) || ((a.pr?.posRank ?? 999) - (b.pr?.posRank ?? 999)))
+    .map(({ p, pr }) => `<div class="ds-slot"><span class="ds-prk">${pr ? posRankLabel(pr) : p.pos}</span><span class="ds-nm">${escapeHtml(p.name)}</span><span class="ds-tm">${escapeHtml(p.team || '')}</span></div>`)
+    .join('');
+
+  el.innerHTML = `<div class="ds-head"><div class="ds-grade ${gc}">${g.grade}</div>`
+    + `<div class="ds-meta"><div class="ds-title">Draft Grade</div><div class="ds-analysis">${escapeHtml(g.analysis)}</div></div></div>`
+    + rankLine
+    + `<div class="ds-roster">${rosterRows}</div>`;
+  el.classList.remove('hidden');
+}
+
 function finishDraft() {
   $('clock').innerHTML = '✅ <b>Draft complete!</b>';
   setRuns(null);
   renderRoster();
+  renderDraftSummary();
   if (window.FE?.isPremium()) addCoachMsg('coach', "That's a wrap! Your roster's set — ask me how it looks, or where you're strong and thin.");
 }
 
@@ -1252,6 +1313,7 @@ function offlineFinish() {
   $('offlineBar').classList.add('hidden');
   renderRoster();
   renderRecent();
+  renderDraftSummary(); // grade/roster always; league rank self-gates when opponents weren't logged
   if (window.FE?.isPremium()) addCoachMsg('coach', "Draft's done — want me to break down your roster's strengths and gaps?");
 }
 
@@ -1438,6 +1500,7 @@ function linkedFinish() {
   renderSuggestion(false);
   renderRoster();
   renderRecent();
+  renderDraftSummary();
   $('linkedStatus').textContent = 'Draft complete.';
   if (window.FE?.isPremium()) addCoachMsg('coach', "Draft's done — want me to break down your roster's strengths and gaps?");
 }
