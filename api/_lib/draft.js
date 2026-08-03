@@ -173,17 +173,25 @@ function needFactor(pos, counts, board) {
   const min = (board.minRoster || MIN_ROSTER)[pos] || 0;
   const gap = Math.max(0, min - have); // unfilled starting slots at this position
 
-  // (1) Desire from our own roster. Below the minimum we want it badly; once the slot
-  // is filled, appetite for more depends on the position — RB/WR reward bench depth and
-  // feed the FLEX, TE a little, while a backup QB/K/DST is almost worthless.
+  // (1) Desire from our own roster. Below the minimum we want it badly; once the starter slot is
+  // filled, appetite for more is per-position, with hard caps so the board can't hoard one position:
+  //   RB/WR — no cap: they reward real bench depth (FLEX, byes, injuries), so desire decays slowly and
+  //     stays meaningfully elevated (floor ~0.45), well above the QB/TE tail below.
+  //   QB/TE — soft cap ~3: a 2nd is a fine backup/streamer, the 3rd drops sharply, the 4th is ~zero.
+  //     This keeps 3rd+ QB/TE out of the shortlist so neither the model nor the analyst hoards them.
+  //   K/DST — a backup is worthless; the forced tier still guarantees the one starter.
   let desire;
   if (gap > 0) {
     desire = gap >= 2 ? 1.5 : 1.2;
   } else {
-    const surplus = have - min;
-    if (pos === 'RB' || pos === 'WR') desire = surplus === 0 ? 0.9 : surplus === 1 ? 0.65 : surplus === 2 ? 0.45 : 0.3;
-    else if (pos === 'TE') desire = surplus === 0 ? 0.5 : 0.3;
-    else desire = 0.05; // extra QB / K / DST — essentially never
+    const surplus = have - min; // extra bodies beyond the mandatory starters at this position
+    if (pos === 'RB' || pos === 'WR') {
+      desire = surplus === 0 ? 0.9 : surplus === 1 ? 0.75 : surplus === 2 ? 0.62 : surplus === 3 ? 0.52 : 0.45;
+    } else if (pos === 'QB' || pos === 'TE') {
+      desire = surplus === 0 ? (pos === 'TE' ? 0.5 : 0.45) : surplus === 1 ? (pos === 'TE' ? 0.12 : 0.1) : 0.03;
+    } else {
+      desire = 0.02; // K / DST
+    }
   }
 
   // (2) Scarcity from the board: startable (above-replacement) players left vs. how many
@@ -428,7 +436,10 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
         rank: p.rank,
         value: Math.round(v * 10) / 10,
         vorp: Math.round(vorp * 10) / 10,
-        score: Math.round(vorp * factor * adpBoost * consBoost * 10) / 10,
+        // The +0.5 floor keeps the need factor meaningful at/below replacement (vorp≈0): a capped 3rd
+        // QB/TE must still sort BELOW uncapped RB/WR depth in the late rounds, instead of everyone
+        // collapsing to score 0 and the raw board rank piling a position up.
+        score: Math.round((vorp + 0.5) * factor * adpBoost * consBoost * 10) / 10,
         need,                           // still owe a starting slot here
         forced,                         // out of spare picks — must take a need now
         adp: adp != null ? Math.round(adp * 10) / 10 : null,
