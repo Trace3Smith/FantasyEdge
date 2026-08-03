@@ -1183,7 +1183,9 @@ function renderDraftSummary() {
   const g = draftGrade(userPicks.map((p) => ({ pos: p.pos, delta: p.grade?.delta })), gradeThreshold());
   const prMap = positionalRanks(players, boardValue);
 
-  // All teams' rosters (mock/linked carry every team; offline-real may lack opponents → league rank hidden).
+  // All teams' rosters, built purely from logged picks (grouped by teamIndex) — no mode check. Every draft
+  // path records opponent picks with their teamIndex, so a fully-logged offline draft has all teams here,
+  // same as mock/linked. The league rank self-gates below on >=2 teams actually having logged picks.
   const teamsMap = new Map();
   for (const pk of state.picks) {
     if (pk.id == null) continue;
