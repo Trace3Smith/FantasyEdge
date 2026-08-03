@@ -499,6 +499,9 @@
   .gamelog-table td.gl-stat, .gamelog-table th.gl-stat { text-align: center; white-space: nowrap; padding: 3px 6px; color: var(--white); }
   .gamelog-table td.gl-stat.gl-z { color: var(--gray); }
   .gamelog-table td.gl-stat.gl-qs { color: var(--green); font-weight: 700; font-size: 9px; }
+  /* NFL-only weekly fantasy-points (PPR) column, right-aligned and highlighted. */
+  .gamelog-table td.gl-fp { text-align: right; white-space: nowrap; padding: 3px 4px 3px 10px; color: var(--gold); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .gamelog-table th.gl-fp { text-align: right; padding: 3px 4px 3px 10px; color: var(--gold); font-size: 9px; font-weight: 700; letter-spacing: .5px; }
   /* PGA recent tournament finishes — reuses the game-log table shell; the event name is the wide
      column and the result (T4, -12 / Missed Cut) is right-aligned. Name-keyed, no window toggle. */
   .tag-results { background: rgba(255,255,255,0.06); color: var(--gray-light); border: 1px solid rgba(255,255,255,0.2); cursor: pointer; }
@@ -1506,6 +1509,28 @@
     }
     return seg.join(' · ') || '—';
   }
+  // Weekly PPR fantasy points from a gamelog stat line — same standard-PPR weights the server uses
+  // (api/_lib/nflForm.js NFL_PPR), matching the PPR season projections shown on the card. Gamelog
+  // fields are position-specific (a WR has no passing keys, a QB no receiving; fumblesLost is absent
+  // for some players), so any missing field simply scores 0 — same graceful lookup as nflLine.
+  const NFL_GL_PPR = {
+    passingYards: 0.04, passingTouchdowns: 4, interceptions: -2,
+    rushingYards: 0.1, rushingTouchdowns: 6,
+    receptions: 1, receivingYards: 0.1, receivingTouchdowns: 6,
+    fumblesLost: -2,
+  };
+  function nflGameFpts(names, stats) {
+    const idx = {}; names.forEach((n, i) => idx[n] = i);
+    let pts = 0;
+    for (const k in NFL_GL_PPR) {
+      const i = idx[k];
+      if (i == null) continue;
+      const x = parseFloat(String(stats[i]).replace(/,/g, ''));
+      if (isFinite(x)) pts += x * NFL_GL_PPR[k];
+    }
+    return pts;
+  }
+  const fmtFp = (v) => (Math.round(v * 10) / 10).toFixed(1);
   // Basketball line (NBA + WNBA share identical stat names): the board's counting cats
   // (PTS/REB/AST, plus STL/BLK when they happened), then the shooting splits as made-attempted
   // (FG / 3PT / FT). Same "just what happened" style as the rest.
@@ -1552,14 +1577,17 @@
     wnba: { path: 'basketball/wnba', line: bballLine },
     nhl:  { path: 'hockey/nhl',     line: nhlLine },
   };
-  function renderEspnGamelogRows(names, rows, n, lineFn) {
+  function renderEspnGamelogRows(names, rows, n, lineFn, sport) {
     if (!rows.length) return '<span class="roll-empty">No games recorded this season.</span>';
+    const isNfl = sport === 'nfl'; // NFL-only weekly PPR points column; roto sports stay raw stats
     const recent = rows.slice(0, n);
     const tr = recent.map(g => {
       const opp = (g.atVs ? g.atVs + ' ' : '') + g.opp;
-      return `<tr><td class="gl-date">${fmtGlDate(g.date)}</td><td class="gl-opp">${opp}</td><td class="gl-line">${lineFn(names, g.stats)}</td></tr>`;
+      const fp = isNfl ? `<td class="gl-fp">${fmtFp(nflGameFpts(names, g.stats))}</td>` : '';
+      return `<tr><td class="gl-date">${fmtGlDate(g.date)}</td><td class="gl-opp">${opp}</td><td class="gl-line">${lineFn(names, g.stats)}</td>${fp}</tr>`;
     }).join('');
-    return `<table class="gamelog-table"><tbody>${tr}</tbody></table>`;
+    const head = isNfl ? '<thead><tr><th class="gl-date"></th><th class="gl-opp"></th><th class="gl-line"></th><th class="gl-fp" title="Weekly fantasy points (PPR)">FP</th></tr></thead>' : '';
+    return `<table class="gamelog-table">${head}<tbody>${tr}</tbody></table>`;
   }
   async function fetchEspnRaw(sport, pid) {
     const gl = await fetchEspnGamelog(ESPN_GAMELOG[sport].path, pid);
@@ -1579,7 +1607,7 @@
     if (espn) {
       // NFL: full chronological log (oldest → newest, by date), no window. Others: last-N window.
       const rows = nfl ? raw.rows.slice().sort((a, b) => new Date(a.date) - new Date(b.date)) : raw.rows;
-      body.innerHTML = renderEspnGamelogRows(raw.names, rows, nfl ? rows.length : n, espn.line);
+      body.innerHTML = renderEspnGamelogRows(raw.names, rows, nfl ? rows.length : n, espn.line, raw.sport);
       titleEl.textContent = raw.season ? `Game Log · ${raw.season}` : 'Game Log';
     } else {
       body.innerHTML = renderGamelogRows(raw.splits, raw.kind, n);
