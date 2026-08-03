@@ -405,7 +405,8 @@ let selectedId = null;      // player currently shown in the detail sidebar (ins
 let detailSort = 'natural'; // sidebar category sort: 'natural' | 'value' | 'impact'
 let levels = {};            // NFL: per-position replacement levels (unused for roto sports)
 let suggestedId = null;     // the Coach's currently-recommended player — highlighted + scrolled-to on the board
-let suggestedReason = null; // 'value' | 'need' | 'must-fill' — why he's suggested, for the board tag
+let suggestedReason = null; // 'value' | 'need' | 'must-fill' — coarse fallback reason for the board tag
+let suggestedLabel = null;  // the server's rich reasonLabel (e.g. "fills your SB gap") — preferred on the tag
 
 // Active sport: from ?sport= (default NFL). NBA/WNBA/MLB/NHL are category leagues; everything
 // else is the NFL points flow. Resolved at load and again when the setup Sport select changes.
@@ -838,7 +839,7 @@ function userDraft(playerId) {
   const p = byId.get(playerId);
   if (!p || state.drafted.has(p.id)) return;
   recordPick(p, state.userTeam);
-  suggestedId = null; suggestedReason = null; // pick made — drop the suggestion highlight
+  suggestedId = null; suggestedReason = null; suggestedLabel = null; // pick made — drop the suggestion highlight
   renderRoster();
   renderRecent();
   advance();
@@ -880,7 +881,7 @@ let lastBoard = null;
 
 // User's turn: render roster/board, then have the Coach open with the analyst's pick.
 function renderUserTurn() {
-  suggestedId = null; suggestedReason = null; // cleared until the analyst's pick arrives (set in analystOpening)
+  suggestedId = null; suggestedReason = null; suggestedLabel = null; // cleared until the analyst's pick arrives (set in analystOpening)
   const round = roundOf(state.pickIndex, state.settings.teams);
   $('clock').innerHTML = `Round <b>${round}</b> · Pick <b>${state.pickIndex + 1}</b> — <span class="on-clock-you">You're on the clock</span>`;
   renderRoster();
@@ -933,6 +934,7 @@ async function analystOpening() {
   // reads as intentional. Re-render with the current search preserved, then bring the row into view.
   suggestedId = top.id;
   suggestedReason = data.reach ? 'value' : (top.forced ? 'must-fill' : (top.need ? 'need' : 'value'));
+  suggestedLabel = top.reasonLabel || null; // rich fused reason ("fills your SB gap"); coarse reason is the fallback
   renderAvailable($('availSearch').value || '');
   scrollToSuggested();
   const reachLine = data.reach
@@ -1032,9 +1034,13 @@ function rotoStatLine(p) {
 }
 
 // Board tag for the Coach's suggested player — says WHY, so a lower-ranked (need-driven) pick reads as
-// intentional rather than a mistake. A pure value pick is near the top of the ADP board already.
+// intentional rather than a mistake. Prefers the server's rich fused reasonLabel ("fills your SB gap",
+// "fills RB need · steady floor") over the coarse value/need wording. The forced/must-fill urgency is
+// kept as an override (a late-draft mandatory slot should read urgently regardless of the rich label),
+// and the coarse reason is the fallback when no reasonLabel is present (thin candidate / free-tier skip).
 function sugLabel(reason, pos) {
   if (reason === 'must-fill') return `★ Coach — must fill ${pos}`;
+  if (suggestedLabel) return '★ Coach — ' + escapeHtml(suggestedLabel);
   if (reason === 'need') return `★ Coach — fills your ${pos}`;
   return '★ Coach — top value';
 }
