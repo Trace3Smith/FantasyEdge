@@ -52,31 +52,51 @@ export function letterFor(vi) {
 
 // Overall draft grade from the per-pick value deltas. picks = [{ pos, delta }] (delta = value(picked) −
 // value(best other available at pick time), the same steal/reach signal shown live). threshold = the sport's
-// magnitude (NFL ~15 VORP pts, roto ~1.5 z). Returns { grade, valueIndex, avgDelta, byPosition, analysis }.
-export function draftGrade(picks, threshold) {
+// magnitude (NFL ~15 VORP pts, roto ~1.5 z). opts.leagueRank / leagueTeams make the grade track the finish.
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+// Forced/mandatory positions: their board value is tiny, so a required late-round pick would otherwise read
+// as a huge "reach" and unfairly tank the grade. Excluded from the value/reach signal + the analysis.
+const FORCED_POS = new Set(['K', 'DST']);
+
+export function draftGrade(picks, threshold, opts = {}) {
   const T = threshold || 1;
-  const valued = (picks || []).filter((p) => p && typeof p.delta === 'number' && Number.isFinite(p.delta));
+  const { leagueRank = null, leagueTeams = null } = opts;
+
+  const valued = (picks || []).filter((p) => p && typeof p.delta === 'number' && Number.isFinite(p.delta) && !FORCED_POS.has(p.pos));
   const n = valued.length || 1;
   const avg = valued.reduce((s, p) => s + p.delta, 0) / n;
-  const vi = avg / T;
+  const vi = avg / T; // value index: >0 beat the board, <0 reached (forced picks excluded)
 
   const byPos = {};
   for (const p of valued) (byPos[p.pos] ||= []).push(p.delta);
   const byPosition = {};
   for (const pos of Object.keys(byPos)) {
     const a = byPos[pos].reduce((s, d) => s + d, 0) / byPos[pos].length;
-    byPosition[pos] = {
-      avg: Math.round(a * 10) / 10,
-      label: a >= 0.4 * T ? 'strong value' : a <= -0.4 * T ? 'reach' : 'fair value',
-    };
+    byPosition[pos] = { avg: Math.round(a * 10) / 10, label: a >= 0.4 * T ? 'strong value' : a <= -0.4 * T ? 'reach' : 'fair value' };
+  }
+
+  // GRADE: when league standing is known, it's PRIMARILY the roster's projected finish (same value basis as
+  // the league-rank projection), so grade and finish can't contradict — a #2-of-10 roster grades ~A, never F.
+  // A small, capped value nudge (steals up, reaches down) can't flip the grade away from the standing. With
+  // no opponents logged, fall back to the pure value grade.
+  let combined, basis;
+  if (leagueRank != null && leagueTeams >= 2) {
+    const pct = (leagueTeams - leagueRank) / (leagueTeams - 1); // 1.0 = 1st, 0 = last
+    const rankScore = (pct - 0.5) * 1.2;                        // 1st ≈ +0.6 (A+), middle ≈ 0 (B), last ≈ −0.6 (D)
+    combined = rankScore + clamp(vi, -0.5, 0.5) * 0.25;         // capped nudge (≤ ~half a letter)
+    basis = 'rank';
+  } else {
+    combined = vi;
+    basis = 'value';
   }
 
   return {
-    grade: letterFor(vi),
+    grade: letterFor(combined),
     valueIndex: Math.round(vi * 100) / 100,
     avgDelta: Math.round(avg * 10) / 10,
     byPosition,
     analysis: analysisText(byPosition),
+    basis,
   };
 }
 

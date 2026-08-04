@@ -24,6 +24,8 @@ ROSTER NECESSITY OVERRIDE: if the prompt includes a ROSTER NECESSITY note, it ov
 
 You are given the roster, round, scoring, recent positional runs, positional scarcity, and a numbered shortlist of the best available candidates (already filtered by our model) with each one's signals — including where given a consistency score (weekly floor, out of 100; higher = steadier) and a points ceiling (weekly upside). Favor a steady floor when locking a starter you need every week, and tolerate a lower floor for a high ceiling on an upside swing. Pick THE single best candidate from that shortlist. You may deviate from board order when need, scarcity, or falling value justifies it.
 
+Each candidate's ADP fit is given to you explicitly (e.g. "still on the board N picks past his ADP", "being taken N picks ahead of his ADP", or "right around his ADP"). Use ONLY that provided figure when you talk about ADP — do NOT compute or invent your own "picks past ADP" or "rounds past ADP" numbers, and never claim a player is past his ADP unless the line says so.
+
 Respond with ONLY a JSON object — no prose, no markdown fences:
 {"pick": <candidate number>, "rationale": "<2-3 conversational sentences like a sharp friend; speak in projected points, ADP value, roster fit and scarcity; NEVER mention internal jargon like VORP, value-over-replacement, or a 'score'>", "reach": <true only if you are recommending reaching for a falling elite player ahead of a positional need, else false>}`;
 
@@ -83,7 +85,15 @@ function describeNfl(c, n) {
   const bits = [`[${n}] ${c.name} (${c.pos}, ${c.team})`, `board #${c.rank ?? '—'}`];
   if (c.proj != null) bits.push(`~${c.proj} projected pts`);
   if (c.adp != null) bits.push(`ADP ${c.adp}`);
-  if (c.picksPastAdp > 0) bits.push(`still on the board ${c.picksPastAdp} picks past his ADP`);
+  // Correct, two-directional ADP fit from the model's signed delta (pick − ADP): positive = still available
+  // past his ADP (value), negative = being taken ahead of his ADP (a reach). The analyst must use THIS,
+  // never invent its own "picks/rounds past ADP" math.
+  if (c.adpDelta != null && c.adp != null) {
+    const d = c.adpDelta;
+    if (d >= 3) bits.push(`still on the board ${d} picks past his ADP (a value)`);
+    else if (d <= -3) bits.push(`being taken ${-d} picks ahead of his ADP (a slight reach)`);
+    else bits.push('right around his ADP');
+  }
   // Fused consistency/ceiling (weekly floor vs upside) + in-season form, so the analyst can weigh a steady
   // starter against a boom-or-bust flier. Absent in the offseason / for thin players → simply omitted.
   if (c.consistency != null) bits.push(`consistency ${c.consistency}/100 (weekly floor)${c.ceiling != null ? `, ~${c.ceiling}-pt ceiling` : ''}`);

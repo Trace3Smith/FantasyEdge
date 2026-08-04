@@ -443,7 +443,10 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
         need,                           // still owe a starting slot here
         forced,                         // out of spare picks — must take a need now
         adp: adp != null ? Math.round(adp * 10) / 10 : null,
-        picksPastAdp: adpDelta > 0 ? Math.round(adpDelta) : 0, // how far he's slipped past ADP
+        // Signed pick-vs-ADP gap: > 0 = still on the board past his ADP (value); < 0 = taken ahead of his
+        // ADP (a reach). The analyst phrases both directions off THIS number instead of inventing its own.
+        adpDelta: adp != null ? Math.round(adpDelta) : null,
+        picksPastAdp: adpDelta > 0 ? Math.round(adpDelta) : 0, // how far he's slipped past ADP (kept for scoring)
         falling,                        // slipped a full round-plus past expected — a value
         proj: p.proj?.fpts ?? null,     // consensus (Sleeper) projected fantasy points
         // Fused signals (already on the dataset row): weekly consistency + ceiling, and in-season form.

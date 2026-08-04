@@ -1180,7 +1180,6 @@ function renderDraftSummary() {
   const userPicks = state.picks.filter((p) => p.teamIndex === state.userTeam && p.id != null);
   if (!userPicks.length) { el.classList.add('hidden'); return; }
 
-  const g = draftGrade(userPicks.map((p) => ({ pos: p.pos, delta: p.grade?.delta })), gradeThreshold());
   const prMap = positionalRanks(players, boardValue);
 
   // All teams' rosters, built purely from logged picks (grouped by teamIndex) — no mode check. Every draft
@@ -1194,6 +1193,14 @@ function renderDraftSummary() {
     teamsMap.get(pk.teamIndex).roster.push(pl);
   }
   const lr = leagueRanking([...teamsMap.values()], boardValue);
+
+  // Grade tracks the roster's projected finish (league standing) with a small capped value nudge; forced
+  // K/DST picks excluded. Falls back to pure value when opponents weren't logged (leagueRank null).
+  const g = draftGrade(
+    userPicks.map((p) => ({ pos: p.pos, delta: p.grade?.delta })),
+    gradeThreshold(),
+    { leagueRank: lr.userRank, leagueTeams: lr.teams },
+  );
 
   const gc = g.grade.startsWith('A') ? 'g-a' : /^[CDF]/.test(g.grade) ? 'g-c' : '';
   const rankLine = (lr.teams >= 2 && lr.userRank)
