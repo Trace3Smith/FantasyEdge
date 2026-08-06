@@ -163,10 +163,20 @@ function deadlinePressure(slack) {
   return 1 + (5 - slack) * 0.2;   // slack 4→1.2, 3→1.4, 2→1.6, 1→1.8
 }
 
+// VONA (Value Over Next Available): the same-position value cliff from the best available player at
+// a position to the next one still on the board. A steep cliff means waiting costs a real drop-off,
+// so urgency to grab the position NOW should rise. VONA_REF is the cliff size (in board-value points,
+// which equal VORP points since the shared replacement level cancels in a same-position difference)
+// that earns the full boost — set to the NFL steal/reach magnitude the UI grades by, so a one-"steal"
+// cliff maxes out. VONA_MAX caps the extra urgency so a cliff nudges the order rather than dominating.
+const VONA_REF = 15;
+const VONA_MAX = 0.5;
+
 // Need multiplier — how much to want this position right now, reading both our roster
 // and the live board. No fixed round logic: urgency emerges from (1) whether we still
 // owe a starting slot, (2) how fast startable players at the position are drying up,
-// (3) a live run on the position, and (4) how few picks remain to meet requirements.
+// (3) a live run on the position, (4) how few picks remain to meet requirements, and
+// (5) a steep same-position value cliff (VONA) that makes grabbing now worth it.
 // The wide spread lets real need override the raw-VORP edge that made every pick an RB.
 function needFactor(pos, counts, board) {
   const have = counts[pos] || 0;
@@ -209,7 +219,15 @@ function needFactor(pos, counts, board) {
   // (4) Draft-end pressure on slots we still owe.
   const deadline = gap > 0 ? deadlinePressure(board.slack) : 1;
 
-  return desire * scarcity * runBump * deadline;
+  // (5) VONA cliff: a steep same-position drop-off (best available minus next available) raises
+  // urgency to grab this position before the tier breaks. Capped by VONA_MAX so it nudges rather
+  // than dominates, and dampened once the starting slot is filled so it can't reignite depth-
+  // hoarding at a position we're already set at (keeps it from fighting the QB/TE soft caps).
+  const cliff = (board.vonaCliff || {})[pos] || 0;
+  let vona = 1 + clampNum(cliff / VONA_REF, 0, 1) * VONA_MAX;
+  if (gap === 0) vona = 1 + (vona - 1) * 0.4;
+
+  return desire * scarcity * runBump * deadline * vona;
 }
 
 const clampNum = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -385,6 +403,17 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
     if (valueOf(p, scoring) > (levels[p.pos] ?? 0)) startableLeft[p.pos] = (startableLeft[p.pos] || 0) + 1;
   }
 
+  // Same-position value cliffs for VONA urgency: best-available minus next-available at each
+  // position, on raw board value (the shared replacement level cancels in the difference, so this
+  // is exactly the VORP gap). needFactor turns a steep cliff into extra urgency to grab it now.
+  const posVals = {};
+  for (const p of available) (posVals[p.pos] ||= []).push(valueOf(p, scoring));
+  const vonaCliff = {};
+  for (const pos of Object.keys(posVals)) {
+    const vs = posVals[pos].sort((a, b) => b - a);
+    vonaCliff[pos] = vs.length >= 2 ? Math.max(0, vs[0] - vs[1]) : 0;
+  }
+
   // Draft-end cushion: spare picks beyond the mandatory starting slots still unfilled.
   // Derived from roster state, not the round number — when it hits zero, those unmet
   // requirements become "forced" and sort ahead of pure value so we never end the draft
@@ -411,7 +440,7 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
       const isKD = p.pos === 'K' || p.pos === 'DST';
       const vorp = isKD ? 0 : Math.max(0, v - (levels[p.pos] ?? 0));
       const gap = Math.max(0, (minRoster[p.pos] || 0) - (counts[p.pos] || 0));
-      const factor = needFactor(p.pos, counts, { startableLeft, teams, slack, run: runSet.has(p.pos), minRoster, demand });
+      const factor = needFactor(p.pos, counts, { startableLeft, teams, slack, run: runSet.has(p.pos), minRoster, demand, vonaCliff });
 
       // ADP value: a player still on the board well past his average draft position is
       // a falling value. Bump priority by how far he's slipped, capped at ~two rounds
