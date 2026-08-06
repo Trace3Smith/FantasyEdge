@@ -23,6 +23,28 @@ the territory.
   `twoWay` guard so they stay a single draftable player. (The pitcher z-sum reorders the *rankings*
   board only; draft *values* use `zTotal`, which is unchanged.)
 
+### Coach recommendation & grading refinements
+
+Non-LLM engine tuning in `api/_lib/draft.js` (recommendations + mock AI opponents) and the client-side
+pick-grade badges in `fantasyedge-draft.html`. All value logic stays on the shared board value function;
+each change was offline-verified against synthetic drafts.
+
+- **VONA same-position drop-off feeds pick urgency** (`dc8d123`) — the NFL recommender now measures the
+  value cliff between the best available player at a position and the next one (on raw board value,
+  which equals the VORP gap since the shared replacement level cancels in a same-position difference)
+  and folds it into `needFactor` as extra urgency to grab a position before its tier breaks. Normalized
+  by the UI's steal/reach magnitude (15), capped at 1.5×, and dampened to 0.4× strength once the
+  starting slot is filled so it can't reignite depth-hoarding at a position we're already set at.
+- **Justified picks are no longer badged as a "reach"** (`8c65a22`) — a pick below the best-available
+  board value keeps its exact value delta but is graded fair-value (not "reach") when it (a) fills an
+  open starting slot, (b) is the Coach's own suggested player, or (c) came at or after the player's ADP.
+  (a)/(b) apply to the user's picks only — the Coach tracks the user's roster + suggestion, not
+  opponents' — while the ADP check applies to any pick. Open-need excludes FLEX/UTIL, matching the
+  engine's server-side need model.
+- **Tighter 3rd-QB cap in single-QB leagues** (`2ffcbd1`) — a 3rd QB's desire drops from 0.10 to 0.05,
+  so only a real value outlier now clears the shortlist. Scoped to `starters.QB === 1`; superflex/2-QB
+  leagues keep the looser curve, and the 2nd-QB backup and 4th+ tail are unchanged.
+
 ## Remaining roadmap
 
 ### 1. ESPN live draft linking — spike-gated (~August)
