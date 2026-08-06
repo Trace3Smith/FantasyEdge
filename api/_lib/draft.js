@@ -198,7 +198,16 @@ function needFactor(pos, counts, board) {
     if (pos === 'RB' || pos === 'WR') {
       desire = surplus === 0 ? 0.9 : surplus === 1 ? 0.75 : surplus === 2 ? 0.62 : surplus === 3 ? 0.52 : 0.45;
     } else if (pos === 'QB' || pos === 'TE') {
-      desire = surplus === 0 ? (pos === 'TE' ? 0.5 : 0.45) : surplus === 1 ? (pos === 'TE' ? 0.12 : 0.1) : 0.03;
+      if (pos === 'QB') {
+        // Single-QB leagues: a 3rd QB is nearly worthless (one starter, at most a bye-week streamer),
+        // so the surplus-1 tier is tightened to ~0.05 — it only clears the shortlist on a real value
+        // outlier. Superflex/2-QB (min ≥ 2) keeps the looser 0.10, where a 3rd QB is a legit
+        // flex-startable body. The 2nd-QB backup (surplus 0) and 4th+ tail are unchanged.
+        const singleQB = min === 1;
+        desire = surplus === 0 ? 0.45 : surplus === 1 ? (singleQB ? 0.05 : 0.1) : 0.03;
+      } else { // TE — unchanged
+        desire = surplus === 0 ? 0.5 : surplus === 1 ? 0.12 : 0.03;
+      }
     } else {
       desire = 0.02; // K / DST
     }
