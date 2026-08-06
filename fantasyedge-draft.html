@@ -482,7 +482,7 @@ const gradeThreshold = () => (isRoto() ? 1.5 : 15);
 // Positive means the pick was worth more than the next-best on the board (a faller/steal);
 // negative means a better player was passed (a reach). MUST be computed BEFORE the player
 // is added to state.drafted. Returns { delta, label } or null when the pick isn't valued.
-function gradePick(player) {
+function gradePick(player, opts = {}) {
   const v = boardValue(player);
   if (!isFinite(v)) return null;
   let best = -Infinity;
@@ -493,8 +493,43 @@ function gradePick(player) {
   }
   const delta = isFinite(best) ? v - best : 0;
   const T = gradeThreshold();
-  const label = delta >= T ? 'steal' : (delta <= -T ? 'reach' : 'value');
+  let label = delta >= T ? 'steal' : (delta <= -T ? 'reach' : 'value');
+  // A pick below the best-available board value is only a REACH if it wasn't otherwise justified.
+  // Suppress the reach badge (grade it as a fair-value pick) when the pick (a) fills an open starting
+  // slot, (b) is the Coach's own recommended player, or (c) came at/after the player's ADP (not
+  // actually ahead of the market). See reachJustified — the delta number itself is left unchanged.
+  if (label === 'reach' && reachJustified(player, opts)) label = 'value';
   return { delta: Math.round(delta * 10) / 10, label };
+}
+// Whether a raw "reach" should be forgiven and not badged. Any one justification is enough.
+// `isUser` gates the roster/suggestion checks to the user's own picks — the Coach only tracks the
+// user's roster + suggestion, never opponents' — while the ADP check applies to any pick.
+function reachJustified(player, { isUser = false } = {}) {
+  // (c) At/after ADP: gradePick runs before state.drafted.add, so drafted.size+1 is this pick's
+  // overall number; ≥ ADP means he wasn't taken ahead of his market. Absent ADP (roto) → skip.
+  const scoring = state?.settings?.scoring || 'ppr';
+  const adp = adpFor(player, scoring);
+  if (adp != null && (state.drafted.size + 1) >= adp) return true;
+  if (!isUser) return false;
+  // (b) The Coach's live recommendation (suggestedId is still set at grade time, cleared afterward).
+  if (suggestedId != null && player.id === suggestedId) return true;
+  // (a) Fills an open mandatory starting slot, from the roster BEFORE this pick.
+  if ((openStartingNeeds()[player.pos] || 0) > 0) return true;
+  return false;
+}
+// Open mandatory starting slots by position (user roster vs league starters). FLEX/UTIL/BENCH are
+// soft, non-specific slots — excluded, matching the engine's server-side "need" model (draft.js).
+function openStartingNeeds() {
+  const starters = state?.settings?.starters || {};
+  const have = {};
+  for (const r of state.roster) have[r.pos] = (have[r.pos] || 0) + 1;
+  const open = {};
+  for (const [pos, n] of Object.entries(starters)) {
+    if (pos === 'FLEX' || pos === 'UTIL' || pos === 'BENCH') continue;
+    const need = (Number(n) || 0) - (have[pos] || 0);
+    if (need > 0) open[pos] = need;
+  }
+  return open;
 }
 function gradeTag(g) {
   if (!g) return '';
@@ -843,7 +878,7 @@ function bestForAI(round) {
 
 function recordPick(player, teamIdx) {
   const round = roundOf(state.pickIndex, state.settings.teams);
-  const grade = gradePick(player); // value-over-next-best, computed before the board depletes
+  const grade = gradePick(player, { isUser: teamIdx === state.userTeam }); // value-over-next-best, before the board depletes
   state.drafted.add(player.id);
   state.picks.push({ id: player.id, name: player.name, pos: player.pos, team: player.team, teamIndex: teamIdx, round, grade });
   if (teamIdx === state.userTeam) state.roster.push({ id: player.id, pos: player.pos });
@@ -1281,7 +1316,7 @@ function offlineRecord(id) {
   if (!p || state.drafted.has(id) || state.pickIndex >= state.totalPicks) return;
   const teamIdx = teamOnClock(state.pickIndex, state.settings.teams, state.format);
   const round = roundOf(state.pickIndex, state.settings.teams);
-  const grade = gradePick(p); // value-over-next-best, computed before the board depletes
+  const grade = gradePick(p, { isUser: teamIdx === state.userTeam }); // value-over-next-best, before the board depletes
   state.drafted.add(id);
   state.picks.push({ id, name: p.name, pos: p.pos, team: p.team, teamIndex: teamIdx, round, grade });
   if (teamIdx === state.userTeam) state.roster.push({ id, pos: p.pos });
@@ -1461,7 +1496,7 @@ function applySleeperPicks(picks) {
     const round = pick.round || roundOf(no - 1, state.settings.teams);
     const player = matchSleeper(pick);
     if (player && !state.drafted.has(player.id)) {
-      const grade = gradePick(player);
+      const grade = gradePick(player, { isUser: teamIdx === state.userTeam });
       state.drafted.add(player.id);
       state.picks.push({ id: player.id, name: player.name, pos: player.pos, team: player.team, teamIndex: teamIdx, round, grade });
       if (teamIdx === state.userTeam) state.roster.push({ id: player.id, pos: player.pos });
