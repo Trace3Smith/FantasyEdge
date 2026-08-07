@@ -239,6 +239,27 @@ function needFactor(pos, counts, board) {
   return desire * scarcity * runBump * deadline * vona;
 }
 
+// Human phrasings for a VONA "swing" (see recommendNfl's vonaSwing). Kept here next to the signal so
+// the deterministic clause and the analyst-prompt facts can't drift, and so both stay offline-testable
+// (advise.js can't be imported without Clerk creds). `swing` is the { pos, startable, altName, altPos,
+// altStartable } object, or null → empty string.
+//
+// The clause the user always sees: it carries the concrete startable-count numbers.
+export function vonaScarcityClause(swing) {
+  if (!swing) return '';
+  return `Only ${swing.startable} startable ${swing.pos} left vs. ${swing.altStartable} ${swing.altPos}, `
+    + `so ${swing.pos} is drying up faster — worth prioritizing here over ${swing.altName}.`;
+}
+// The facts fed to the analyst (Claude), told to explain the reasoning but not restate the raw counts
+// (the clause above already carries them), so its prose stays consistent with the deterministic clause.
+export function vonaScarcityPromptNote(swing) {
+  if (!swing) return '';
+  return `\n\nSCARCITY TRADEOFF: ${swing.pos} is scarcer than ${swing.altPos} — only ${swing.startable} `
+    + `startable ${swing.pos} left vs. ${swing.altStartable} ${swing.altPos}. The highest raw value on the `
+    + `board is ${swing.altName} (${swing.altPos}), but securing ${swing.pos} now is the smarter play. `
+    + `Explain WHY this tradeoff is worth it in your rationale, but do NOT restate the raw startable counts.`;
+}
+
 const clampNum = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 // Structured, non-LLM reason-label for an NFL candidate (board highlight + Claude-unavailable fallback).
@@ -512,11 +533,35 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
     if (gap > 0) needs.push({ pos, gap });
   }
 
+  // VONA swing: did positional scarcity decide the pick? This fires only when the recommended pick is a
+  // need at a scarcer position that we took OVER a genuinely higher-raw-value name still on the board at
+  // a deeper position — i.e. the drop-off/scarcity logic (which VONA feeds) passed on more raw value to
+  // secure the drying-up position. (A same-position cliff alone never triggers this: it lifts an already
+  // top-value name, so there's nothing higher passed over. The real tradeoff is cross-position.) Skipped
+  // under a roster-necessity override (forced) — that's a legality pick, not a scarcity read. The
+  // concrete startable-count tradeoff is surfaced so the analyst layer can explain it.
+  let vonaSwing = null;
+  const pick = scored[0];
+  if (pick && !pick.forced && pick.need) {
+    let alt = null; // highest raw-value (VORP) candidate at a DIFFERENT position — the name we passed over
+    for (const c of scored) {
+      if (c.pos === pick.pos) continue;
+      if (!alt || c.vorp > alt.vorp) alt = c;
+    }
+    if (alt && alt.vorp > pick.vorp
+      && (startableLeft[pick.pos] || 0) < (startableLeft[alt.pos] || 0)) {
+      vonaSwing = {
+        pos: pick.pos, startable: startableLeft[pick.pos] || 0,
+        altName: alt.name, altPos: alt.pos, altStartable: startableLeft[alt.pos] || 0,
+      };
+    }
+  }
+
   // Board context for the analyst layer (advise.js): positional scarcity, draft-end
-  // cushion, league size, and roster needs. Additive — existing consumers read
-  // candidates/runs only.
+  // cushion, league size, roster needs, and a VONA scarcity-swing note when one fired.
+  // Additive — existing consumers read candidates/runs only.
   const board = {
-    startableLeft, slack, teams, picksLeft, totalRounds, needs,
+    startableLeft, slack, teams, picksLeft, totalRounds, needs, vonaSwing,
     mustFillNow: slack <= 0 && needs.length > 0,
     fillSoon: slack === 1 && needs.length > 0,
   };

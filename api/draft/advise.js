@@ -7,7 +7,7 @@
 // Claude call is unavailable or returns anything unparseable, so advice always ships.
 // Free users get advice through round 7 (FREE_MAX_ROUND); later rounds return an upsell.
 import { getEntitlement, sendError, HttpError, FREE_MAX_ROUND } from '../_lib/auth.js';
-import { loadPlayers, recommend, DEFAULT_SETTINGS, isRoto, resolveStarters } from '../_lib/draft.js';
+import { loadPlayers, recommend, DEFAULT_SETTINGS, isRoto, resolveStarters, vonaScarcityClause, vonaScarcityPromptNote } from '../_lib/draft.js';
 import { NBA_CATS } from '../../nbaScoring.js';
 import { MLB_CATS } from '../../mlbScoring.js';
 import { NHL_CATS } from '../../nhlScoring.js';
@@ -25,6 +25,8 @@ ROSTER NECESSITY OVERRIDE: if the prompt includes a ROSTER NECESSITY note, it ov
 You are given the roster, round, scoring, recent positional runs, positional scarcity, and a numbered shortlist of the best available candidates (already filtered by our model) with each one's signals — including where given a consistency score (weekly floor, out of 100; higher = steadier) and a points ceiling (weekly upside). Favor a steady floor when locking a starter you need every week, and tolerate a lower floor for a high ceiling on an upside swing. Pick THE single best candidate from that shortlist. You may deviate from board order when need, scarcity, or falling value justifies it.
 
 Each candidate's ADP fit is given to you explicitly (e.g. "still on the board N picks past his ADP", "being taken N picks ahead of his ADP", or "right around his ADP"). Use ONLY that provided figure when you talk about ADP — do NOT compute or invent your own "picks past ADP" or "rounds past ADP" numbers, and never claim a player is past his ADP unless the line says so.
+
+When the prompt includes a SCARCITY TRADEOFF note, you are deliberately prioritizing a scarcer position over the highest raw-value name still on the board: your rationale MUST explain WHY that tradeoff is worth it (the scarcer position is drying up faster and you can still get comparable value at the deeper position later). Do NOT restate the raw startable counts — they are surfaced to the user separately.
 
 Respond with ONLY a JSON object — no prose, no markdown fences:
 {"pick": <candidate number>, "rationale": "<2-3 conversational sentences like a sharp friend; speak in projected points, ADP value, roster fit and scarcity; NEVER mention internal jargon like VORP, value-over-replacement, or a 'score'>", "reach": <true only if you are recommending reaching for a falling elite player ahead of a positional need, else false>}`;
@@ -198,6 +200,10 @@ async function analyzePick({ sport, round, scoring, teams, roster, candidates, r
   const weakLine = roto && board?.weakCats?.length
     ? `\nMy weak categories right now: ${board.weakCats.join(', ')} (favor candidates who help these).`
     : '';
+  // VONA scarcity swing (NFL): when the model's pick was decided by a positional cliff over a
+  // higher-raw-value name elsewhere, hand the analyst the concrete tradeoff facts so its prose stays
+  // consistent with the deterministic clause the caller prepends. Empty string when no swing fired.
+  const scarcityNote = vonaScarcityPromptNote(board?.vonaSwing);
   const prompt = `Round ${round}, ${scoringLabel}, ${teams}-team ${leagueLabel}.`
     + `\nMy roster so far: ${rosterStr}.`
     + weakLine
@@ -205,6 +211,7 @@ async function analyzePick({ sport, round, scoring, teams, roster, candidates, r
     + `Positional scarcity — startable players left by position (fewest first): ${scarcityStr}.`
     + `\nPicks I have left: ${board?.picksLeft ?? '?'}.`
     + necessity
+    + scarcityNote
     + `\n\nCandidates:\n${listed}\n\nPick the best one and respond with the JSON object only.`;
   try {
     const r = await fetch(ANTHROPIC_URL, {
@@ -294,6 +301,15 @@ export default async function handler(req, res) {
         rationale = analysis.rationale || null;
         reach = analysis.reach;
       }
+    }
+
+    // Hybrid VONA scarcity explanation: when the cliff swung the model's pick AND the final recommended
+    // pick is still at that scarcer position, guarantee the concrete startable-count tradeoff shows in
+    // the explanation. The deterministic clause carries the numbers; Claude (fed the same facts) adds the
+    // reasoning. Gated on the final pick's position so it can't contradict a pick Claude moved elsewhere.
+    if (board.vonaSwing && ordered[0]?.pos === board.vonaSwing.pos) {
+      const clause = vonaScarcityClause(board.vonaSwing);
+      rationale = rationale ? `${clause} ${rationale}` : clause;
     }
 
     // Slim board summary so the embedded Coach can flag the same roster necessity in chat.
