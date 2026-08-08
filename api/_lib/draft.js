@@ -187,25 +187,41 @@ function needFactor(pos, counts, board) {
   // filled, appetite for more is per-position, with hard caps so the board can't hoard one position:
   //   RB/WR — no cap: they reward real bench depth (FLEX, byes, injuries), so desire decays slowly and
   //     stays meaningfully elevated (floor ~0.45), well above the QB/TE tail below.
-  //   QB/TE — soft cap ~3: a 2nd is a fine backup/streamer, the 3rd drops sharply, the 4th is ~zero.
-  //     This keeps 3rd+ QB/TE out of the shortlist so neither the model nor the analyst hoards them.
+  //   QB — soft cap ~3: a 2nd is a fine backup/streamer, the 3rd drops sharply (tighter still in
+  //     single-QB leagues), the 4th is ~zero — keeps 3rd+ QB out of the shortlist.
+  //   TE — one "auto" TE (the starter). In a standard 1-TE league every TE beyond it is a FLEX body,
+  //     wanted only when it out-values the best RB/WR left for the flex; 2-TE leagues keep the soft cap.
   //   K/DST — a backup is worthless; the forced tier still guarantees the one starter.
   let desire;
   if (gap > 0) {
     desire = gap >= 2 ? 1.5 : 1.2;
   } else {
     const surplus = have - min; // extra bodies beyond the mandatory starters at this position
+    // RB/WR bench/flex depth: rewards real depth (FLEX, byes, injuries), decays slowly, floor ~0.45.
+    // A flex-winning TE (below) is valued on this SAME curve — it's competing for the same flex spot.
+    const flexDepthDesire = surplus === 0 ? 0.9 : surplus === 1 ? 0.75 : surplus === 2 ? 0.62 : surplus === 3 ? 0.52 : 0.45;
     if (pos === 'RB' || pos === 'WR') {
-      desire = surplus === 0 ? 0.9 : surplus === 1 ? 0.75 : surplus === 2 ? 0.62 : surplus === 3 ? 0.52 : 0.45;
-    } else if (pos === 'QB' || pos === 'TE') {
-      if (pos === 'QB') {
-        // Single-QB leagues: a 3rd QB is nearly worthless (one starter, at most a bye-week streamer),
-        // so the surplus-1 tier is tightened to ~0.05 — it only clears the shortlist on a real value
-        // outlier. Superflex/2-QB (min ≥ 2) keeps the looser 0.10, where a 3rd QB is a legit
-        // flex-startable body. The 2nd-QB backup (surplus 0) and 4th+ tail are unchanged.
-        const singleQB = min === 1;
-        desire = surplus === 0 ? 0.45 : surplus === 1 ? (singleQB ? 0.05 : 0.1) : 0.03;
-      } else { // TE — unchanged
+      desire = flexDepthDesire;
+    } else if (pos === 'QB') {
+      // Single-QB leagues: a 3rd QB is nearly worthless (one starter, at most a bye-week streamer),
+      // so the surplus-1 tier is tightened to ~0.05 — it only clears the shortlist on a real value
+      // outlier. Superflex/2-QB (min ≥ 2) keeps the looser 0.10, where a 3rd QB is a legit
+      // flex-startable body. The 2nd-QB backup (surplus 0) and 4th+ tail are unchanged.
+      const singleQB = min === 1;
+      desire = surplus === 0 ? 0.45 : surplus === 1 ? (singleQB ? 0.05 : 0.1) : 0.03;
+    } else if (pos === 'TE') {
+      if (min === 1) {
+        // Standard single-TE league: only ONE TE is an "auto" pick — the starter slot (handled by the
+        // gap>0 branch above). Every TE beyond it (2nd, 3rd, …) is really a FLEX body competing with
+        // RB/WR, so it's wanted only when the best TE left out-values the best flex-eligible RB/WR left.
+        // Win the flex and it's valued on the same RB/WR depth curve (flexDepthDesire); lose it and it
+        // drops to the dead-depth tail, so the Coach can't hoard TEs over thinner RB/WR benches. This is
+        // the flex evaluation applied to TE as a candidate, not a TE-specific threshold. TE-premium/
+        // 2-TE-starter leagues (min ≥ 2) keep the looser soft-cap curve.
+        const bv = board.bestVorp || {};
+        const winsFlex = (bv.TE || 0) > Math.max(bv.RB || 0, bv.WR || 0);
+        desire = winsFlex ? flexDepthDesire : 0.03;
+      } else {
         desire = surplus === 0 ? 0.5 : surplus === 1 ? 0.12 : 0.03;
       }
     } else {
@@ -443,6 +459,12 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
     vonaCliff[pos] = vs.length >= 2 ? Math.max(0, vs[0] - vs[1]) : 0;
   }
 
+  // Best-available VORP by position (posVals is now sorted desc, so [0] is the top value). The FLEX
+  // comparator in needFactor: since RB/WR/TE all fill the flex, a TE beyond its lone starter slot is
+  // worth drafting only when its best remaining body out-values the best flex-eligible RB/WR left.
+  const bestVorp = {};
+  for (const pos of Object.keys(posVals)) bestVorp[pos] = Math.max(0, posVals[pos][0] - (levels[pos] ?? 0));
+
   // Draft-end cushion: spare picks beyond the mandatory starting slots still unfilled.
   // Derived from roster state, not the round number — when it hits zero, those unmet
   // requirements become "forced" and sort ahead of pure value so we never end the draft
@@ -469,7 +491,7 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
       const isKD = p.pos === 'K' || p.pos === 'DST';
       const vorp = isKD ? 0 : Math.max(0, v - (levels[p.pos] ?? 0));
       const gap = Math.max(0, (minRoster[p.pos] || 0) - (counts[p.pos] || 0));
-      const factor = needFactor(p.pos, counts, { startableLeft, teams, slack, run: runSet.has(p.pos), minRoster, demand, vonaCliff });
+      const factor = needFactor(p.pos, counts, { startableLeft, teams, slack, run: runSet.has(p.pos), minRoster, demand, vonaCliff, bestVorp });
 
       // ADP value: a player still on the board well past his average draft position is
       // a falling value. Bump priority by how far he's slipped, capped at ~two rounds
