@@ -87,7 +87,12 @@ export default async function handler(req, res) {
     const draftContext = typeof req.body?.draftContext === 'string' ? req.body.draftContext.trim() : '';
     if (draftContext) {
       system += '\n\nLIVE DRAFT IN PROGRESS — the user is drafting right now. Use this to ground your advice; '
-        + 'favor it over training knowledge and don\'t recite it back verbatim:\n' + draftContext.slice(0, MAX_CONTEXT);
+        + 'favor it over training knowledge and don\'t recite it back verbatim. It lists who is actually '
+        + 'AVAILABLE by position (with ADP), the pick engine\'s need-aware ranked shortlist, and the roster-'
+        + 'construction caps the engine follows. Answer "who\'s on the board at <position>?" straight from the '
+        + 'available-by-position list — never ask the user to type out names you already have. Keep your pick '
+        + 'reasoning consistent with the engine\'s shortlist and those caps: don\'t manufacture "must-grab" '
+        + 'urgency for a position the roster is already stacked at (e.g. a 3rd QB or 4th TE):\n' + draftContext.slice(0, MAX_CONTEXT);
     }
 
     // The user's actual ESPN team, sent when the Coach is embedded in a Team Manager

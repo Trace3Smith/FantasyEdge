@@ -934,6 +934,9 @@ let lastReco = null;
 // Roster-need snapshot from the same advise call, so the Coach chat can flag the late-draft
 // necessity of filling K/DST (and other mandatory slots) just like the analyst pick does.
 let lastBoard = null;
+// The engine's ranked shortlist from the same advise call (need/desire-weighted — QB/TE caps and
+// ADP-value baked in), so the Coach chat reasons in line with the actual recommendation engine.
+let lastCandidates = null;
 
 // User's turn: render roster/board, then have the Coach open with the analyst's pick.
 function renderUserTurn() {
@@ -971,12 +974,12 @@ async function analystOpening() {
   const { ok, status, data } = resp;
 
   if (!ok && status === 403 && data?.error === 'round_locked') {
-    setRuns(null); lastReco = null; lastBoard = null;
+    setRuns(null); lastReco = null; lastBoard = null; lastCandidates = null;
     addCoachMsg('coach', "We've hit the free limit (rounds 1–7). Upgrade to Premium for analyst picks every round and unlimited mocks — you can still draft anyone from the board below.");
     return;
   }
   if (!ok || !data?.candidates?.length) {
-    setRuns(data?.runs); lastReco = null; lastBoard = null;
+    setRuns(data?.runs); lastReco = null; lastBoard = null; lastCandidates = null;
     addCoachMsg('coach', "I couldn't pull a recommendation just now — grab anyone from the board and I'll keep advising.", 'error');
     return;
   }
@@ -985,6 +988,8 @@ async function analystOpening() {
   lastBoard = data.board || null;
   const top = data.candidates[0];
   lastReco = { name: top.name, pos: top.pos, team: top.team, rationale: data.rationale || '', reach: !!data.reach };
+  // Keep the engine's ranked shortlist (need/desire-weighted) for the Coach chat context.
+  lastCandidates = data.candidates.slice(0, 8).map((c) => ({ name: c.name, pos: c.pos, reasonLabel: c.reasonLabel || null }));
   // Highlight + scroll to the recommended player on the board so it's found without scrolling. The
   // reason (reach = falling value, forced/need = roster slot) drives the on-row label so a lower pick
   // reads as intentional. Re-render with the current search preserved, then bring the row into view.
@@ -1616,6 +1621,7 @@ function buildDraftContext() {
   if (!state) return '';
   const s = state;
   const scoring = isRoto() ? rotoMod().label : (s.settings.scoring || 'ppr').toUpperCase();
+  const scoringCode = isRoto() ? null : (s.settings.scoring || 'ppr'); // raw code for adpFor()
   const round = roundOf(s.pickIndex, s.settings.teams);
   const rounds = s.settings.rounds || Math.round(s.totalPicks / s.settings.teams);
   const rosterStr = s.roster.map((r) => { const p = byId.get(r.id); return p ? `${p.pos} ${p.name}` : r.pos; }).join(', ') || '(empty)';
@@ -1623,6 +1629,45 @@ function buildDraftContext() {
   const avail = players.filter((p) => !s.drafted.has(p.id))
     .sort(boardCmp)
     .slice(0, 12).map((p) => `${p.pos} ${p.name} (#${rankMap.get(p.id) ?? '—'})`).join(', ');
+
+  // Per-position available board (NFL): who's actually left at each position, with ADP, so the Coach
+  // can answer "who's on the board at RB?" from real data instead of asking the user to type names.
+  // K/DST only appear once they're draft-relevant (final rounds / roster necessity), not from round 1.
+  let posBoardStr = '';
+  if (!isRoto()) {
+    const lateForKD = round >= rounds - 2 || lastBoard?.mustFillNow || lastBoard?.fillSoon;
+    const positions = ['QB', 'RB', 'WR', 'TE', ...(lateForKD ? ['K', 'DST'] : [])];
+    const byPos = {};
+    for (const p of players) { if (!s.drafted.has(p.id)) (byPos[p.pos] ||= []).push(p); }
+    const lines = [];
+    for (const pos of positions) {
+      const list = (byPos[pos] || []).sort((a, b) => (rankMap.get(a.id) ?? 1e9) - (rankMap.get(b.id) ?? 1e9)).slice(0, 6);
+      if (!list.length) continue;
+      const items = list.map((p) => { const a = adpFor(p, scoringCode); return `${p.name}${a != null ? ` (ADP ${Math.round(a)})` : ''}`; }).join(', ');
+      lines.push(`${pos} — ${items}`);
+    }
+    if (lines.length) posBoardStr = ` Available by position (best first, with ADP): ${lines.join('; ')}.`;
+  }
+
+  // Roster-construction caps the pick engine enforces, surfaced so the Coach's OWN advice respects them
+  // (won't hype a 3rd QB or 4th TE) instead of free-forming urgency the recommendation engine wouldn't.
+  let guidanceStr = '';
+  if (!isRoto()) {
+    const c = {}; for (const r of s.roster) c[r.pos] = (c[r.pos] || 0) + 1;
+    const st = s.settings.starters || {};
+    const rules = [];
+    if ((st.QB || 1) < 2) rules.push('single-QB league — 1 QB starts, so a 2nd QB is only a bye-week backup and a 3rd+ has ~no value');
+    if ((st.TE || 1) < 2) rules.push('one TE slot — 2 TEs is plenty (starter + flex); a 3rd only on elite value, a 4th+ is never worth it over RB/WR');
+    rules.push('RB/WR reward real bench depth (flex, byes, injuries), so extra RB/WR keep value');
+    guidanceStr = ` Roster construction — current counts QB ${c.QB || 0}, RB ${c.RB || 0}, WR ${c.WR || 0}, TE ${c.TE || 0}.`
+      + ` Caps the engine follows: ${rules.join('; ')}. Don't push a "must-grab" at a position already stacked unless the value is genuinely elite.`;
+  }
+
+  // The engine's need/desire-weighted ranked shortlist (QB/TE caps + ADP-value baked in), so the
+  // Coach's reasoning tracks the actual recommendation instead of diverging from it.
+  const shortlistStr = (lastCandidates && lastCandidates.length)
+    ? ` Engine's need-aware ranked shortlist this pick: ${lastCandidates.map((c) => `${c.pos} ${c.name}${c.reasonLabel ? ` [${c.reasonLabel}]` : ''}`).join('; ')}.`
+    : '';
   // Roto: surface the roster's weak categories so the Coach steers toward balance.
   const weakStr = isRoto() && lastBoard?.weakCats?.length
     ? ` Weak categories right now: ${lastBoard.weakCats.join(', ')}.` : '';
@@ -1642,7 +1687,8 @@ function buildDraftContext() {
   return `Mode: ${s.mode === 'mock' ? 'mock draft vs AI opponents' : 'tracking a real league draft'}. `
     + `League: ${s.settings.teams}-team ${scoring}, ${rounds} rounds, ${s.format}. `
     + `User's draft slot: ${s.userTeam + 1}. Now: round ${round}, overall pick ${s.pickIndex + 1}. `
-    + `User's roster: ${rosterStr}. Recent picks: ${recent}. Top available by rank: ${avail}.${weakStr}${recoStr}${needStr}`;
+    + `User's roster: ${rosterStr}. Recent picks: ${recent}. Top available by rank: ${avail}.`
+    + `${posBoardStr}${guidanceStr}${shortlistStr}${weakStr}${recoStr}${needStr}`;
 }
 
 async function coachSend(text) {
