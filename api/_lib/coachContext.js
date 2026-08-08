@@ -119,7 +119,16 @@ function playerLine(p, sport) {
   if (stats) bits.push(stats);
   if (p.tag === 'hot') bits.push('HOT' + (p.trendVal ? ` (${p.trendVal})` : ''));
   else if (p.tag === 'cold') bits.push('COLD' + (p.trendVal ? ` (${p.trendVal})` : ''));
-  if (p.adp != null) bits.push(`ADP ${p.adp}`);
+  // ADP is a scalar for most sports but an object { ppr, standard, half } for NFL — show the PPR figure
+  // (board default) rather than "[object Object]".
+  const adpVal = p.adp && typeof p.adp === 'object' ? (p.adp.ppr ?? p.adp.standard ?? p.adp.half) : p.adp;
+  if (adpVal != null) bits.push(`ADP ${adpVal}`);
+  // Depth signals (NFL enrichment; present only for rosterable skill players, ~top 150) — weekly floor
+  // vs. upside, season projection, and opportunity, so the Coach cites real numbers instead of guessing.
+  if (p.consistency != null) bits.push(`consistency ${p.consistency}/100 (weekly floor, higher = steadier)`);
+  if (p.ceiling != null) bits.push(`~${Math.round(p.ceiling)}-pt weekly ceiling`);
+  if (p.proj?.fpts != null) bits.push(`projection ${Math.round(p.proj.fpts)} pts`);
+  if (p.opportunity?.label) bits.push(p.opportunity.label);
   if (p.fv != null) bits.push(`prospect FV ${p.fv}`);
   if (p.synopsis) bits.push(`scouting note: ${p.synopsis}`);
   return '- ' + bits.join(' — ');

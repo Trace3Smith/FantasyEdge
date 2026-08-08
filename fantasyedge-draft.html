@@ -989,7 +989,7 @@ async function analystOpening() {
   const top = data.candidates[0];
   lastReco = { name: top.name, pos: top.pos, team: top.team, rationale: data.rationale || '', reach: !!data.reach };
   // Keep the engine's ranked shortlist (need/desire-weighted) for the Coach chat context.
-  lastCandidates = data.candidates.slice(0, 8).map((c) => ({ name: c.name, pos: c.pos, reasonLabel: c.reasonLabel || null }));
+  lastCandidates = data.candidates.slice(0, 8).map((c) => ({ id: c.id, name: c.name, pos: c.pos, reasonLabel: c.reasonLabel || null }));
   // Highlight + scroll to the recommended player on the board so it's found without scrolling. The
   // reason (reach = falling value, forced/need = roster slot) drives the on-row label so a lower pick
   // reads as intentional. Re-render with the current search preserved, then bring the row into view.
@@ -1663,10 +1663,21 @@ function buildDraftContext() {
       + ` Caps the engine follows: ${rules.join('; ')}. Don't push a "must-grab" at a position already stacked unless the value is genuinely elite.`;
   }
 
-  // The engine's need/desire-weighted ranked shortlist (QB/TE caps + ADP-value baked in), so the
-  // Coach's reasoning tracks the actual recommendation instead of diverging from it.
+  // The engine's need/desire-weighted ranked shortlist (QB/TE caps + ADP-value baked in), each carrying
+  // its Rankings-page depth signals (projection, weekly floor/ceiling, opportunity) so the Coach can
+  // reason on real depth for head-to-head comparisons — not just ADP/raw projection. Signals are looked
+  // up from the full player row and only shown when present (consistency/ceiling ~ top-150 skill only).
+  const sigStr = (p) => {
+    if (!p) return '';
+    const bits = [];
+    if (p.proj?.fpts != null) bits.push(`proj ${Math.round(p.proj.fpts)}`);
+    if (p.consistency != null) bits.push(`consistency ${p.consistency}/100`);
+    if (p.ceiling != null) bits.push(`~${Math.round(p.ceiling)}pt ceiling`);
+    if (p.opportunity?.label) bits.push(p.opportunity.label);
+    return bits.length ? ` (${bits.join(', ')})` : '';
+  };
   const shortlistStr = (lastCandidates && lastCandidates.length)
-    ? ` Engine's need-aware ranked shortlist this pick: ${lastCandidates.map((c) => `${c.pos} ${c.name}${c.reasonLabel ? ` [${c.reasonLabel}]` : ''}`).join('; ')}.`
+    ? ` Engine's need-aware ranked shortlist this pick (with depth signals): ${lastCandidates.map((c) => `${c.pos} ${c.name}${c.reasonLabel ? ` [${c.reasonLabel}]` : ''}${sigStr(byId.get(c.id))}`).join('; ')}.`
     : '';
   // Roto: surface the roster's weak categories so the Coach steers toward balance.
   const weakStr = isRoto() && lastBoard?.weakCats?.length
