@@ -247,8 +247,7 @@ function needFactor(pos, counts, board) {
 // The clause the user always sees: it carries the concrete startable-count numbers.
 export function vonaScarcityClause(swing) {
   if (!swing) return '';
-  return `Only ${swing.startable} startable ${swing.pos} left vs. ${swing.altStartable} ${swing.altPos}, `
-    + `so ${swing.pos} is drying up faster — worth prioritizing here over ${swing.altName}.`;
+  return `Only ${swing.startable} startable ${swing.pos} left vs. ${swing.altStartable} ${swing.altPos}.`;
 }
 // The facts fed to the analyst (Claude), told to explain the reasoning but not restate the raw counts
 // (the clause above already carries them), so its prose stays consistent with the deterministic clause.
