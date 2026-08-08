@@ -11,6 +11,7 @@
 //            surfaces once they thin — a priority nudge, not a hard gate.
 //   PART 3 — VONA draft-progress gate: no scarcity framing in round 1 (nothing drafted yet);
 //            the same board fires once a full round has actually thinned it.
+//   PART 4 — TE anti-hoard: a 3-TE roster never takes a 4th TE, even at an extreme raw value.
 
 import { recommend, vonaScarcityClause, DEFAULT_SETTINGS } from '../api/_lib/draft.js';
 
@@ -117,7 +118,34 @@ console.log('\nPART 3 — VONA draft-progress gate (no scarcity talk in round 1)
 }
 
 // ============================================================================
+// PART 4 — TE anti-hoard (regression for the 5-TE bug).
+// With 3 TEs already rostered and RB/WR drafted to replacement (bestVorp ~0), winsFlex is trivially
+// true — the exact hoard trigger. A 4th TE must NEVER be recommended over a usable RB/WR/flex body,
+// even at an extreme raw value: the flex spike is gated to the 2nd TE, and a 4th+ TE's VORP is zeroed
+// (like K/DST) since it can't reach a startable slot.
+// ============================================================================
+console.log('\nPART 4 — TE anti-hoard (3-TE roster must never take a 4th)');
+{
+  const flooredPool = (teTop) => {
+    const ps = []; let id = 0;
+    const mk = (pos,fp) => ps.push({ id:`h${++id}`, name:`${pos}-${fp}`, team:'X', pos, rank:id, fpPpr:fp });
+    for (let i=0;i<40;i++) mk('RB',10); for (let i=0;i<40;i++) mk('WR',10); for (let i=0;i<20;i++) mk('QB',10); // all at replacement -> bestVorp ~0
+    mk('TE',teTop); for (let i=0;i<19;i++) mk('TE',10);                                                        // one live TE + floor
+    for (let i=0;i<15;i++) mk('K',10); for (let i=0;i<15;i++) mk('DST',10);
+    return ps;
+  };
+  const roster3TE = [{pos:'QB'},{pos:'RB'},{pos:'RB'},{pos:'WR'},{pos:'WR'},{pos:'TE'},{pos:'TE'},{pos:'TE'}];
+  const pickPos = (teTop) => recommend(flooredPool(teTop), new Set(), roster3TE, settings, 9, []).candidates[0]?.pos;
+  const midPick = pickPos(35);   // best available TE ~ +25 VORP (mid-tier, like the reported Ferguson/Pitts)
+  const extPick = pickPos(70);   // best available TE ~ +60 VORP (absurd faller) — must STILL not be a 4th TE
+  console.log('   3-TE roster, mid-tier TE available (+25 VORP) -> pick', midPick);
+  console.log('   3-TE roster, extreme TE available  (+60 VORP) -> pick', extPick);
+  check('a 4th TE is NOT taken over usable RB/WR/flex (mid-tier)', midPick !== 'TE');
+  check('a 4th TE is NEVER taken regardless of raw value (extreme faller)', extPick !== 'TE');
+}
+
+// ============================================================================
 console.log('\n' + (results.every(r=>r.ok)
-  ? `ALL ${results.length} CHECKS PASSED — VONA clause + TE flex-cap + round-1 gate behave as shipped.`
+  ? `ALL ${results.length} CHECKS PASSED — VONA clause + TE flex-cap + round-1 gate + TE anti-hoard behave as shipped.`
   : `FAILURES: ${results.filter(r=>!r.ok).map(r=>r.name).join('; ')}`));
 process.exit(results.every(r=>r.ok) ? 0 : 1);

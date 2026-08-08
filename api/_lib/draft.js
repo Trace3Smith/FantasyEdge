@@ -215,19 +215,20 @@ function needFactor(pos, counts, board) {
       desire = surplus === 0 ? 0.45 : surplus === 1 ? (singleQB ? 0.05 : 0.1) : 0.03;
     } else if (pos === 'TE') {
       if (min === 1) {
-        // Standard single-TE league: one TE is the "auto" starter (gap>0 branch above). A 2nd TE is
-        // still normal bench insurance (byes/injury) and will eventually be worth drafting — so it gets
-        // a LOW baseline desire, NOT a hard gate: it just doesn't compete with early RB/WR picks and
-        // naturally falls to later rounds once RB/WR value has thinned. The Coach only PRIORITIZES it
-        // early when the best TE left currently out-values the best flex-eligible RB/WR left (RB/WR/TE
-        // all fill the flex) — then desire spikes to the same RB/WR depth curve. max() so the flex
-        // override can only raise the baseline, never suppress the bench pick. Reuses bestVorp as the
-        // flex comparator; not a TE-specific threshold, just a priority/timing nudge. TE-premium /
-        // 2-TE-starter leagues (min ≥ 2) keep the looser soft-cap curve.
+        // Standard single-TE league: one TE is the "auto" starter (gap>0 branch above). Only the 2nd
+        // TE can actually reach a startable slot — the single FLEX — so ONLY it gets the flex treatment:
+        // a low baseline (bench insurance) that SPIKES to the RB/WR depth curve when the best TE left
+        // out-values the best flex-eligible RB/WR (bestVorp comparison). A 3rd TE can't start over two
+        // others, so it never spikes — it holds a low outlier-only baseline (clears just on real value).
+        // A 4th+ TE has zero lineup use, so it's floored to the K/DST tail (see the VORP-zeroing in the
+        // scored map) and is never taken regardless of raw value. NOTE the surplus===0 gate: winsFlex is
+        // trivially true once RB/WR draft down to replacement (their bestVorp floors to 0 while TEs, with
+        // lower demand, don't), so without the gate it spiked EVERY extra TE to the flex curve — the
+        // 5-TE hoard. TE-premium / 2-TE-starter leagues (min ≥ 2) keep the looser soft-cap curve.
         const bv = board.bestVorp || {};
         const winsFlex = (bv.TE || 0) > Math.max(bv.RB || 0, bv.WR || 0);
-        const baseline = surplus === 0 ? 0.15 : surplus === 1 ? 0.05 : 0.03; // 2nd TE bench insurance, then tail
-        desire = winsFlex ? Math.max(baseline, flexDepthDesire) : baseline;
+        const baseline = surplus === 0 ? 0.15 : surplus === 1 ? 0.05 : 0.02; // 2nd=bench insurance, 3rd=outlier-only, 4th+=dead
+        desire = (surplus === 0 && winsFlex) ? Math.max(baseline, flexDepthDesire) : baseline; // spike ONLY the 2nd TE (it alone can flex)
       } else {
         desire = surplus === 0 ? 0.5 : surplus === 1 ? 0.12 : 0.03;
       }
@@ -496,7 +497,12 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
       // Zeroing their VORP keeps them out of proactive picks; the forced tier below still
       // guarantees a kicker/defense gets drafted once the roster cushion runs out.
       const isKD = p.pos === 'K' || p.pos === 'DST';
-      const vorp = isKD ? 0 : Math.max(0, v - (levels[p.pos] ?? 0));
+      // A 4th+ TE (already two past the lone TE starter slot) can never reach a startable slot — one
+      // TE starts, at most one more flexes — so, exactly like K/DST, its raw VORP is zeroed. This makes
+      // it impossible to draft a 4th TE over any usable RB/WR/flex body regardless of the TE's raw value
+      // (the desire floor alone still scales with VORP, so an extreme faller could otherwise sneak in).
+      const deadTE = p.pos === 'TE' && ((counts.TE || 0) - (minRoster.TE || 0)) >= 2;
+      const vorp = (isKD || deadTE) ? 0 : Math.max(0, v - (levels[p.pos] ?? 0));
       const gap = Math.max(0, (minRoster[p.pos] || 0) - (counts[p.pos] || 0));
       const factor = needFactor(p.pos, counts, { startableLeft, teams, slack, run: runSet.has(p.pos), minRoster, demand, vonaCliff, bestVorp });
 
