@@ -189,8 +189,9 @@ function needFactor(pos, counts, board) {
   //     stays meaningfully elevated (floor ~0.45), well above the QB/TE tail below.
   //   QB — soft cap ~3: a 2nd is a fine backup/streamer, the 3rd drops sharply (tighter still in
   //     single-QB leagues), the 4th is ~zero — keeps 3rd+ QB out of the shortlist.
-  //   TE — one "auto" TE (the starter). In a standard 1-TE league every TE beyond it is a FLEX body,
-  //     wanted only when it out-values the best RB/WR left for the flex; 2-TE leagues keep the soft cap.
+  //   TE — one "auto" TE (the starter); a 2nd is normal bench insurance at LOW baseline desire, so it
+  //     falls to later rounds unless it currently out-values the best flex RB/WR (then desire spikes).
+  //     Not a gate — just a priority/timing nudge. 2-TE leagues keep the soft cap.
   //   K/DST — a backup is worthless; the forced tier still guarantees the one starter.
   let desire;
   if (gap > 0) {
@@ -211,16 +212,19 @@ function needFactor(pos, counts, board) {
       desire = surplus === 0 ? 0.45 : surplus === 1 ? (singleQB ? 0.05 : 0.1) : 0.03;
     } else if (pos === 'TE') {
       if (min === 1) {
-        // Standard single-TE league: only ONE TE is an "auto" pick — the starter slot (handled by the
-        // gap>0 branch above). Every TE beyond it (2nd, 3rd, …) is really a FLEX body competing with
-        // RB/WR, so it's wanted only when the best TE left out-values the best flex-eligible RB/WR left.
-        // Win the flex and it's valued on the same RB/WR depth curve (flexDepthDesire); lose it and it
-        // drops to the dead-depth tail, so the Coach can't hoard TEs over thinner RB/WR benches. This is
-        // the flex evaluation applied to TE as a candidate, not a TE-specific threshold. TE-premium/
+        // Standard single-TE league: one TE is the "auto" starter (gap>0 branch above). A 2nd TE is
+        // still normal bench insurance (byes/injury) and will eventually be worth drafting — so it gets
+        // a LOW baseline desire, NOT a hard gate: it just doesn't compete with early RB/WR picks and
+        // naturally falls to later rounds once RB/WR value has thinned. The Coach only PRIORITIZES it
+        // early when the best TE left currently out-values the best flex-eligible RB/WR left (RB/WR/TE
+        // all fill the flex) — then desire spikes to the same RB/WR depth curve. max() so the flex
+        // override can only raise the baseline, never suppress the bench pick. Reuses bestVorp as the
+        // flex comparator; not a TE-specific threshold, just a priority/timing nudge. TE-premium /
         // 2-TE-starter leagues (min ≥ 2) keep the looser soft-cap curve.
         const bv = board.bestVorp || {};
         const winsFlex = (bv.TE || 0) > Math.max(bv.RB || 0, bv.WR || 0);
-        desire = winsFlex ? flexDepthDesire : 0.03;
+        const baseline = surplus === 0 ? 0.15 : surplus === 1 ? 0.05 : 0.03; // 2nd TE bench insurance, then tail
+        desire = winsFlex ? Math.max(baseline, flexDepthDesire) : baseline;
       } else {
         desire = surplus === 0 ? 0.5 : surplus === 1 ? 0.12 : 0.03;
       }
@@ -460,8 +464,8 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
   }
 
   // Best-available VORP by position (posVals is now sorted desc, so [0] is the top value). The FLEX
-  // comparator in needFactor: since RB/WR/TE all fill the flex, a TE beyond its lone starter slot is
-  // worth drafting only when its best remaining body out-values the best flex-eligible RB/WR left.
+  // comparator in needFactor: since RB/WR/TE all fill the flex, a beyond-starter TE is only PRIORITIZED
+  // early when its best remaining body out-values the best flex-eligible RB/WR left (else it falls late).
   const bestVorp = {};
   for (const pos of Object.keys(posVals)) bestVorp[pos] = Math.max(0, posVals[pos][0] - (levels[pos] ?? 0));
 
