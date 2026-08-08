@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "verify:coach": "node scripts/verify-draft-coach.mjs"
+    "verify:coach": "node scripts/verify-draft-coach.mjs",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {
     "@clerk/backend": "^1.21.0",

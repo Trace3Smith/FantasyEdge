@@ -1,0 +1,16 @@
+#!/bin/sh
+# Pre-push gate: block the push if the Draft Coach tuning regression check fails.
+# Runs the offline, network-free checks in scripts/verify-draft-coach.mjs (VONA
+# numbers-only clause + TE flex-cap). Emergency bypass: git push --no-verify
+#
+# Activated via core.hooksPath=.githooks (set by `npm run prepare`/install; or run
+# `git config core.hooksPath .githooks` once in a fresh clone).
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+echo "pre-push: running Draft Coach checks (npm run verify:coach)…"
+if ! npm run --silent verify:coach; then
+  echo "pre-push: ✗ Draft Coach checks FAILED — push aborted. (bypass: git push --no-verify)" >&2
+  exit 1
+fi
+echo "pre-push: ✓ checks passed"
