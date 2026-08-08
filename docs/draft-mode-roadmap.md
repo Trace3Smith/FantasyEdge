@@ -44,6 +44,20 @@ each change was offline-verified against synthetic drafts.
 - **Tighter 3rd-QB cap in single-QB leagues** (`2ffcbd1`) — a 3rd QB's desire drops from 0.10 to 0.05,
   so only a real value outlier now clears the shortlist. Scoped to `starters.QB === 1`; superflex/2-QB
   leagues keep the looser curve, and the 2nd-QB backup and 4th+ tail are unchanged.
+- **VONA scarcity clause trimmed to just the numbers** (`844b0bf`) — the deterministic clause the user
+  always sees on a scarcity-swing pick now states only the startable-count tradeoff ("Only N startable
+  QB left vs. M RB.") and drops the "so QB is drying up faster — worth prioritizing over `<name>`"
+  reasoning tail. The analyst already gets the same facts via the SCARCITY TRADEOFF prompt note and owns
+  the "why," so the reasoning isn't stated twice in slightly different words.
+- **TE cap: extra TEs evaluated as flex bodies, not a soft-capped position** (`629db26`, `8457d55`) — in
+  a standard single-TE league only the lone starter is an "auto" TE; every TE beyond it competes for the
+  FLEX that RB/WR also fill. The 2nd TE keeps a **low baseline desire (0.15)** so it stays normal bench
+  insurance that naturally falls to later rounds — not suppressed or hard-gated — with an override that
+  **spikes** its desire to the RB/WR depth curve when the best available TE currently out-values the best
+  flex-eligible RB/WR (`recommendNfl` now exposes `bestVorp` per position as the shared flex comparator;
+  `max(baseline, override)` so the flex spike can only raise, never suppress). Stops the Coach
+  over-drafting a 3rd TE ahead of thin WR/RB bench depth (seen in a live mock). Scoped to
+  `starters.TE === 1`; TE-premium / 2-TE-starter leagues keep the looser soft-cap curve.
 
 ## Remaining roadmap
 
