@@ -9,6 +9,8 @@
 //   PART 2 — TE flex-cap: a 2nd TE is a low-baseline bench pick that spikes when it beats
 //            the flex-eligible RB/WR, stays present (not blocked) when they're richer, and
 //            surfaces once they thin — a priority nudge, not a hard gate.
+//   PART 3 — VONA draft-progress gate: no scarcity framing in round 1 (nothing drafted yet);
+//            the same board fires once a full round has actually thinned it.
 
 import { recommend, vonaScarcityClause, DEFAULT_SETTINGS } from '../api/_lib/draft.js';
 
@@ -88,7 +90,34 @@ check('C: 2nd TE SURFACES to #1 once RB/WR thin below it', C.top === 'TE');
 check('B ranks the 2nd TE below where C does (priority shifts with the flex)', B.idx > C.idx);
 
 // ============================================================================
+// PART 3 — VONA draft-progress gate (round 1 must not fire).
+// Synthetic pool where WR is naturally scarcer than RB by pool SHAPE (fewer startable) with a
+// higher-VORP RB sitting deeper, so at pick 1 the WR need is scored[0] over that RB. Re-running the
+// SAME board with a full round of picks made (taken.size padded past `teams`) shows it's the gate —
+// not the absence of a pattern — that silences round 1, and that real thinning re-enables VONA.
+// ============================================================================
+console.log('\nPART 3 — VONA draft-progress gate (no scarcity talk in round 1)');
+{
+  const ps = []; let id = 0;
+  const mk = (pos,fp) => ps.push({ id:`g${++id}`, name:`${pos}-${fp}`, team:'X', pos, rank:id, fpPpr:fp });
+  [58,54,50,47,44].forEach(v=>mk('WR',v)); for (let i=0;i<35;i++) mk('WR',10);                        // 5 startable WR (scarce)
+  [60,57,54,51,48,45,42,39,36,33,30,28].forEach(v=>mk('RB',v)); for (let i=0;i<28;i++) mk('RB',10);   // 12 startable RB (deep), higher top VORP
+  for (let i=0;i<12;i++) mk('QB',40-i); for (let i=0;i<8;i++) mk('QB',10);
+  for (let i=0;i<10;i++) mk('TE',35-i*2); for (let i=0;i<10;i++) mk('TE',10);
+  for (let i=0;i<15;i++) mk('K',10); for (let i=0;i<15;i++) mk('DST',10);
+
+  const r1     = recommend(ps, [], [], settings, 1, []);                                              // taken.size 0
+  const padded = recommend(ps, Array.from({length:settings.teams+4},(_,i)=>`x${i}`), [], settings, 3, []); // SAME board, taken.size > teams
+  const sw = padded.board.vonaSwing;
+  console.log('   round 1 (taken 0) vonaSwing:', JSON.stringify(r1.board.vonaSwing),
+              `| after a full round (taken ${settings.teams+4}):`, JSON.stringify(sw));
+  check('round 1 (nothing drafted) does NOT fire VONA', r1.board.vonaSwing === null);
+  check('same board DOES fire once a full round is drafted (gate, not missing pattern)', !!sw && r1.candidates[0]?.pos === sw.pos);
+  check('the fired swing clears the >=2 min startable gap', !!sw && (sw.altStartable - sw.startable) >= 2);
+}
+
+// ============================================================================
 console.log('\n' + (results.every(r=>r.ok)
-  ? `ALL ${results.length} CHECKS PASSED — VONA clause + TE flex-cap behave as shipped.`
+  ? `ALL ${results.length} CHECKS PASSED — VONA clause + TE flex-cap + round-1 gate behave as shipped.`
   : `FAILURES: ${results.filter(r=>!r.ok).map(r=>r.name).join('; ')}`));
 process.exit(results.every(r=>r.ok) ? 0 : 1);

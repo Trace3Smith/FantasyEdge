@@ -171,6 +171,9 @@ function deadlinePressure(slack) {
 // cliff maxes out. VONA_MAX caps the extra urgency so a cliff nudges the order rather than dominating.
 const VONA_REF = 15;
 const VONA_MAX = 0.5;
+// Minimum startable-count gap between the scarcer need and the passed-over deeper position before the
+// cross-position VONA "scarcity swing" language fires. A 1-count gap is pool-shape noise, not scarcity.
+const VONA_MIN_STARTABLE_GAP = 2;
 
 // Need multiplier — how much to want this position right now, reading both our roster
 // and the live board. No fixed round logic: urgency emerges from (1) whether we still
@@ -565,20 +568,24 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
   // top-value name, so there's nothing higher passed over. The real tradeoff is cross-position.) Skipped
   // under a roster-necessity override (forced) — that's a legality pick, not a scarcity read. The
   // concrete startable-count tradeoff is surfaced so the analyst layer can explain it.
+  // Draft-progress gate: scarcity must be CREATED by draft activity, not the pool's natural shape.
+  // Until at least one full round has been drafted across all teams (taken.size >= teams), the
+  // startable counts are just the raw pool depth, so any cross-position gap is meaningless — stay silent
+  // and let recommendations fall back to pure best-player-available. (Round 1 never fires VONA.)
   let vonaSwing = null;
   const pick = scored[0];
-  if (pick && !pick.forced && pick.need) {
+  const boardThinned = taken.size >= teams;
+  if (boardThinned && pick && !pick.forced && pick.need) {
     let alt = null; // highest raw-value (VORP) candidate at a DIFFERENT position — the name we passed over
     for (const c of scored) {
       if (c.pos === pick.pos) continue;
       if (!alt || c.vorp > alt.vorp) alt = c;
     }
-    if (alt && alt.vorp > pick.vorp
-      && (startableLeft[pick.pos] || 0) < (startableLeft[alt.pos] || 0)) {
-      vonaSwing = {
-        pos: pick.pos, startable: startableLeft[pick.pos] || 0,
-        altName: alt.name, altPos: alt.pos, altStartable: startableLeft[alt.pos] || 0,
-      };
+    const startable = startableLeft[pick.pos] || 0;
+    const altStartable = alt ? (startableLeft[alt.pos] || 0) : 0;
+    // Require a non-trivial startable gap: a 1-count difference is pool-shape noise, not real scarcity.
+    if (alt && alt.vorp > pick.vorp && altStartable - startable >= VONA_MIN_STARTABLE_GAP) {
+      vonaSwing = { pos: pick.pos, startable, altName: alt.name, altPos: alt.pos, altStartable };
     }
   }
 
