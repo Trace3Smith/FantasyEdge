@@ -1627,11 +1627,25 @@ function buildDraftContext() {
   const scoringCode = isRoto() ? null : (s.settings.scoring || 'ppr'); // raw code for adpFor()
   const round = roundOf(s.pickIndex, s.settings.teams);
   const rounds = s.settings.rounds || Math.round(s.totalPicks / s.settings.teams);
-  const rosterStr = s.roster.map((r) => { const p = byId.get(r.id); return p ? `${p.pos} ${p.name}` : r.pos; }).join(', ') || '(empty)';
+  // Explicit per-position OWNERSHIP so an empty slot (e.g. no QB yet) is unmissable and can never be
+  // confused with the available board. NFL lists the standard positions even when empty ("none"); roto
+  // keeps a flat list. This is the ONLY place that says what the user owns.
+  let rosterOwnedStr;
+  if (!isRoto()) {
+    const owned = {};
+    for (const r of s.roster) { const p = byId.get(r.id); (owned[r.pos] ||= []).push(p ? p.name : r.pos); }
+    const order = ['QB', 'RB', 'WR', 'TE', 'K', 'DST'];
+    rosterOwnedStr = order
+      .filter((pos) => ['QB', 'RB', 'WR', 'TE'].includes(pos) || owned[pos]?.length)
+      .map((pos) => `${pos}: ${owned[pos]?.length ? owned[pos].join(', ') : 'none'}`).join('; ');
+  } else {
+    rosterOwnedStr = s.roster.map((r) => { const p = byId.get(r.id); return p ? `${p.pos} ${p.name}` : r.pos; }).join(', ') || 'none yet';
+  }
   const recent = s.picks.slice(-8).map((p) => `${p.pos} ${p.name}`).join(', ') || 'none yet';
+  // Roto only: best-available overall (NFL uses the per-position board below). Relabeled as NOT-owned.
   const avail = players.filter((p) => !s.drafted.has(p.id))
     .sort(boardCmp)
-    .slice(0, 12).map((p) => `${p.pos} ${p.name} (#${rankMap.get(p.id) ?? '—'})`).join(', ');
+    .slice(0, 12).map((p) => `${p.name} (${p.pos} #${rankMap.get(p.id) ?? '—'})`).join(', ');
 
   // Per-position available board (NFL): who's actually left at each position, with ADP, so the Coach
   // can answer "who's on the board at RB?" from real data instead of asking the user to type names.
@@ -1649,7 +1663,7 @@ function buildDraftContext() {
       const items = list.map((p) => { const a = adpFor(p, scoringCode); return `${p.name}${a != null ? ` (ADP ${Math.round(a)})` : ''}`; }).join(', ');
       lines.push(`${pos} — ${items}`);
     }
-    if (lines.length) posBoardStr = ` Available by position (best first, with ADP): ${lines.join('; ')}.`;
+    if (lines.length) posBoardStr = ` ON THE BOARD — available players NOT on your roster (best first by position, with ADP): ${lines.join('; ')}.`;
   }
 
   // Roster-construction caps the pick engine enforces, surfaced so the Coach's OWN advice respects them
@@ -1681,7 +1695,7 @@ function buildDraftContext() {
     return bits.length ? ` (${bits.join(', ')})` : '';
   };
   const shortlistStr = (lastCandidates && lastCandidates.length)
-    ? ` Engine's need-aware ranked shortlist this pick — already in board order; rank and compare players by FPTS (our blended ranking value = projection + recent actuals), NOT by the separate "proj" figure: ${lastCandidates.map((c) => `${c.pos} ${c.name}${c.reasonLabel ? ` [${c.reasonLabel}]` : ''}${sigStr(byId.get(c.id))}`).join('; ')}.`
+    ? ` Engine's need-aware ranked shortlist this pick — AVAILABLE players to consider (none are on the user's roster); already in board order; rank and compare by FPTS (our blended ranking value = projection + recent actuals), NOT by the separate "proj" figure: ${lastCandidates.map((c) => `${c.pos} ${c.name}${c.reasonLabel ? ` [${c.reasonLabel}]` : ''}${sigStr(byId.get(c.id))}`).join('; ')}.`
     : '';
   // Roto: surface the roster's weak categories so the Coach steers toward balance.
   const weakStr = isRoto() && lastBoard?.weakCats?.length
@@ -1699,11 +1713,13 @@ function buildDraftContext() {
   } else if (lastBoard?.fillSoon && needPos.length) {
     needStr = ` Roster heads-up: mandatory ${needPos.join('/')} still open with only ${lastBoard.picksLeft} picks left — one more value pick is fine, but plan to grab ${needPos.join('/')} within the next pick or two.`;
   }
+  const availStr = isRoto() ? ` ON THE BOARD — best available players NOT on your roster: ${avail}.` : '';
   return `Mode: ${s.mode === 'mock' ? 'mock draft vs AI opponents' : 'tracking a real league draft'}. `
     + `League: ${s.settings.teams}-team ${scoring}, ${rounds} rounds, ${s.format}. `
     + `User's draft slot: ${s.userTeam + 1}. Now: round ${round}, overall pick ${s.pickIndex + 1}. `
-    + `User's roster: ${rosterStr}. Recent picks: ${recent}. Top available by rank: ${avail}.`
-    + `${posBoardStr}${guidanceStr}${shortlistStr}${weakStr}${recoStr}${needStr}`;
+    + `YOUR ROSTER (the players the user OWNS — only these are on their team; a position marked "none" is UNFILLED): ${rosterOwnedStr}. `
+    + `Recent picks across all teams (NOT the user's roster): ${recent}.`
+    + `${availStr}${posBoardStr}${guidanceStr}${shortlistStr}${weakStr}${recoStr}${needStr}`;
 }
 
 async function coachSend(text) {

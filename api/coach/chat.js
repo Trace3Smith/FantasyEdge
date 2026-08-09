@@ -92,7 +92,13 @@ export default async function handler(req, res) {
         + 'construction caps the engine follows. Answer "who\'s on the board at <position>?" straight from the '
         + 'available-by-position list — never ask the user to type out names you already have. Keep your pick '
         + 'reasoning consistent with the engine\'s shortlist and those caps: don\'t manufacture "must-grab" '
-        + 'urgency for a position the roster is already stacked at (e.g. a 3rd QB or 4th TE):\n' + draftContext.slice(0, MAX_CONTEXT);
+        + 'urgency for a position the roster is already stacked at (e.g. a 3rd QB or 4th TE). '
+        + 'CRITICAL — roster ownership: ONLY the players under "YOUR ROSTER" are on the user\'s team. NEVER say the '
+        + 'user "already has" / "already got" / is "set at" a player or position unless that exact name appears in '
+        + 'YOUR ROSTER. Players in the available/board/shortlist lists and in "recent picks across all teams" are '
+        + 'NOT the user\'s — do not attribute them to the user. A position shown as "none" is UNFILLED: the user '
+        + 'has no one there, so treat it as a genuine need. When unsure whether the user owns a player, check YOUR '
+        + 'ROSTER and default to "you don\'t have one yet" rather than inventing a name:\n' + draftContext.slice(0, MAX_CONTEXT);
     }
 
     // The user's actual ESPN team, sent when the Coach is embedded in a Team Manager
