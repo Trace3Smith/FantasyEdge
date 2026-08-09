@@ -78,6 +78,8 @@
   .cand .nm { font-weight: 600; }
   .cand .meta { font-size: 12px; color: var(--gray); }
   .cand .proj { font-size: 11px; color: var(--gold); opacity: 0.85; margin-top: 3px; }
+  .fpts-blend { cursor: help; } /* the top-line FPTS is the blended ranking value (tooltip explains) */
+  .pd-sub .fpts-blend { font-size: 10px; color: var(--gray); }
   /* Phase 2 opportunity context (target share + pace). Green to distinguish it from the gold proj line. */
   .cand .opp { font-size: 11px; color: var(--green); opacity: 0.9; margin-top: 3px; }
   .opp-block { margin: 12px 0; padding: 9px 11px; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; background: var(--dark3); }
@@ -595,7 +597,7 @@ function projLine(p) {
   const pr = p && p.proj;
   if (!pr) return '';
   const stats = (pr.line || []).map((s) => `${s.label} ${projNum(s.label, s.val)}`).join(' · ');
-  return `<div class="proj">Proj ${pr.fpts} FPTS${stats ? ' · ' + stats : ''}</div>`;
+  return `<div class="proj" title="Raw 2026 consensus projection — one input to the blended FPTS shown above (which is what ranks the board).">Proj ${pr.fpts} FPTS${stats ? ' · ' + stats : ''}</div>`;
 }
 
 let adpBuiltAt = null; // when our ADP copy was last fetched (from the NFL dataset)
@@ -1145,7 +1147,8 @@ function renderAvailable(filter = '') {
       const adp = adpFor(p, scoring);
       const adpStr = adp != null ? Math.round(adp * 10) / 10 : null;
       const fpts = p.fpPpr != null ? nflFpts(p, scoring).toFixed(1) : null;
-      meta = ` · ${p.team} · #${rk}${fpts != null ? ' · ' + fpts + ' FPTS' : ''}${adpStr != null ? ' · ADP ' + adpStr : ''}`;
+      const fptsHtml = fpts != null ? ` · <span class="fpts-blend" title="Blend — our ranking value (~0.65 projection + 0.35 recent actuals). The Proj line below is the raw projection.">${fpts} FPTS</span>` : '';
+      meta = ` · ${p.team} · #${rk}${fptsHtml}${adpStr != null ? ' · ADP ' + adpStr : ''}`;
       extra = projLine(p) + renderOpportunity(p, 'compact');
     }
     const sug = p.id === suggestedId;
@@ -1167,7 +1170,7 @@ $('availSearch').addEventListener('input', (e) => renderAvailable(e.target.value
 function detailValueStr(p) {
   if (isRoto()) return typeof p.zTotal === 'number' ? `${rotoMod().val(p).toFixed(1)} ${rotoMod().label}` : '';
   const scoring = (state && state.settings && state.settings.scoring) || 'ppr';
-  return p.fpPpr != null ? `${nflFpts(p, scoring).toFixed(1)} FPTS` : '';
+  return p.fpPpr != null ? `${nflFpts(p, scoring).toFixed(1)} FPTS <span class="fpts-blend" title="Blend of projection + recent actuals — our ranking value. The 'Proj' figure is the raw projection.">(blend)</span>` : '';
 }
 
 // Show a player in the detail sidebar (inspect only — no draft). Reuses the shared /playerDisplay.js
@@ -1670,14 +1673,15 @@ function buildDraftContext() {
   const sigStr = (p) => {
     if (!p) return '';
     const bits = [];
-    if (p.proj?.fpts != null) bits.push(`proj ${Math.round(p.proj.fpts)}`);
+    if (p.fpPpr != null) bits.push(`${Math.round(nflFpts(p, scoringCode))} FPTS`);  // the blend — the board's ranking value
+    if (p.proj?.fpts != null) bits.push(`proj ${Math.round(p.proj.fpts)}`);          // raw projection (one input to the blend)
     if (p.consistency != null) bits.push(`consistency ${p.consistency}/100`);
     if (p.ceiling != null) bits.push(`~${Math.round(p.ceiling)}pt ceiling`);
     if (p.opportunity?.label) bits.push(p.opportunity.label);
     return bits.length ? ` (${bits.join(', ')})` : '';
   };
   const shortlistStr = (lastCandidates && lastCandidates.length)
-    ? ` Engine's need-aware ranked shortlist this pick (with depth signals): ${lastCandidates.map((c) => `${c.pos} ${c.name}${c.reasonLabel ? ` [${c.reasonLabel}]` : ''}${sigStr(byId.get(c.id))}`).join('; ')}.`
+    ? ` Engine's need-aware ranked shortlist this pick — already in board order; rank and compare players by FPTS (our blended ranking value = projection + recent actuals), NOT by the separate "proj" figure: ${lastCandidates.map((c) => `${c.pos} ${c.name}${c.reasonLabel ? ` [${c.reasonLabel}]` : ''}${sigStr(byId.get(c.id))}`).join('; ')}.`
     : '';
   // Roto: surface the roster's weak categories so the Coach steers toward balance.
   const weakStr = isRoto() && lastBoard?.weakCats?.length

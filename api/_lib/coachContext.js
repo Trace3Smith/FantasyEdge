@@ -127,7 +127,7 @@ function playerLine(p, sport) {
   // vs. upside, season projection, and opportunity, so the Coach cites real numbers instead of guessing.
   if (p.consistency != null) bits.push(`consistency ${p.consistency}/100 (weekly floor, higher = steadier)`);
   if (p.ceiling != null) bits.push(`~${Math.round(p.ceiling)}-pt weekly ceiling`);
-  if (p.proj?.fpts != null) bits.push(`projection ${Math.round(p.proj.fpts)} pts`);
+  if (p.proj?.fpts != null) bits.push(`2026 projection ${Math.round(p.proj.fpts)} pts`);
   if (p.opportunity?.label) bits.push(p.opportunity.label);
   if (p.fv != null) bits.push(`prospect FV ${p.fv}`);
   if (p.synopsis) bits.push(`scouting note: ${p.synopsis}`);
@@ -135,7 +135,7 @@ function playerLine(p, sport) {
 }
 
 const HEADER =
-  'LIVE FANTASYEDGE DATA — treat the player data below as the current source of truth for rankings, recent form, and status; it reflects today\'s real data and overrides your training knowledge wherever they differ. Use it naturally in your answer; do NOT mention that data was provided to you or refer to your "training data". If the user asks about a player who is not listed below, say you don\'t have live data on them right now and answer from general knowledge with that caveat.';
+  'LIVE FANTASYEDGE DATA — treat the player data below as the current source of truth for rankings, recent form, and status; it reflects today\'s real data and overrides your training knowledge wherever they differ. Use it naturally in your answer; do NOT mention that data was provided to you or refer to your "training data". If the user asks about a player who is not listed below, say you don\'t have live data on them right now and answer from general knowledge with that caveat. The "FPTS" figure is our blended ranking value (projection + recent actuals) and each player\'s rank reflects it — rank and compare players by FPTS/rank, not by the separate "2026 projection" figure, which is only one input to that blend.';
 
 // Assemble the context block from already-loaded datasets ([{ sport, data }]). Pure
 // (no KV) so it can be unit-tested directly. Returns '' when there's nothing relevant
