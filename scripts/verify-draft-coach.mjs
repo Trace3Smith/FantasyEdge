@@ -13,7 +13,9 @@
 //            the same board fires once a full round has actually thinned it.
 //   PART 4 — TE anti-hoard: a 3-TE roster never takes a 4th TE, even at an extreme raw value.
 
-import { recommend, vonaScarcityClause, DEFAULT_SETTINGS } from '../api/_lib/draft.js';
+import { recommend, vonaScarcityClause, DEFAULT_SETTINGS, adpFor } from '../api/_lib/draft.js';
+import { buildDraftContext } from '../draftContext.js';
+import { nflFpts } from '../nflScoring.js';
 
 const settings = { ...DEFAULT_SETTINGS, sport:'nfl', teams:12, rounds:15 };
 const results = [];
@@ -145,7 +147,51 @@ console.log('\nPART 4 — TE anti-hoard (3-TE roster must never take a 4th)');
 }
 
 // ============================================================================
+// PART 5 — Coach draft-context roster ownership (regression for the "you already have <player>"
+// hallucination). Exercises the extracted, shared builder (draftContext.js — the SAME code the browser
+// runs) for the exact incident: an empty-QB roster while QBs sit on the board. The ONLY ownership
+// statement is the YOUR ROSTER line; empty positions read "none"; available surfaces are labeled NOT
+// owned and not formatted like the roster — so an available QB can't be misread as rostered.
+// ============================================================================
+console.log('\nPART 5 — Coach context: roster ownership is unambiguous (empty-QB roster)');
+{
+  // Pool: a couple of available QBs + skill players. Roster holds RB/RB/WR/WR/TE, NO QB.
+  const mk = (id, pos, name, fpPpr, adp) => ({ id, pos, name, fpPpr, proj:{fpts:fpPpr}, adp: adp!=null?{ppr:adp}:undefined });
+  const pool = [
+    mk('qb1','QB','Lamar Jackson',300,19), mk('qb2','QB','Joe Burrow',290,24), mk('qb3','QB','Dak Prescott',270,33),
+    mk('rb1','RB','Bijan Robinson',340,2), mk('rb2','RB','Saquon Barkley',330,3),
+    mk('wr1','WR','Puka Nacua',334,3), mk('wr2','WR','CeeDee Lamb',320,5),
+    mk('te1','TE','Trey McBride',263,35),
+  ];
+  const byId = new Map(pool.map(p => [p.id, p]));
+  const rankMap = new Map(pool.map((p, i) => [p.id, i + 1]));
+  const drafted = new Set(['rb1','rb2','wr1','wr2','te1']); // the user's own picks are "drafted"
+  const state = {
+    mode:'mock', format:'standard', userTeam:4, pickIndex:60, totalPicks:180,
+    settings:{ teams:12, rounds:15, scoring:'ppr', starters:{QB:1,RB:2,WR:2,TE:1,FLEX:1,K:1,DST:1} },
+    drafted,
+    roster:[{id:'rb1',pos:'RB'},{id:'rb2',pos:'RB'},{id:'wr1',pos:'WR'},{id:'wr2',pos:'WR'},{id:'te1',pos:'TE'}], // NO QB
+    picks:[{pos:'QB',name:'Josh Allen'}], // another team took a QB — must NOT read as the user's
+  };
+  const ctx = buildDraftContext({
+    state, players: pool, byId, rankMap, lastBoard: null, lastReco: null,
+    lastCandidates: [{ id:'qb1', pos:'QB', name:'Lamar Jackson', reasonLabel:'fills QB need' }],
+    isRoto: false, rotoLabel: null,
+    roundOf: (i, teams) => Math.floor(i / teams) + 1,
+    boardCmp: (a, b) => (rankMap.get(a.id) ?? 1e9) - (rankMap.get(b.id) ?? 1e9),
+    adpFor, nflFpts,
+  });
+  const rosterSeg = ctx.slice(ctx.indexOf('YOUR ROSTER'), ctx.indexOf('Recent picks'));
+  console.log('   YOUR ROSTER segment:', rosterSeg.trim());
+  check('roster line marks the empty QB slot as "QB: none"', /QB: none/.test(rosterSeg));
+  check('no owned QB name invented in the roster line', !/Lamar|Burrow|Dak|Josh Allen/.test(rosterSeg));
+  check('available QBs are present but labeled NOT on your roster', /NOT on your roster/.test(ctx) && ctx.includes('Lamar Jackson'));
+  check('another team\'s QB pick is labeled NOT the user\'s', /Recent picks across all teams \(NOT the user's roster\)/.test(ctx));
+  check('shortlist QB is labeled AVAILABLE (none on the roster)', /AVAILABLE players to consider \(none are on the user's roster\)/.test(ctx));
+}
+
+// ============================================================================
 console.log('\n' + (results.every(r=>r.ok)
-  ? `ALL ${results.length} CHECKS PASSED — VONA clause + TE flex-cap + round-1 gate + TE anti-hoard behave as shipped.`
+  ? `ALL ${results.length} CHECKS PASSED — VONA clause + TE flex-cap + round-1 gate + TE anti-hoard + context ownership behave as shipped.`
   : `FAILURES: ${results.filter(r=>!r.ok).map(r=>r.name).join('; ')}`));
 process.exit(results.every(r=>r.ok) ? 0 : 1);
