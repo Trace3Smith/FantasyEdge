@@ -74,6 +74,17 @@ function detectSports(text) {
 // kept unconditionally; last-name-only matches are kept only for ranked players or
 // notable prospects, which filters out the long tail of search-only names that happen
 // to collide with a common word.
+//
+// Generational suffixes (Sr/Jr/II/III/IV/V) are dropped before matching so a natural "Kyle Pitts"
+// question still finds "Kyle Pitts Sr." — otherwise the full name never appears in the query and the
+// last token is the two-letter suffix, so both match paths miss. Matching on the suffix-stripped base
+// still works when the user DOES include the suffix (the base is a prefix of the full name).
+const NAME_SUFFIXES = new Set(['sr', 'jr', 'ii', 'iii', 'iv', 'v']);
+function baseName(nn) {
+  const parts = nn.split(' ');
+  if (parts.length > 1 && NAME_SUFFIXES.has(parts[parts.length - 1])) parts.pop();
+  return parts.join(' ');
+}
 function matchPlayers(text, datasets) {
   const m = ' ' + normalize(text) + ' ';
   const seen = new Set();
@@ -82,10 +93,11 @@ function matchPlayers(text, datasets) {
     for (const p of data.players || []) {
       const nn = normalize(p.name);
       if (!nn) continue;
-      const full = m.includes(' ' + nn + ' ');
+      const base = baseName(nn); // drop a trailing Sr/Jr/II+ so "Kyle Pitts" matches "Kyle Pitts Sr."
+      const full = m.includes(' ' + base + ' ');
       let hit = full;
       if (!hit) {
-        const last = nn.split(' ').pop();
+        const last = base.split(' ').pop();
         if (last.length >= 4 && m.includes(' ' + last + ' ') && (p.rank != null || p.fv != null)) hit = true;
       }
       if (!hit) continue;
