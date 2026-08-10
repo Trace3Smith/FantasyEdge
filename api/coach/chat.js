@@ -101,8 +101,11 @@ export default async function handler(req, res) {
         + 'user "already has" / "already got" / is "set at" a player or position unless that exact name appears in '
         + 'YOUR ROSTER. Players in the available/board/shortlist lists and in "recent picks across all teams" are '
         + 'NOT the user\'s — do not attribute them to the user. A position shown as "none" is UNFILLED: the user '
-        + 'has no one there, so treat it as a genuine need. When unsure whether the user owns a player, check YOUR '
-        + 'ROSTER and default to "you don\'t have one yet" rather than inventing a name:\n' + draftContext.slice(0, MAX_CONTEXT);
+        + 'has no one there, so treat it as a genuine need. CONVERSELY, a position that lists a player NAME is '
+        + 'FILLED — do NOT say the user "still needs", "has a spot to fill", or should draft a starter at that '
+        + 'position (another body there is depth, not a starting need). Only "none" positions are open starting '
+        + 'needs. When unsure whether the user owns a player, check YOUR ROSTER and default to "you don\'t have one '
+        + 'yet" rather than inventing a name:\n' + draftContext.slice(0, MAX_CONTEXT);
     }
 
     // The user's actual ESPN team, sent when the Coach is embedded in a Team Manager

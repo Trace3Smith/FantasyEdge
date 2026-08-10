@@ -17,6 +17,8 @@
 //            (not endorsed "TE depth"), and the guidance carries the flex-comparison rule.
 //   PART 7 — Flex comparison uses OUTPUT, not positional VORP: a 2nd TE with higher positional VORP but
 //            lower raw output than the best WR is still capped (and not the "My pick").
+//   PART 8 — Filled/open starting-slot summary (board.slots): a filled slot is marked FILLED (not a
+//            need) and an empty slot OPEN, so the "My pick" analyst can't invent a need at a filled slot.
 
 import { recommend, vonaScarcityClause, DEFAULT_SETTINGS, adpFor } from '../api/_lib/draft.js';
 import { buildDraftContext } from '../draftContext.js';
@@ -276,7 +278,31 @@ console.log('\nPART 7 — flex comparison uses output, not positional VORP');
 }
 
 // ============================================================================
+// PART 8 — Filled/open starting-slot summary (regression for the inverse hallucination: "you still have
+// a QB spot to fill" when QB is rostered). recommend() must expose board.slots marking a filled slot as
+// FILLED (not a need) and an empty slot OPEN — the explicit breakdown the "My pick" analyst reads so it
+// can't invent a need at a filled slot (nor miss an open one).
+// ============================================================================
+console.log('\nPART 8 — filled/open starting-slot summary (board.slots)');
+{
+  const pool = []; let id = 0;
+  const mk = (pos,fp) => pool.push({ id:`s${++id}`, pos, name:`${pos}-${fp}`, fpPpr:fp, proj:{fpts:fp} });
+  for (let i=0;i<20;i++) mk('QB', 200-i); for (let i=0;i<40;i++) mk('RB', 200-i);
+  for (let i=0;i<40;i++) mk('WR', 200-i); for (let i=0;i<20;i++) mk('TE', 160-i);
+  for (let i=0;i<15;i++) mk('K', 100); for (let i=0;i<15;i++) mk('DST', 100);
+  const st = { teams:12, rounds:15, scoring:'ppr', starters:{QB:1,RB:2,WR:2,TE:1,FLEX:1,K:1,DST:1} };
+  // Roster: QB + RB/RB + WR/WR filled; TE/K/DST still open. (The reported scenario — QB is FILLED.)
+  const roster = [{id:'a',pos:'QB'},{id:'b',pos:'RB'},{id:'c',pos:'RB'},{id:'d',pos:'WR'},{id:'e',pos:'WR'}];
+  const { board } = recommend(pool, new Set(), roster, { ...settings, ...st }, 6, []);
+  console.log('   board.slots:', JSON.stringify(board.slots));
+  check('board.slots exists with filled + open arrays', !!board.slots && Array.isArray(board.slots.filled) && Array.isArray(board.slots.open));
+  check('a FILLED QB is marked filled, not open', board.slots?.filled.includes('QB') && !board.slots?.open.includes('QB'));
+  check('an unfilled TE is marked open', board.slots?.open.includes('TE'));
+  check('filled RB/WR pairs are counted (2 each), not shown as open', board.slots?.filled.filter(p=>p==='RB').length === 2 && !board.slots?.open.includes('RB') && !board.slots?.open.includes('WR'));
+}
+
+// ============================================================================
 console.log('\n' + (results.every(r=>r.ok)
-  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output behave as shipped.`
+  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary behave as shipped.`
   : `FAILURES: ${results.filter(r=>!r.ok).map(r=>r.name).join('; ')}`));
 process.exit(results.every(r=>r.ok) ? 0 : 1);

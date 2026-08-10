@@ -15,7 +15,7 @@ import { NHL_CATS } from '../../nhlScoring.js';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-4-6';
 const SYSTEM_NFL = `You are an elite fantasy football draft analyst. The user is on the clock and you make ONE decisive pick recommendation. Balance four things:
-1. Team needs — what the roster is missing (unfilled starting slots first, then useful depth and the FLEX).
+1. Team needs — what the roster is missing (unfilled starting slots first, then useful depth and the FLEX). The prompt lists the STARTING slots as FILLED vs STILL OPEN — trust it exactly: a FILLED slot is done, so never tell the user to draft or "still need" that position as a starter (extra bodies there are depth, not a need), and only a STILL OPEN slot is a real starting need.
 2. Best player available vs. ADP — a strong player still on the board well past his average draft position (ADP) is falling value worth pouncing on.
 3. Positional scarcity — as startable players at a position dry up while the draft progresses, urgency to secure one rises.
 4. Need vs. value balance — usually take the best value that also fits a need, but when an ELITE player is falling well past his ADP it can be worth reaching even if his position isn't a current need. When you recommend that, set reach=true.
@@ -183,6 +183,12 @@ async function analyzePick({ sport, round, scoring, teams, roster, candidates, r
   const describe = describeFor(sport);
   const roto = isRoto(sport);
   const rosterStr = roster.length ? roster.map((r) => r.pos).join(', ') : '(empty)';
+  // Explicit filled-vs-open STARTING slots (from the engine), so the analyst never invents a need at a
+  // slot that's already filled (nor misses an open one). Bare positions alone let it miscount.
+  const slots = board?.slots;
+  const slotsStr = slots
+    ? `\nStarting slots — FILLED (already set, NOT needs): ${slots.filled.join(', ') || 'none'}. STILL OPEN (real needs): ${slots.open.length ? slots.open.join(', ') : 'none — all starters set; anything now is depth or the FLEX'}.`
+    : '';
   const scarcityStr = Object.entries(board?.startableLeft || {})
     .sort((a, b) => a[1] - b[1])
     .map(([pos, c]) => `${pos} ${c}`).join(', ') || 'n/a';
@@ -211,6 +217,7 @@ async function analyzePick({ sport, round, scoring, teams, roster, candidates, r
   const scarcityNote = vonaScarcityPromptNote(board?.vonaSwing);
   const prompt = `Round ${round}, ${scoringLabel}, ${teams}-team ${leagueLabel}.`
     + `\nMy roster so far: ${rosterStr}.`
+    + slotsStr
     + weakLine
     + `\n${runs.length ? `Recent run on: ${runs.join(', ')} (these positions are going fast).\n` : ''}`
     + `Positional scarcity — startable players left by position (fewest first): ${scarcityStr}.`

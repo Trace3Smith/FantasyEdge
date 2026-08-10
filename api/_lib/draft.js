@@ -582,6 +582,16 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
     if (gap > 0) needs.push({ pos, gap });
   }
 
+  // Explicit filled-vs-open mandatory starting slots, so the analyst layer (advise.js) never invents a
+  // need at a slot that's already filled — nor misses one. A slot is FILLED once a rostered player at
+  // that position covers it, OPEN otherwise. (FLEX is soft — RB/WR/TE surplus — so it's not listed here;
+  // depth beyond a filled slot is depth, not a need.) Symmetric to the chat's per-position ownership line.
+  const slots = { filled: [], open: [] };
+  for (const [pos, m] of Object.entries(minRoster)) {
+    const have = counts[pos] || 0;
+    for (let i = 0; i < m; i++) (i < have ? slots.filled : slots.open).push(pos);
+  }
+
   // VONA swing: did positional scarcity decide the pick? This fires only when the recommended pick is a
   // need at a scarcer position that we took OVER a genuinely higher-raw-value name still on the board at
   // a deeper position — i.e. the drop-off/scarcity logic (which VONA feeds) passed on more raw value to
@@ -614,7 +624,7 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
   // cushion, league size, roster needs, and a VONA scarcity-swing note when one fired.
   // Additive — existing consumers read candidates/runs only.
   const board = {
-    startableLeft, slack, teams, picksLeft, totalRounds, needs, vonaSwing,
+    startableLeft, slack, teams, picksLeft, totalRounds, needs, slots, vonaSwing,
     mustFillNow: slack <= 0 && needs.length > 0,
     fillSoon: slack === 1 && needs.length > 0,
   };
