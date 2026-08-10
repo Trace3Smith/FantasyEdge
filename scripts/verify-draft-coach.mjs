@@ -12,6 +12,9 @@
 //   PART 3 — VONA draft-progress gate: no scarcity framing in round 1 (nothing drafted yet);
 //            the same board fires once a full round has actually thinned it.
 //   PART 4 — TE anti-hoard: a 3-TE roster never takes a 4th TE, even at an extreme raw value.
+//   PART 5 — Coach context: roster ownership is unambiguous (empty slots read "none").
+//   PART 6 — Flex-worthy TE2 label + guidance: a non-flex-worthy 2nd TE reads as a capped bench pick
+//            (not endorsed "TE depth"), and the guidance carries the flex-comparison rule.
 
 import { recommend, vonaScarcityClause, DEFAULT_SETTINGS, adpFor } from '../api/_lib/draft.js';
 import { buildDraftContext } from '../draftContext.js';
@@ -191,7 +194,55 @@ console.log('\nPART 5 — Coach context: roster ownership is unambiguous (empty-
 }
 
 // ============================================================================
+// PART 6 — Flex-worthy TE2: label + guidance (regression for the "Coach took a bench TE over a better
+// RB" incident). Roster owns one TE; the best available TE does NOT out-value the best RB/WR flex option,
+// so it must read as a CAPPED bench pick (not endorsed "TE depth"), and the guidance must carry the
+// flex-comparison rule. Then flip it: a genuinely flex-worthy best TE must NOT be capped.
+// ============================================================================
+console.log('\nPART 6 — flex-worthy TE2 label + guidance');
+{
+  // Flat replacement floor so per-position bestVorp is directly controllable (like PART 4).
+  const pool = (teTop, rbTop) => {
+    const ps = []; let id = 0;
+    const mk = (pos,fp,name) => ps.push({ id:`v${++id}`, pos, name: name||`${pos}-${fp}`, fpPpr:fp, proj:{fpts:fp}, adp:{ppr:50} });
+    mk('RB', rbTop, 'Best RB'); for (let i=1;i<40;i++) mk('RB', i<3 ? rbTop-8*i : 10);
+    for (let i=0;i<40;i++) mk('WR', 10); for (let i=0;i<20;i++) mk('QB', 10);
+    mk('TE', teTop, 'Best TE'); for (let i=1;i<20;i++) mk('TE', 10);
+    for (let i=0;i<15;i++) mk('K', 10); for (let i=0;i<15;i++) mk('DST', 10);
+    return ps;
+  };
+  const roster1TE = [{pos:'QB'},{pos:'RB'},{pos:'RB'},{pos:'WR'},{pos:'WR'},{pos:'TE'}]; // owns one TE
+  const teLabel = (teTop, rbTop) => {
+    const { candidates } = recommend(pool(teTop, rbTop), new Set(), roster1TE, settings, 8, []);
+    return candidates.find(c => c.pos === 'TE')?.reasonLabel || '';
+  };
+  // teTop 150 (VORP ~140) < best RB VORP ~230 -> NOT flex-worthy -> capped bench label.
+  const cappedLabel = teLabel(150, 240);
+  // teTop 260 (VORP ~250) > best RB VORP ~150 -> flex-worthy -> plain "TE depth".
+  const worthyLabel = teLabel(260, 160);
+  console.log('   non-flex-worthy best TE label:', JSON.stringify(cappedLabel));
+  console.log('   flex-worthy best TE label    :', JSON.stringify(worthyLabel));
+  check('a non-flex-worthy 2nd TE reads as a capped bench pick (not "TE depth")', /bench only/.test(cappedLabel) && !/^TE depth/.test(cappedLabel));
+  check('a flex-worthy best TE is NOT capped (plain TE depth)', /TE depth/.test(worthyLabel) && !/bench only/.test(worthyLabel));
+
+  // Guidance carries the flex-comparison rule when the user already owns a TE.
+  const players = pool(150, 240);
+  const byId = new Map(players.map(p => [p.id, p]));
+  const rankMap = new Map(players.map((p, i) => [p.id, i + 1]));
+  const roster = [{id:'x',pos:'QB'},{id:'y',pos:'RB'},{id:'z',pos:'RB'},{id:'w',pos:'WR'},{id:'v',pos:'WR'},{id:byId.keys().next().value && [...byId.values()].find(p=>p.pos==='TE')?.id, pos:'TE'}];
+  const ctx = buildDraftContext({
+    state:{ mode:'mock', format:'std', userTeam:0, pickIndex:80, totalPicks:180,
+      settings:{ teams:12, rounds:15, scoring:'ppr', starters:{QB:1,RB:2,WR:2,TE:1,FLEX:1,K:1,DST:1} },
+      drafted:new Set(), roster, picks:[] },
+    players, byId, rankMap, lastBoard:null, lastReco:null, lastCandidates:[],
+    isRoto:false, rotoLabel:null, roundOf:(i,t)=>Math.floor(i/t)+1,
+    boardCmp:(a,b)=>(rankMap.get(a.id)??1e9)-(rankMap.get(b.id)??1e9), adpFor, nflFpts,
+  });
+  check('guidance states the 2nd-TE flex-comparison rule when a TE is owned', /take a 2nd TE ONLY if its FPTS beats the best available RB\/WR/.test(ctx));
+}
+
+// ============================================================================
 console.log('\n' + (results.every(r=>r.ok)
-  ? `ALL ${results.length} CHECKS PASSED — VONA clause + TE flex-cap + round-1 gate + TE anti-hoard + context ownership behave as shipped.`
+  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 behave as shipped.`
   : `FAILURES: ${results.filter(r=>!r.ok).map(r=>r.name).join('; ')}`));
 process.exit(results.every(r=>r.ok) ? 0 : 1);

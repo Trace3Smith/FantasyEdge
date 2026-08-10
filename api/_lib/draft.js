@@ -288,10 +288,14 @@ const clampNum = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 // Structured, non-LLM reason-label for an NFL candidate (board highlight + Claude-unavailable fallback).
 // Leads with roster fit (the team-balance point), then the signal that colors the pick. `depth` is a
 // useful non-need position (RB/WR/TE) where added bodies still matter.
-function nflReasonLabel({ pos, need, forced, falling, consistency, form }) {
+function nflReasonLabel({ pos, need, forced, falling, consistency, form, teCapped }) {
   const chips = [];
   if (forced) chips.push(`must fill ${pos}`);
   else if (need) chips.push(`fills ${pos} need`);
+  // A beyond-starter TE that isn't flex-worthy (doesn't out-value the best RB/WR flex option) must NOT
+  // read as endorsed "TE depth" — that's what led a chat reco to take a bench TE over a better RB. Mark
+  // it as the capped bench pick it is, so any layer reading this label (the Coach chat) sees the verdict.
+  else if (teCapped) chips.push('extra TE — bench only, flex better via RB/WR');
   else if (pos === 'RB' || pos === 'WR' || pos === 'TE') chips.push(`${pos} depth`);
   if (falling) chips.push('falling past ADP');
   if (consistency != null) {
@@ -505,6 +509,12 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
       const vorp = (isKD || deadTE) ? 0 : Math.max(0, v - (levels[p.pos] ?? 0));
       const gap = Math.max(0, (minRoster[p.pos] || 0) - (counts[p.pos] || 0));
       const factor = needFactor(p.pos, counts, { startableLeft, teams, slack, run: runSet.has(p.pos), minRoster, demand, vonaCliff, bestVorp });
+      // Flex-worthiness of a beyond-starter TE (single-TE league), mirroring needFactor's gate: the 2nd
+      // TE earns its label only if it out-values the best RB/WR flex option; a non-winning 2nd TE or any
+      // 3rd+ TE is capped. Surfaced via reasonLabel so downstream layers (the Coach chat) see the verdict.
+      const teSurplus = (counts.TE || 0) - (minRoster.TE || 0);
+      const teFlexWorthy = teSurplus === 0 && (bestVorp.TE || 0) > Math.max(bestVorp.RB || 0, bestVorp.WR || 0);
+      const teCapped = p.pos === 'TE' && (minRoster.TE || 0) === 1 && teSurplus >= 0 && !teFlexWorthy;
 
       // ADP value: a player still on the board well past his average draft position is
       // a falling value. Bump priority by how far he's slipped, capped at ~two rounds
@@ -546,7 +556,7 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
         consistency: p.consistency ?? null,
         ceiling: p.ceiling ?? null,
         form,
-        reasonLabel: nflReasonLabel({ pos: p.pos, need, forced, falling, consistency: p.consistency ?? null, form }),
+        reasonLabel: nflReasonLabel({ pos: p.pos, need, forced, falling, consistency: p.consistency ?? null, form, teCapped }),
       };
     })
     // Forced needs first (so a mandatory slot is never skipped at the buzzer), then by

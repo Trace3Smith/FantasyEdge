@@ -73,7 +73,14 @@ export function buildDraftContext(ctx) {
     const st = s.settings.starters || {};
     const rules = [];
     if ((st.QB || 1) < 2) rules.push('single-QB league — 1 QB starts, so a 2nd QB is only a bye-week backup and a 3rd+ has ~no value');
-    if ((st.TE || 1) < 2) rules.push('one TE slot — 2 TEs is plenty (starter + flex); a 3rd only on elite value, a 4th+ is never worth it over RB/WR');
+    if ((st.TE || 1) < 2) {
+      // When a TE is already owned, the ONLY way another TE helps is the single flex — which RB/WR also
+      // fill — so a 2nd TE is worth it ONLY if it out-values the best available RB/WR. Stating that gate
+      // here stops the Coach recommending a bench TE over a better RB/WR just because "2 TEs is fine".
+      rules.push((c.TE || 0) >= 1
+        ? 'one TE slot and you already have a TE — another TE only helps via the single flex, which RB/WR also fill, so take a 2nd TE ONLY if its FPTS beats the best available RB/WR; otherwise the RB/WR is the better pick. A 3rd+ TE is never worth it. (The engine already applied this — a capped TE is labeled "extra TE — bench only" in the shortlist.)'
+        : 'one TE slot — one starting TE plus at most one flex-worthy TE; a 3rd+ is never worth it over RB/WR');
+    }
     rules.push('RB/WR reward real bench depth (flex, byes, injuries), so extra RB/WR keep value');
     guidanceStr = ` Roster construction — current counts QB ${c.QB || 0}, RB ${c.RB || 0}, WR ${c.WR || 0}, TE ${c.TE || 0}.`
       + ` Caps the engine follows: ${rules.join('; ')}. Don't push a "must-grab" at a position already stacked unless the value is genuinely elite.`;

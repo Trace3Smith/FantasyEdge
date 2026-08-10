@@ -109,6 +109,19 @@ each change was offline-verified against synthetic drafts.
   real work.** Only pays off for non-standard roto leagues.
 - Detail: `coach-scoring-scoping.md` → Phase 2.
 
+### 6. VORP hides deep-position ADP value from the Coach — follow-up (unscheduled)
+
+- Surfaced while fixing the flex-worthy-TE2 chat bug. The Coach's shortlist is VORP-gated, so a strong
+  player at a **deep** position can sit **below replacement** and never appear as an alternative even
+  when he's a genuine ADP/points value. Concrete case: **Mike Evans** — proj **222**, ADP value, yet
+  **VORP −8.8** in a deep WR pool (WR replacement ≈ 183), so he was invisible to the chat while a
+  lower-proj RB was recommended.
+- This is **by-design VORP behavior** (a 174-pt WR really is replacement-level when WR is that deep), so
+  it's not strictly a bug — but it means the Coach can't weigh "raw points / ADP value at a deep
+  position" the way a human drafter does. Options to consider: surface a small "best-by-ADP-value" slate
+  alongside the VORP shortlist, or let the chat see a few sub-replacement high-proj names flagged as
+  "deep-position value, low VORP." **Not fixing now** — logged for a deliberate design pass.
+
 ## Sequence & dependencies
 
 1. **Run the ESPN `mDraftDetail` spike — no longer strictly August-gated.** The test plan
