@@ -15,6 +15,8 @@
 //   PART 5 — Coach context: roster ownership is unambiguous (empty slots read "none").
 //   PART 6 — Flex-worthy TE2 label + guidance: a non-flex-worthy 2nd TE reads as a capped bench pick
 //            (not endorsed "TE depth"), and the guidance carries the flex-comparison rule.
+//   PART 7 — Flex comparison uses OUTPUT, not positional VORP: a 2nd TE with higher positional VORP but
+//            lower raw output than the best WR is still capped (and not the "My pick").
 
 import { recommend, vonaScarcityClause, DEFAULT_SETTINGS, adpFor } from '../api/_lib/draft.js';
 import { buildDraftContext } from '../draftContext.js';
@@ -242,7 +244,39 @@ console.log('\nPART 6 — flex-worthy TE2 label + guidance');
 }
 
 // ============================================================================
+// PART 7 — Flex comparison is by OUTPUT, not positional VORP (regression for the "My pick took a 2nd TE
+// over a better WR" bug). A DEEP WR pool (high WR replacement) + a SHALLOW TE pool (low TE replacement)
+// makes the best TE out-VORP the best WR while UNDER-producing it on raw output. The flex should go by
+// output, so the TE must be capped and must NOT be the pick — even though positional VORP favors it.
+// ============================================================================
+console.log('\nPART 7 — flex comparison uses output, not positional VORP');
+{
+  const ps = []; let id = 0;
+  const mk = (pos,fp) => ps.push({ id:`o${++id}`, pos, name:`${pos}-${Math.round(fp)}`, fpPpr:fp, proj:{fpts:fp} });
+  // WR: a top WR at 198 over a HIGH replacement floor (~185 across the pool) -> best-WR VORP small (~13),
+  // and few WRs clear the floor, so a capped TE stays visible in the shortlist rather than buried.
+  mk('WR', 198); mk('WR', 190); for (let i=0;i<40;i++) mk('WR', 185);
+  // TE: shallow — top 196 declining steeply so the ~13th (replacement) is ~148 -> best-TE VORP large (~48).
+  for (let i=0;i<13;i++) mk('TE', 196 - i*4); for (let i=0;i<10;i++) mk('TE', 100);
+  for (let i=0;i<25;i++) mk('RB', 150);                // flat, modest RB (VORP ~0) so WR is the best flex
+  for (let i=0;i<20;i++) mk('QB', 10);
+  for (let i=0;i<15;i++) mk('K', 10); for (let i=0;i<15;i++) mk('DST', 10);
+  const roster = [{pos:'QB'},{pos:'RB'},{pos:'RB'},{pos:'WR'},{pos:'WR'},{pos:'TE'}]; // owns one TE
+  const { candidates } = recommend(ps, new Set(), roster, settings, 8, []);
+  const bestTE = candidates.find(c => c.pos === 'TE');
+  const bestWR = candidates.find(c => c.pos === 'WR');
+  console.log(`   best TE: raw ${bestTE?.value} VORP ${bestTE?.vorp} [${bestTE?.reasonLabel}]`);
+  console.log(`   best WR: raw ${bestWR?.value} VORP ${bestWR?.vorp}`);
+  console.log('   My pick:', candidates[0]?.pos, candidates[0]?.name);
+  // Precondition: this is genuinely the VORP-vs-output divergence (TE out-VORPs the WR, under-produces it).
+  check('scenario is the divergence (best TE has higher VORP but lower raw output than best WR)',
+        bestTE && bestWR && bestTE.vorp > bestWR.vorp && bestTE.value < bestWR.value);
+  check('the higher-VORP-but-lower-output TE is capped (flex judged by output)', /bench only/.test(bestTE?.reasonLabel || ''));
+  check('"My pick" is not that 2nd TE', candidates[0]?.pos !== 'TE');
+}
+
+// ============================================================================
 console.log('\n' + (results.every(r=>r.ok)
-  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 behave as shipped.`
+  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output behave as shipped.`
   : `FAILURES: ${results.filter(r=>!r.ok).map(r=>r.name).join('; ')}`));
 process.exit(results.every(r=>r.ok) ? 0 : 1);

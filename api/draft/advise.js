@@ -20,6 +20,8 @@ const SYSTEM_NFL = `You are an elite fantasy football draft analyst. The user is
 3. Positional scarcity — as startable players at a position dry up while the draft progresses, urgency to secure one rises.
 4. Need vs. value balance — usually take the best value that also fits a need, but when an ELITE player is falling well past his ADP it can be worth reaching even if his position isn't a current need. When you recommend that, set reach=true.
 
+FLEX / EXTRA TE RULE: the FLEX takes any RB/WR/TE, so who fills it best is decided by projected OUTPUT there, not by position. Once the user already has their starting TE, a 2nd TE only ever plays via the flex — so take one over an available RB/WR ONLY if it out-projects them; if it merely ties or trails, the RB/WR is the better pick (they also cover byes/injuries). A candidate flagged "extra TE — bench only" has already failed that test: do NOT recommend it over a comparable RB/WR.
+
 ROSTER NECESSITY OVERRIDE: if the prompt includes a ROSTER NECESSITY note, it overrides everything above — you MUST use this pick to fill one of the named mandatory slots (typically K or DST in the final rounds). An incomplete, illegal lineup is worse than any value you could gain, so take the mandatory slot now rather than a falling-value reach, and set reach=false.
 
 You are given the roster, round, scoring, recent positional runs, positional scarcity, and a numbered shortlist of the best available candidates (already filtered by our model) with each one's signals — including where given a consistency score (weekly floor, out of 100; higher = steadier) and a points ceiling (weekly upside). Favor a steady floor when locking a starter you need every week, and tolerate a lower floor for a high ceiling on an upside swing. Pick THE single best candidate from that shortlist. You may deviate from board order when need, scarcity, or falling value justifies it.
@@ -102,6 +104,9 @@ function describeNfl(c, n) {
   if (c.form === 'hot') bits.push('trending up');
   if (c.need) bits.push('fills a roster need');
   if (c.forced) bits.push('mandatory starting slot still unfilled');
+  // A beyond-starter TE the engine judged not flex-worthy (a better RB/WR fills the flex). Surface the
+  // verdict so the analyst doesn't recommend it over a comparable RB/WR (see the FLEX / EXTRA TE RULE).
+  if (typeof c.reasonLabel === 'string' && c.reasonLabel.includes('bench only')) bits.push('extra TE — bench only (a better RB/WR fills the flex)');
   return bits.join(', ');
 }
 

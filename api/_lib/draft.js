@@ -218,14 +218,14 @@ function needFactor(pos, counts, board) {
         // Standard single-TE league: one TE is the "auto" starter (gap>0 branch above). Only the 2nd
         // TE can actually reach a startable slot — the single FLEX — so ONLY it gets the flex treatment:
         // a low baseline (bench insurance) that SPIKES to the RB/WR depth curve when the best TE left
-        // out-values the best flex-eligible RB/WR (bestVorp comparison). A 3rd TE can't start over two
-        // others, so it never spikes — it holds a low outlier-only baseline (clears just on real value).
-        // A 4th+ TE has zero lineup use, so it's floored to the K/DST tail (see the VORP-zeroing in the
-        // scored map) and is never taken regardless of raw value. NOTE the surplus===0 gate: winsFlex is
-        // trivially true once RB/WR draft down to replacement (their bestVorp floors to 0 while TEs, with
-        // lower demand, don't), so without the gate it spiked EVERY extra TE to the flex curve — the
-        // 5-TE hoard. TE-premium / 2-TE-starter leagues (min ≥ 2) keep the looser soft-cap curve.
-        const bv = board.bestVorp || {};
+        // out-VALUES (more flex OUTPUT, not positional VORP) the best flex-eligible RB/WR. Comparing raw
+        // output is the point: positional VORP over-credits the scarce TE (low replacement) it can't
+        // realize once the starter's set, so it wrongly spiked a 2nd TE that merely ties a WR on output.
+        // A 3rd TE can't start over two others, so it never spikes — low outlier-only baseline. A 4th+ TE
+        // has zero lineup use, floored to the K/DST tail (VORP-zeroing in the scored map). The surplus===0
+        // gate keeps the spike to the 2nd TE only. TE-premium / 2-TE-starter leagues (min ≥ 2) keep the
+        // looser soft-cap curve.
+        const bv = board.bestFlexVal || {};
         const winsFlex = (bv.TE || 0) > Math.max(bv.RB || 0, bv.WR || 0);
         const baseline = surplus === 0 ? 0.15 : surplus === 1 ? 0.05 : 0.02; // 2nd=bench insurance, 3rd=outlier-only, 4th+=dead
         desire = (surplus === 0 && winsFlex) ? Math.max(baseline, flexDepthDesire) : baseline; // spike ONLY the 2nd TE (it alone can flex)
@@ -471,11 +471,15 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
     vonaCliff[pos] = vs.length >= 2 ? Math.max(0, vs[0] - vs[1]) : 0;
   }
 
-  // Best-available VORP by position (posVals is now sorted desc, so [0] is the top value). The FLEX
-  // comparator in needFactor: since RB/WR/TE all fill the flex, a beyond-starter TE is only PRIORITIZED
-  // early when its best remaining body out-values the best flex-eligible RB/WR left (else it falls late).
-  const bestVorp = {};
-  for (const pos of Object.keys(posVals)) bestVorp[pos] = Math.max(0, posVals[pos][0] - (levels[pos] ?? 0));
+  // Best-available OUTPUT (blend value) by position (posVals is sorted desc, so [0] is the top value).
+  // The FLEX comparator in needFactor. It compares RAW output, NOT VORP-over-positional-replacement:
+  // all of RB/WR/TE fill the single flex, so who "wins the flex" is whoever puts up the most points
+  // THERE. Positional VORP is the wrong yardstick here — it credits a scarce-position TE (low
+  // replacement ~153) for scarcity it can't relieve once the TE starter slot is filled (a 2nd TE only
+  // ever flexes), inflating it over a deeper-position WR (replacement ~183) at equal output. Using raw
+  // output also makes this agree with the Coach chat, which compares by the same blend FPTS.
+  const bestFlexVal = {};
+  for (const pos of Object.keys(posVals)) bestFlexVal[pos] = posVals[pos][0] ?? 0;
 
   // Draft-end cushion: spare picks beyond the mandatory starting slots still unfilled.
   // Derived from roster state, not the round number — when it hits zero, those unmet
@@ -508,12 +512,13 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
       const deadTE = p.pos === 'TE' && ((counts.TE || 0) - (minRoster.TE || 0)) >= 2;
       const vorp = (isKD || deadTE) ? 0 : Math.max(0, v - (levels[p.pos] ?? 0));
       const gap = Math.max(0, (minRoster[p.pos] || 0) - (counts[p.pos] || 0));
-      const factor = needFactor(p.pos, counts, { startableLeft, teams, slack, run: runSet.has(p.pos), minRoster, demand, vonaCliff, bestVorp });
+      const factor = needFactor(p.pos, counts, { startableLeft, teams, slack, run: runSet.has(p.pos), minRoster, demand, vonaCliff, bestFlexVal });
       // Flex-worthiness of a beyond-starter TE (single-TE league), mirroring needFactor's gate: the 2nd
-      // TE earns its label only if it out-values the best RB/WR flex option; a non-winning 2nd TE or any
-      // 3rd+ TE is capped. Surfaced via reasonLabel so downstream layers (the Coach chat) see the verdict.
+      // TE earns its label only if it out-values (more flex output) the best RB/WR flex option; a
+      // non-winning 2nd TE or any 3rd+ TE is capped. Surfaced via reasonLabel so downstream layers (the
+      // "My pick" analyst in advise.js and the Coach chat) see the verdict.
       const teSurplus = (counts.TE || 0) - (minRoster.TE || 0);
-      const teFlexWorthy = teSurplus === 0 && (bestVorp.TE || 0) > Math.max(bestVorp.RB || 0, bestVorp.WR || 0);
+      const teFlexWorthy = teSurplus === 0 && (bestFlexVal.TE || 0) > Math.max(bestFlexVal.RB || 0, bestFlexVal.WR || 0);
       const teCapped = p.pos === 'TE' && (minRoster.TE || 0) === 1 && teSurplus >= 0 && !teFlexWorthy;
 
       // ADP value: a player still on the board well past his average draft position is
