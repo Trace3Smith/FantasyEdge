@@ -489,6 +489,12 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
   for (const [pos, m] of Object.entries(minRoster)) mandatoryRemaining += Math.max(0, m - (counts[pos] || 0));
   const picksLeft = Math.max(0, totalRounds - roster.length);
   const slack = picksLeft - mandatoryRemaining;
+  // Endgame: with almost no picks left there's little/no future value to optimize, so ADP "pounce before
+  // others take him" value fades — on your LAST pick, ADP is irrelevant, you just take the best player.
+  // adpHorizon decays the ADP bump to ~0 by the final pick; finalPick then ranks strictly by raw blend
+  // value so the best available leads instead of a lower-value ADP-only name.
+  const adpHorizon = clampNum((picksLeft - 1) / 2, 0, 1); // 1 pick left -> 0 (no ADP), 2 -> 0.5, 3+ -> full
+  const finalPick = picksLeft <= 1;
 
   const runs = positionRuns(recentPicks);
   const runSet = new Set(runs);
@@ -526,7 +532,9 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
       // past ADP (so a massive faller can't override genuine roster need entirely).
       const adp = adpFor(p, scoring);
       const adpDelta = adp != null ? currentPick - adp : 0; // > 0 means falling past ADP
-      const adpBoost = adpDelta > 0 ? 1 + (Math.min(adpDelta, 2 * teams) / (2 * teams)) * 0.6 : 1;
+      // The bump decays toward the endgame (adpHorizon): a falling-ADP value is only worth chasing when
+      // future picks remain where it could be gone — on the final pick it's moot, so the boost is ~0.
+      const adpBoost = adpDelta > 0 ? 1 + (Math.min(adpDelta, 2 * teams) / (2 * teams)) * 0.6 * adpHorizon : 1;
 
       // Consistency as a SMALL tiebreaker (±5% at most, centered at 60): a steady floor breaks near-ties
       // between comparable players without overriding VORP/need. Absent (offseason/thin) → neutral.
@@ -563,11 +571,18 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
         form,
         reasonLabel: nflReasonLabel({ pos: p.pos, need, forced, falling, consistency: p.consistency ?? null, form, teCapped }),
       };
-    })
-    // Forced needs first (so a mandatory slot is never skipped at the buzzer), then by
-    // the reactive score, then by raw board rank as a tiebreak.
+    });
+  // Endgame ranking value: raw blend value for skill players; K/DST sink (they're only taken via the
+  // forced tier once their slot is open, never as a "best available" luxury on the last pick).
+  const endgameVal = (c) => (c.pos === 'K' || c.pos === 'DST') ? -1 : c.value;
+  scored
+    // Forced needs first (so a mandatory slot is never skipped at the buzzer); then, on the FINAL pick,
+    // strictly by raw blend value (best player available — ADP/need no longer matter) with K/DST sunk
+    // since a filled K/DST is worthless and an unfilled one is already `forced` above; otherwise by the
+    // reactive score, then raw board rank as a tiebreak.
     .sort((a, b) =>
       (b.forced ? 1 : 0) - (a.forced ? 1 : 0) ||
+      (finalPick ? endgameVal(b) - endgameVal(a) : 0) ||
       b.score - a.score ||
       (a.rank ?? 1e9) - (b.rank ?? 1e9)
     );
@@ -628,5 +643,17 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
     mustFillNow: slack <= 0 && needs.length > 0,
     fillSoon: slack === 1 && needs.length > 0,
   };
-  return { candidates: scored.slice(0, 12), runs, board };
+  // Pool consistency with the Coach chat: the chat can surface the best-available-by-VALUE player at a
+  // position (its per-position board draws from the full pool by blend), so the "My pick" analyst's
+  // shortlist must not OMIT a value leader the chat would tout — otherwise the two disagree (a high-blend
+  // name appears reactively that the initial pick never considered). Union the highest-blend candidate at
+  // each flex position into the returned shortlist if the top-12-by-score left it out.
+  const shortlist = scored.slice(0, 12);
+  const inList = new Set(shortlist.map((c) => c.id));
+  for (const pos of ['RB', 'WR', 'TE']) {
+    let leader = null;
+    for (const c of scored) { if (c.pos === pos && (!leader || c.value > leader.value)) leader = c; }
+    if (leader && !inList.has(leader.id)) { shortlist.push(leader); inList.add(leader.id); }
+  }
+  return { candidates: shortlist, runs, board };
 }

@@ -19,6 +19,11 @@
 //            lower raw output than the best WR is still capped (and not the "My pick").
 //   PART 8 — Filled/open starting-slot summary (board.slots): a filled slot is marked FILLED (not a
 //            need) and an empty slot OPEN, so the "My pick" analyst can't invent a need at a filled slot.
+//   PART 9 — Endgame ADP-boost decay (the Hollywood Brown / last-pick bug): a falling-ADP name that
+//            legitimately leads mid-draft (future picks to protect) must NOT out-rank a higher-value
+//            player on the FINAL pick, where ADP "pounce before others take him" value is moot.
+//   PART 10 — Candidate-pool consistency with the Coach chat: the per-position VALUE leader the chat
+//            can tout is always in the "My pick" shortlist, even when top-12-by-score would drop it.
 
 import { recommend, vonaScarcityClause, DEFAULT_SETTINGS, adpFor } from '../api/_lib/draft.js';
 import { buildDraftContext } from '../draftContext.js';
@@ -302,7 +307,70 @@ console.log('\nPART 8 — filled/open starting-slot summary (board.slots)');
 }
 
 // ============================================================================
+// PART 9 — Endgame ADP-boost decay (regression for the Hollywood Brown / last-pick bug: a lower-value
+// name that only leads because it fell past its ADP was still winning the FINAL pick, where ADP is moot).
+// Two RB candidates (identical needFactor, so only (vorp+0.5)*adpBoost separates them): RB-VALUE has the
+// higher raw value with ADP right at the pick, RB-FALLER has lower value but fell far past ADP. Same pool
+// and roster, only the draft horizon changes (via rounds -> picksLeft). Mid-draft (picksLeft>1) the faller
+// legitimately leads (future picks to protect). On the final pick (picksLeft<=1) the boost must decay to
+// ~0 so the best player available (RB-VALUE) leads instead.
+// ============================================================================
+console.log('\nPART 9 — endgame ADP-boost decay (last-pick takes best value, not the ADP faller)');
+{
+  const pool = () => {
+    const ps = []; let id = 0;
+    const mk = (pos,fp,adp,name) => ps.push({ id:`e${++id}`, pos, name: name||`${pos}-${fp}`, team:'X', rank:id, fpPpr:fp, proj:{fpts:fp}, adp: adp!=null?{ppr:adp,standard:adp}:undefined });
+    mk('RB', 140, 99, 'RB-VALUE');        // higher value, ADP ~ current pick (no boost)
+    mk('RB', 125,  1, 'RB-FALLER');       // lower value, fell way past ADP (boosted mid-draft)
+    for (let i=0;i<40;i++) mk('RB', 60); for (let i=0;i<40;i++) mk('WR', 55);   // deep floors: both leaders clear replacement
+    for (let i=0;i<20;i++) mk('QB', 40); for (let i=0;i<20;i++) mk('TE', 35);
+    for (let i=0;i<15;i++) mk('K', 10); for (let i=0;i<15;i++) mk('DST', 10);
+    return ps;
+  };
+  // All mandatory slots filled (QB,RB,RB,WR,WR,TE,K,DST) -> gap 0 everywhere, nothing forced in either run.
+  const roster = [{id:'q',pos:'QB'},{id:'r1',pos:'RB'},{id:'r2',pos:'RB'},{id:'w1',pos:'WR'},{id:'w2',pos:'WR'},{id:'t',pos:'TE'},{id:'k',pos:'K'},{id:'d',pos:'DST'}];
+  const drafted = new Set(Array.from({length:99},(_,i)=>`taken${i}`)); // currentPick ~100 -> RB-FALLER (adp 1) is a big faller
+  const run = (rounds) => {
+    const { candidates } = recommend(pool(), drafted, roster, { ...settings, rounds }, 8, []);
+    return { top: candidates[0], val: candidates.find(c=>c.name==='RB-VALUE'), fal: candidates.find(c=>c.name==='RB-FALLER'), picksLeft: rounds - roster.length };
+  };
+  const mid = run(15);   // picksLeft 7 -> full ADP horizon
+  const fin = run(9);    // picksLeft 1 -> final pick, ADP horizon ~0
+  console.log(`   mid-draft (picksLeft ${mid.picksLeft}): pick ${mid.top?.name} [VALUE ${mid.val?.score} vs FALLER ${mid.fal?.score}]`);
+  console.log(`   final pick (picksLeft ${fin.picksLeft}): pick ${fin.top?.name} [VALUE ${fin.val?.score} vs FALLER ${fin.fal?.score}]`);
+  check('mid-draft: the falling-ADP name legitimately leads (boost intact)', mid.top?.name === 'RB-FALLER');
+  check('final pick: the higher-value name leads (ADP boost decayed to ~0)', fin.top?.name === 'RB-VALUE');
+  check('final pick: the ADP faller no longer out-scores the value player', fin.val?.score > fin.fal?.score);
+}
+
+// ============================================================================
+// PART 10 — Candidate-pool consistency with the Coach chat (root-cause half of the Hollywood Brown issue:
+// advise.js's shortlist and the chat's per-position board drew from different pools, so a high-VALUE name
+// the chat would tout could be absent from the "My pick" shortlist). recommend() must union the per-
+// position VALUE leader into the returned shortlist even when top-12-by-score would drop it. Here a
+// WR-heavy roster (low WR desire) buries the highest-value WR below a wall of need/ADP-boosted RBs; the
+// union must still surface it.
+// ============================================================================
+console.log('\nPART 10 — candidate-pool consistency (per-position value leader always in the shortlist)');
+{
+  const ps = []; let id = 0;
+  const mk = (pos,fp,adp,name) => ps.push({ id:`c${++id}`, pos, name: name||`${pos}-${fp}`, team:'X', rank:id, fpPpr:fp, proj:{fpts:fp}, adp: adp!=null?{ppr:adp,standard:adp}:undefined });
+  mk('WR', 240, 90, 'WR-VALUE-LEADER');                                   // highest raw WR value, no ADP boost, low desire
+  for (let i=0;i<14;i++) mk('RB', 150 - i, 1, `RB-faller-${i}`);          // 14 need+ADP-boosted RBs fill the top-12 by score
+  for (let i=0;i<30;i++) mk('WR', 60); for (let i=0;i<30;i++) mk('RB', 55);
+  for (let i=0;i<20;i++) mk('QB', 40); for (let i=0;i<20;i++) mk('TE', 35);
+  for (let i=0;i<15;i++) mk('K', 10); for (let i=0;i<15;i++) mk('DST', 10);
+  const roster = [{id:'w1',pos:'WR'},{id:'w2',pos:'WR'},{id:'w3',pos:'WR'},{id:'q',pos:'QB'}]; // WR-heavy, RB still a need
+  const { candidates } = recommend(ps, new Set(Array.from({length:40},(_,i)=>`t${i}`)), roster, settings, 5, []);
+  const idx = candidates.findIndex(c=>c.name==='WR-VALUE-LEADER');
+  const inTop12ByScore = candidates.slice(0,12).some(c=>c.name==='WR-VALUE-LEADER');
+  console.log(`   WR-VALUE-LEADER present at shortlist index ${idx} (in top-12-by-score: ${inTop12ByScore})`);
+  check('the WR value leader would be dropped by top-12-by-score alone', !inTop12ByScore);
+  check('the WR value leader is still in the returned shortlist (unioned in)', idx >= 0);
+}
+
+// ============================================================================
 console.log('\n' + (results.every(r=>r.ok)
-  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary behave as shipped.`
+  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency behave as shipped.`
   : `FAILURES: ${results.filter(r=>!r.ok).map(r=>r.name).join('; ')}`));
 process.exit(results.every(r=>r.ok) ? 0 : 1);
