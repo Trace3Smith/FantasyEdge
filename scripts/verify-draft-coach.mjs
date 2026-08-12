@@ -24,8 +24,13 @@
 //            player on the FINAL pick, where ADP "pounce before others take him" value is moot.
 //   PART 10 — Candidate-pool consistency with the Coach chat: the per-position VALUE leader the chat
 //            can tout is always in the "My pick" shortlist, even when top-12-by-score would drop it.
+//   PART 11 — Reach-headline honesty (the Josh Allen bug): the "My pick" reach suffix is worded from the
+//            pick's ACTUAL adpDelta — a player taken AHEAD of his ADP is never called "falling past ADP".
+//   PART 12 — Reach-flag overload: the coarse board-row reason is derived from adpDelta too, so an off-need
+//            reach that isn't a genuine faller reads as 'reach', not blanket 'value'.
 
 import { recommend, vonaScarcityClause, DEFAULT_SETTINGS, adpFor } from '../api/_lib/draft.js';
+import { reachSuffix, pickReasonTag } from '../pickReasons.js';
 import { buildDraftContext } from '../draftContext.js';
 import { nflFpts } from '../nflScoring.js';
 
@@ -370,7 +375,59 @@ console.log('\nPART 10 — candidate-pool consistency (per-position value leader
 }
 
 // ============================================================================
+// PART 11 — Reach-headline honesty (regression for the Josh Allen bug: the "My pick" headline hardcoded
+// "an elite value falling past his ADP, worth the reach" on the reach flag alone, so a player taken AHEAD
+// of his ADP was falsely called a faller). reachSuffix() must word the line from the pick's real adpDelta:
+// ahead-of-ADP reads as a reach ahead of ADP (never "falling"), a genuine faller reads as fallen past ADP,
+// and around-ADP / no-ADP asserts no direction. The exact Allen numbers (pick 20, ADP 26.6 -> delta ~-7).
+// ============================================================================
+console.log('\nPART 11 — reach-headline honesty (worded from actual adpDelta, no false "falling" claim)');
+{
+  const ahead   = reachSuffix({ pos:'QB', adpDelta:-7 });   // Josh Allen: pick 20, ADP 26.6 -> taken ahead of ADP
+  const faller  = reachSuffix({ pos:'RB', adpDelta: 8 });    // genuinely slid past his ADP
+  const around  = reachSuffix({ pos:'WR', adpDelta: 1 });    // right around ADP
+  const noAdp   = reachSuffix({ pos:'TE', adpDelta: null }); // no ADP data
+  const roto    = reachSuffix({ pos:'C',  adpDelta: null }, { roto:true });
+  console.log('   ahead-of-ADP :', JSON.stringify(ahead));
+  console.log('   faller       :', JSON.stringify(faller));
+  console.log('   around ADP   :', JSON.stringify(around));
+  console.log('   no ADP data  :', JSON.stringify(noAdp));
+  console.log('   roto         :', JSON.stringify(roto));
+  const claimsFalling = (s) => /fall(en|ing)|past his ADP/i.test(s);
+  check('an AHEAD-of-ADP reach is NOT called "falling past his ADP" (the Allen bug)', !claimsFalling(ahead));
+  check('an ahead-of-ADP reach reads as a reach ahead of his ADP', /ahead of his ADP/i.test(ahead));
+  check('a genuine faller IS described as fallen past his ADP', /fallen \d+ picks past his ADP/i.test(faller));
+  check('an around-ADP reach asserts no ADP direction (no false claim)', !claimsFalling(around) && !/ahead of his ADP/i.test(around));
+  check('a no-ADP-data reach asserts no ADP direction', !claimsFalling(noAdp) && !/ahead of his ADP/i.test(noAdp));
+  check('roto keeps its all-around wording (no ADP framing)', /clearly superior all-around/.test(roto) && !claimsFalling(roto));
+}
+
+// ============================================================================
+// PART 12 — Reach-flag overload on the board tag (second surface of the Allen bug). The coarse board-row
+// reason used to be `reach ? 'value' : ...`, tagging ANY off-need reach "top value". pickReasonTag() must
+// resolve reach against the pick's adpDelta: 'value' only for a genuine faller, else 'reach'; non-reach
+// picks keep forced/need/value. So the tag and the headline (reachSuffix) can never disagree.
+// ============================================================================
+console.log('\nPART 12 — reach-flag overload (board tag honest to adpDelta, not blanket "value")');
+{
+  const aheadReach = pickReasonTag({ adpDelta:-7 }, { reach:true });               // Allen: off-need reach, ahead of ADP
+  const fallerReach = pickReasonTag({ adpDelta: 8 }, { reach:true });              // off-need reach on a genuine faller
+  const aroundReach = pickReasonTag({ adpDelta: 1 }, { reach:true });              // off-need reach, right around ADP
+  const forcedPick  = pickReasonTag({ forced:true, need:true, adpDelta:null }, { reach:false });
+  const needPick    = pickReasonTag({ need:true, adpDelta:null }, { reach:false });
+  const valuePick   = pickReasonTag({ adpDelta:null }, { reach:false });           // normal best-available
+  console.log('   reach+ahead:', aheadReach, '| reach+faller:', fallerReach, '| reach+around:', aroundReach,
+              '| forced:', forcedPick, '| need:', needPick, '| plain:', valuePick);
+  check('an off-need reach AHEAD of ADP tags as "reach", not "value" (the Allen bug)', aheadReach === 'reach');
+  check('an off-need reach on a genuine faller still tags as "value"', fallerReach === 'value');
+  check('an off-need reach around ADP tags as "reach"', aroundReach === 'reach');
+  check('a forced late pick still tags as "must-fill"', forcedPick === 'must-fill');
+  check('a need pick still tags as "need"', needPick === 'need');
+  check('a normal best-available pick tags as "value"', valuePick === 'value');
+}
+
+// ============================================================================
 console.log('\n' + (results.every(r=>r.ok)
-  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency behave as shipped.`
+  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty behave as shipped.`
   : `FAILURES: ${results.filter(r=>!r.ok).map(r=>r.name).join('; ')}`));
 process.exit(results.every(r=>r.ok) ? 0 : 1);

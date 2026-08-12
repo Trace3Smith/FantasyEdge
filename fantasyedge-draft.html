@@ -420,6 +420,7 @@ import { positionalRanks, posRankLabel, leagueRanking, draftGrade } from '/draft
 // Coach chat's live-draft context string — extracted so it has one source of truth + pre-push
 // regression coverage (scripts/verify-draft-coach.mjs). Pure; we inject our globals/helpers below.
 import { buildDraftContext as buildDraftContextString } from '/draftContext.js';
+import { reachSuffix, pickReasonTag } from '/pickReasons.js';
 
 // --- Mock draft controller ----------------------------------------------------
 let players = [];           // full player pool for the active sport
@@ -996,16 +997,20 @@ async function analystOpening() {
   // Keep the engine's ranked shortlist (need/desire-weighted) for the Coach chat context.
   lastCandidates = data.candidates.slice(0, 8).map((c) => ({ id: c.id, name: c.name, pos: c.pos, reasonLabel: c.reasonLabel || null }));
   // Highlight + scroll to the recommended player on the board so it's found without scrolling. The
-  // reason (reach = falling value, forced/need = roster slot) drives the on-row label so a lower pick
-  // reads as intentional. Re-render with the current search preserved, then bring the row into view.
+  // reason (an off-need reach resolves to falling-value vs. reach by the pick's real adpDelta; else
+  // forced/need = roster slot) drives the on-row label so a lower pick reads as intentional. Re-render
+  // with the current search preserved, then bring the row into view.
   suggestedId = top.id;
-  suggestedReason = data.reach ? 'value' : (top.forced ? 'must-fill' : (top.need ? 'need' : 'value'));
+  // Coarse board-row reason, honest to the pick's actual adpDelta: an off-need reach only reads as "value"
+  // when he truly fell past his ADP, else "reach" — no longer blanket-"value" on the reach flag alone.
+  suggestedReason = pickReasonTag(top, { reach: data.reach });
   suggestedLabel = top.reasonLabel || null; // rich fused reason ("fills your SB gap"); coarse reason is the fallback
   renderAvailable($('availSearch').value || '');
   scrollToSuggested();
-  const reachLine = data.reach
-    ? (isRoto() ? ' — a clearly superior all-around player, worth the reach' : ' — an elite value falling past his ADP, worth the reach')
-    : '';
+  // Explain an off-need reach truthfully from the pick's ACTUAL adpDelta (a value that fell past his ADP
+  // vs. a genuine reach ahead of it) — never the old hardcoded "falling past his ADP" that fired on the
+  // reach flag alone and lied whenever the pick was actually ahead of ADP.
+  const reachLine = data.reach ? reachSuffix(top, { roto: isRoto() }) : '';
   const text = `My pick: ${top.name} (${top.pos}, ${top.team})${reachLine}.`
     + (data.rationale ? `\n\n${data.rationale}` : '');
   await coachTypeOut(addCoachMsg('coach', '').querySelector('.cb'), text);
@@ -1108,6 +1113,7 @@ function sugLabel(reason, pos) {
   if (reason === 'must-fill') return `★ Coach — must fill ${pos}`;
   if (suggestedLabel) return '★ Coach — ' + escapeHtml(suggestedLabel);
   if (reason === 'need') return `★ Coach — fills your ${pos}`;
+  if (reason === 'reach') return '★ Coach — worth the reach';
   return '★ Coach — top value';
 }
 // Bring the Coach's recommended player into view on the board (called when a new pick arrives).
