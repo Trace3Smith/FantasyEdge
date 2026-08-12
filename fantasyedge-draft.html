@@ -961,7 +961,11 @@ function renderUserTurn() {
 // pick supersedes an in-flight one).
 async function analystOpening() {
   const offline = state.mode === 'offline';
-  const round = offline ? state.roster.length + 1 : roundOf(state.pickIndex, state.settings.teams);
+  // One round formula for every mode. This only fires when the user is on the clock, where the overall
+  // pick index and roster.length+1 are provably equal (the user has made exactly round-1 picks by then),
+  // so the old offline special-case (roster.length+1) was redundant — and would silently diverge if a
+  // pick were ever skipped, drifting the "Round N" framing. pickIndex is the single source of truth.
+  const round = roundOf(state.pickIndex, state.settings.teams);
   const reqId = ++adviceReq;
   const typing = coachTyping();
   const body = {
