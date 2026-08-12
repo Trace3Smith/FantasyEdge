@@ -28,8 +28,10 @@
 //            pick's ACTUAL adpDelta — a player taken AHEAD of his ADP is never called "falling past ADP".
 //   PART 12 — Reach-flag overload: the coarse board-row reason is derived from adpDelta too, so an off-need
 //            reach that isn't a genuine faller reads as 'reach', not blanket 'value'.
+//   PART 13 — Scarcity line excludes K/DST: streamed last-round positions never sort to the front of the
+//            analyst's "fewest first" scarcity list, so it can't frame them as urgent alongside QB/TE.
 
-import { recommend, vonaScarcityClause, DEFAULT_SETTINGS, adpFor } from '../api/_lib/draft.js';
+import { recommend, vonaScarcityClause, scarcityLine, DEFAULT_SETTINGS, adpFor } from '../api/_lib/draft.js';
 import { reachSuffix, pickReasonTag } from '../pickReasons.js';
 import { buildDraftContext } from '../draftContext.js';
 import { nflFpts } from '../nflScoring.js';
@@ -427,7 +429,30 @@ console.log('\nPART 12 — reach-flag overload (board tag honest to adpDelta, no
 }
 
 // ============================================================================
+// PART 13 — Scarcity line excludes K/DST (regression for the misleading "QB is scarcest alongside DST/K"
+// rationale). K/DST have near-random value, so their startable counts are tiny and would sort to the FRONT
+// of a fewest-first list, letting the analyst pair them with a genuinely scarce QB/TE and imply early
+// urgency. scarcityLine() must drop them entirely, keep skill positions fewest-first, and their late-round
+// timing is handled elsewhere (ROSTER NECESSITY). Roto pools (no K/DST) are unaffected.
+// ============================================================================
+console.log('\nPART 13 — scarcity line excludes K/DST (no false early-urgency signal)');
+{
+  // DST/K have the smallest counts (would otherwise lead the fewest-first list ahead of QB/TE).
+  const startableLeft = { DST:1, K:2, QB:4, TE:5, WR:8, RB:9 };
+  const line = scarcityLine(startableLeft);
+  console.log('   scarcityLine:', JSON.stringify(line));
+  check('no K in the scarcity line', !/\bK\b/.test(line));
+  check('no DST in the scarcity line', !/DST/.test(line));
+  check('skill positions kept, fewest first (QB leads)', line === 'QB 4, TE 5, WR 8, RB 9');
+  // A pool where only K/DST are "startable" must not manufacture a scarcity claim.
+  check('only-K/DST board yields no scarcity list (n/a)', scarcityLine({ K:3, DST:2 }) === 'n/a');
+  check('empty/absent board yields n/a', scarcityLine({}) === 'n/a' && scarcityLine(null) === 'n/a');
+  // Roto-style pool (no K/DST) is untouched — every position survives, fewest first.
+  check('roto pool (no K/DST) is unaffected', scarcityLine({ C:2, PG:5, SG:7 }) === 'C 2, PG 5, SG 7');
+}
+
+// ============================================================================
 console.log('\n' + (results.every(r=>r.ok)
-  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty behave as shipped.`
+  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty + K/DST scarcity exclusion behave as shipped.`
   : `FAILURES: ${results.filter(r=>!r.ok).map(r=>r.name).join('; ')}`));
 process.exit(results.every(r=>r.ok) ? 0 : 1);

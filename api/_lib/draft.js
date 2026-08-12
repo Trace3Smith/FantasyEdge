@@ -282,6 +282,20 @@ export function vonaScarcityPromptNote(swing) {
     + `board is ${swing.altName} (${swing.altPos}), but securing ${swing.pos} now is the smarter play. `
     + `Explain WHY this tradeoff is worth it in your rationale, but do NOT restate the raw startable counts.`;
 }
+// Positional-scarcity line for the analyst prompt: startable players left by position, fewest first. K/DST
+// are EXCLUDED — they're streamed/matchup last-round picks whose tiny startable counts (near-random value)
+// would otherwise sort to the FRONT of a "fewest first" list and falsely imply early urgency, letting the
+// analyst pair them with a genuinely scarce QB/TE. Their late-round timing is the ROSTER NECESSITY note's
+// job, not scarcity. Kept here (offline-testable) so advise.js's prompt and this rule can't drift. Roto
+// sports have no K/DST in startableLeft, so the filter is a no-op there. Returns 'n/a' when none qualify.
+export function scarcityLine(startableLeft) {
+  const SKIP = new Set(['K', 'DST']);
+  const parts = Object.entries(startableLeft || {})
+    .filter(([pos]) => !SKIP.has(pos))
+    .sort((a, b) => a[1] - b[1])
+    .map(([pos, c]) => `${pos} ${c}`);
+  return parts.join(', ') || 'n/a';
+}
 
 const clampNum = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 

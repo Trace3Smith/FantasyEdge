@@ -7,7 +7,7 @@
 // Claude call is unavailable or returns anything unparseable, so advice always ships.
 // Free users get advice through round 7 (FREE_MAX_ROUND); later rounds return an upsell.
 import { getEntitlement, sendError, HttpError, FREE_MAX_ROUND } from '../_lib/auth.js';
-import { loadPlayers, recommend, DEFAULT_SETTINGS, isRoto, resolveStarters, vonaScarcityClause, vonaScarcityPromptNote } from '../_lib/draft.js';
+import { loadPlayers, recommend, DEFAULT_SETTINGS, isRoto, resolveStarters, vonaScarcityClause, vonaScarcityPromptNote, scarcityLine } from '../_lib/draft.js';
 import { NBA_CATS } from '../../nbaScoring.js';
 import { MLB_CATS } from '../../mlbScoring.js';
 import { NHL_CATS } from '../../nhlScoring.js';
@@ -189,9 +189,9 @@ async function analyzePick({ sport, round, scoring, teams, roster, candidates, r
   const slotsStr = slots
     ? `\nStarting slots — FILLED (already set, NOT needs): ${slots.filled.join(', ') || 'none'}. STILL OPEN (real needs): ${slots.open.length ? slots.open.join(', ') : 'none — all starters set; anything now is depth or the FLEX'}.`
     : '';
-  const scarcityStr = Object.entries(board?.startableLeft || {})
-    .sort((a, b) => a[1] - b[1])
-    .map(([pos, c]) => `${pos} ${c}`).join(', ') || 'n/a';
+  // Startable-left by position, fewest first — K/DST excluded (see scarcityLine) so their tiny counts
+  // can't float to the front and make the analyst frame them as scarce positions needing early urgency.
+  const scarcityStr = scarcityLine(board?.startableLeft);
   const listed = candidates.map((c, i) => describe(c, i + 1)).join('\n');
   // Roster necessity (late draft): name the mandatory slots still open so the analyst
   // fills them instead of chasing value when there's no cushion left to wait.
