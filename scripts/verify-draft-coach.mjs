@@ -30,9 +30,11 @@
 //            reach that isn't a genuine faller reads as 'reach', not blanket 'value'.
 //   PART 13 — Scarcity line excludes K/DST: streamed last-round positions never sort to the front of the
 //            analyst's "fewest first" scarcity list, so it can't frame them as urgent alongside QB/TE.
+//   PART 14 — ADP-fit magnitude honesty (the "slight reach" bug): the analyst's ADP-fit line sizes a reach
+//            by its actual gap — a full round or more reads "a notable reach", never a hardcoded "slight".
 
 import { recommend, vonaScarcityClause, scarcityLine, DEFAULT_SETTINGS, adpFor } from '../api/_lib/draft.js';
-import { reachSuffix, pickReasonTag } from '../pickReasons.js';
+import { reachSuffix, pickReasonTag, adpFitPhrase } from '../pickReasons.js';
 import { buildDraftContext } from '../draftContext.js';
 import { nflFpts } from '../nflScoring.js';
 
@@ -452,7 +454,40 @@ console.log('\nPART 13 — scarcity line excludes K/DST (no false early-urgency 
 }
 
 // ============================================================================
+// PART 14 — ADP-fit magnitude honesty (regression for the hardcoded "a slight reach"). describeNfl's
+// ADP-fit clause used to call EVERY ahead-of-ADP name "a slight reach" regardless of the gap, so a
+// 25-pick overpay read the same as a 3-pick one. adpFitPhrase() must size the reach against a full round
+// (`teams` picks): a gap of a full round or more is "a notable reach", a smaller one stays "a slight
+// reach". The value side and the "right around his ADP" band are unchanged, and a null delta yields no
+// clause. teams = 12 here (a full round).
+// ============================================================================
+console.log('\nPART 14 — ADP-fit magnitude honesty (big reach reads "notable", not "slight")');
+{
+  const T = settings.teams; // 12 -> a full round is 12 picks
+  const bigReach   = adpFitPhrase(-25, T);  // the reported bug: 25 picks ahead of ADP (>2 rounds)
+  const fullRound  = adpFitPhrase(-T,  T);  // exactly a full round ahead -> notable (boundary)
+  const smallReach = adpFitPhrase(-4,  T);  // under a round ahead -> still slight
+  const value      = adpFitPhrase(9,   T);  // still on the board past ADP
+  const around     = adpFitPhrase(1,   T);  // right around ADP
+  const noDelta    = adpFitPhrase(null,T);  // no ADP data -> no clause
+  console.log('   -25 :', JSON.stringify(bigReach));
+  console.log('   -12 :', JSON.stringify(fullRound));
+  console.log('   -4  :', JSON.stringify(smallReach));
+  console.log('    +9 :', JSON.stringify(value));
+  console.log('    +1 :', JSON.stringify(around));
+  console.log('   null:', JSON.stringify(noDelta));
+  check('a full-round-plus reach reads "a notable reach", not "slight" (the bug)', /25 picks ahead of his ADP \(a notable reach\)/.test(bigReach) && !/slight/.test(bigReach));
+  check('exactly a full round ahead is already "notable" (boundary is inclusive)', /a notable reach/.test(fullRound));
+  check('an under-a-round reach still reads "a slight reach"', /4 picks ahead of his ADP \(a slight reach\)/.test(smallReach));
+  check('the value side is unchanged (still on the board past ADP)', value === 'still on the board 9 picks past his ADP (a value)');
+  check('the around-ADP band is unchanged', around === 'right around his ADP');
+  check('a null delta yields no clause (caller omits it)', noDelta === null);
+  // Without a teams count there's no round length to compare against -> falls back to "slight" (never crashes).
+  check('missing teams falls back to "slight" (no round length to size against)', /a slight reach/.test(adpFitPhrase(-25)));
+}
+
+// ============================================================================
 console.log('\n' + (results.every(r=>r.ok)
-  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty + K/DST scarcity exclusion behave as shipped.`
+  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty + K/DST scarcity exclusion + ADP-fit magnitude honesty behave as shipped.`
   : `FAILURES: ${results.filter(r=>!r.ok).map(r=>r.name).join('; ')}`));
 process.exit(results.every(r=>r.ok) ? 0 : 1);

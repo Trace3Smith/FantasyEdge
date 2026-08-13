@@ -11,6 +11,7 @@ import { loadPlayers, recommend, DEFAULT_SETTINGS, isRoto, resolveStarters, vona
 import { NBA_CATS } from '../../nbaScoring.js';
 import { MLB_CATS } from '../../mlbScoring.js';
 import { NHL_CATS } from '../../nhlScoring.js';
+import { adpFitPhrase } from '../../pickReasons.js';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-4-6';
@@ -85,18 +86,18 @@ const pct3 = (v) => (v == null ? '—' : '.' + String(Math.round(v * 1000)).padS
 
 // Describe one NFL candidate for the prompt in plain terms (projected points, ADP value,
 // roster need, scarcity-relevant flags) — never internal scoring metrics.
-function describeNfl(c, n) {
+function describeNfl(c, n, teams) {
   const bits = [`[${n}] ${c.name} (${c.pos}, ${c.team})`, `board #${c.rank ?? '—'}`];
   if (c.proj != null) bits.push(`~${c.proj} projected pts`);
   if (c.adp != null) bits.push(`ADP ${c.adp}`);
   // Correct, two-directional ADP fit from the model's signed delta (pick − ADP): positive = still available
-  // past his ADP (value), negative = being taken ahead of his ADP (a reach). The analyst must use THIS,
-  // never invent its own "picks/rounds past ADP" math.
-  if (c.adpDelta != null && c.adp != null) {
-    const d = c.adpDelta;
-    if (d >= 3) bits.push(`still on the board ${d} picks past his ADP (a value)`);
-    else if (d <= -3) bits.push(`being taken ${-d} picks ahead of his ADP (a slight reach)`);
-    else bits.push('right around his ADP');
+  // past his ADP (value), negative = being taken ahead of his ADP (a reach, sized by magnitude — a full
+  // round or more reads "notable", not "slight"). The analyst must use THIS, never invent its own
+  // "picks/rounds past ADP" math. Wording lives in adpFitPhrase (pickReasons.js) so it stays testable and
+  // consistent with the headline/board tag.
+  if (c.adp != null) {
+    const fit = adpFitPhrase(c.adpDelta, teams);
+    if (fit) bits.push(fit);
   }
   // Fused consistency/ceiling (weekly floor vs upside) + in-season form, so the analyst can weigh a steady
   // starter against a boom-or-bust flier. Absent in the offseason / for thin players → simply omitted.
@@ -192,7 +193,7 @@ async function analyzePick({ sport, round, scoring, teams, roster, candidates, r
   // Startable-left by position, fewest first — K/DST excluded (see scarcityLine) so their tiny counts
   // can't float to the front and make the analyst frame them as scarce positions needing early urgency.
   const scarcityStr = scarcityLine(board?.startableLeft);
-  const listed = candidates.map((c, i) => describe(c, i + 1)).join('\n');
+  const listed = candidates.map((c, i) => describe(c, i + 1, teams)).join('\n');
   // Roster necessity (late draft): name the mandatory slots still open so the analyst
   // fills them instead of chasing value when there's no cushion left to wait.
   const needPos = (board?.needs || []).map((n) => n.pos);

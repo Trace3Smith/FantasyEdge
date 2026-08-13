@@ -30,3 +30,22 @@ export function pickReasonTag(candidate = {}, { reach = false } = {}) {
   if (candidate.need) return 'need';
   return 'value';
 }
+
+// The ADP-fit clause fed to the analyst for ONE NFL candidate, from the engine's signed adpDelta
+// (pick − ADP): >= 3 = still on the board past his ADP (a value), <= -3 = being taken ahead of his
+// ADP (a reach), in between = right around his ADP. The reach side is MAGNITUDE-AWARE so it never
+// softens a big overpay: a reach of a full round or more (>= `teams`, the picks-per-round count)
+// reads as "a notable reach", a smaller one as "a slight reach" — so a 25-pick reach in a 12-team
+// league is a notable reach, not the old hardcoded "slight". Same >=3 / <=-3 thresholds as
+// reachSuffix so the prompt line, the headline, and the board tag all read the same figure the same
+// way. Returns null when there's no delta to state (adpDelta null), so the caller can omit the clause.
+export function adpFitPhrase(adpDelta, teams) {
+  if (adpDelta == null) return null;
+  const d = adpDelta;
+  if (d >= 3) return `still on the board ${d} picks past his ADP (a value)`;
+  if (d <= -3) {
+    const reachSize = teams && -d >= teams ? 'a notable reach' : 'a slight reach';
+    return `being taken ${-d} picks ahead of his ADP (${reachSize})`;
+  }
+  return 'right around his ADP';
+}
