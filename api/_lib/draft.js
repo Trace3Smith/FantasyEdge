@@ -583,6 +583,10 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
         consistency: p.consistency ?? null,
         ceiling: p.ceiling ?? null,
         form,
+        // K/DST v1 enrichment label (enrichNflKdst) — projection anchor, offense tier, dome, kicker job
+        // security. Threaded through so the analyst picks the STRONGER K/DST within the late window; null
+        // for skill players and until the dataset is enriched. Does not affect ordering/score above.
+        kdstLabel: p.kdst?.label ?? null,
         reasonLabel: nflReasonLabel({ pos: p.pos, need, forced, falling, consistency: p.consistency ?? null, form, teCapped }),
       };
     });

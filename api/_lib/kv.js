@@ -75,6 +75,12 @@ export const WNBA_MATCHUP_KEY = 'matchup:wnba';
 // Empty out of season. Shape: { season, week, builtAt, rated, teams: { [abbrev]: { opp, isHome,
 // oppPassYdsAllowed, oppPassDRank, oppRushYdsAllowed, oppRushDRank, n } }, dvp: {…ranks table…} }.
 export const NFL_DVP_KEY = 'matchup:nfl-dvp';
+// NFL kicker depth chart from Sleeper's players dump (job-security signal for the late-round K pick).
+// The projections feed lacks depth_chart_order, so this is a separate ~14.6MB pull that the enricher
+// distills down to a tiny per-kicker map before caching here — a failed pull degrades to this last good
+// map instead of dropping job security. Shape: { builtAt, kickers: { [key]: { order, status, injury,
+// competition } }, teams: { [abbr]: kickerCount } }. K/DST enrichment (enrichNflKdst) reads it.
+export const NFL_DEPTH_KEY = 'depth:nfl';
 // Player-synopsis cache (Phase 0). One record per (sport, player): { fp, text, generatedAt, model }.
 // Generated on demand and invalidated by a signal FINGERPRINT, so a player's report regenerates only
 // when the inputs that matter (rank tier, form, projection, matchup, …) actually change — keeping

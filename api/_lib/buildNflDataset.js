@@ -148,10 +148,14 @@ async function buildDsts(season) {
       const t = e.team || {};
       const stats = e.stats || [];
       const pa = stats.find((s) => s.name === 'pointsAgainst')?.value ?? 0;
+      // pointsFor is a sibling stat in the same standings entry — the team's offensive output. It drives
+      // the K/DST enrichment's offense tier (a kicker on a mid-pack offense that drives into FG range but
+      // stalls in the red zone kicks more FGs than one on an elite TD offense or a stalled one).
+      const pf = stats.find((s) => s.name === 'pointsFor')?.value ?? 0;
       const wins = stats.find((s) => s.name === 'wins')?.value ?? 0;
       const losses = stats.find((s) => s.name === 'losses')?.value ?? 0;
       const ties = stats.find((s) => s.name === 'ties')?.value ?? 0;
-      teams.push({ id: t.id, abbr: t.abbreviation, name: t.displayName, pa, games: wins + losses + ties });
+      teams.push({ id: t.id, abbr: t.abbreviation, name: t.displayName, pa, pf, games: wins + losses + ties });
     }
   }
 
@@ -202,7 +206,11 @@ async function buildDsts(season) {
         // Phase 2 offensive context: team receiving targets + offensive pace, keyed by team id.
         const targets = coreStat(cats, 'receiving', 'receivingTargets');
         const plays = coreStat(cats, 'passing', 'totalOffensivePlays');
-        const ctx = { id: String(tm.id), abbr: tm.abbr, targets, plays, games, playsPerGame: games > 0 ? plays / games : 0 };
+        const ctx = {
+          id: String(tm.id), abbr: tm.abbr, targets, plays, games,
+          playsPerGame: games > 0 ? plays / games : 0,
+          pointsFor: tm.pf, offensePpg: games > 0 ? tm.pf / games : 0, // offense tier inputs (rank added below)
+        };
         return { dst, ctx };
       } catch {
         return null;
@@ -216,6 +224,15 @@ async function buildDsts(season) {
     dsts.push(r.dst);
     if (r.ctx?.id != null) teamContext[r.ctx.id] = r.ctx;
   }
+  // Offense rank (1 = highest points-per-game) across teams that have played, stamped onto each context.
+  // Out of season buildDsts runs against the most-recent COMPLETED season (ESPN's byathlete season), so
+  // this is a full prior-season offense ranking at draft time — a stable preseason proxy, not empty.
+  const ranked = Object.values(teamContext)
+    .filter((c) => c.games > 0)
+    .sort((a, b) => b.offensePpg - a.offensePpg);
+  ranked.forEach((c, i) => { c.offenseRank = i + 1; });
+  const teamsRanked = ranked.length;
+  for (const c of Object.values(teamContext)) c.teamsRanked = teamsRanked; // denominator for tiering
   return { dsts, teamContext };
 }
 

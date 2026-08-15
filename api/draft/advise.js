@@ -108,6 +108,9 @@ function describeNfl(c, n, teams) {
   // A beyond-starter TE the engine judged not flex-worthy (a better RB/WR fills the flex). Surface the
   // verdict so the analyst doesn't recommend it over a comparable RB/WR (see the FLEX / EXTRA TE RULE).
   if (typeof c.reasonLabel === 'string' && c.reasonLabel.includes('bench only')) bits.push('extra TE — bench only (a better RB/WR fills the flex)');
+  // K/DST v1 enrichment (enrichNflKdst): projection anchor, offense tier, dome, kicker job security — so the
+  // analyst picks the STRONGER K/DST once we're in the window that drafts one. Which K/DST, not when.
+  if ((c.pos === 'K' || c.pos === 'DST') && c.kdstLabel) bits.push(c.kdstLabel);
   return bits.join(', ');
 }
 
