@@ -487,7 +487,35 @@ console.log('\nPART 14 — ADP-fit magnitude honesty (big reach reads "notable",
 }
 
 // ============================================================================
+// PART 15 — VONA scarcity swing never fires for K/DST (companion to Part 13's scarcity-line exclusion).
+// The swing feeds vonaScarcityClause/PromptNote, which literally say "<pos> is scarcer than <altPos> —
+// only N startable <pos> left": if <pos> were K/DST that's the misleading "DST/K is the scarcest startable
+// position" rationale. K/DST have near-random value, so recommend() only ever makes one the top pick as a
+// late-draft ROSTER NECESSITY (forced) — filling a mandatory slot, not a scarcity read. board.vonaSwing
+// must stay null for that pick (SCARCITY_SKIP_POS guards it independently of the forced check).
+// ============================================================================
+console.log('\nPART 15 — no VONA scarcity swing for a K/DST pick (necessity, not scarcity)');
+{
+  const P = []; const mk = (pos,i,fp) => P.push({ id:`${pos}${i}`, name:`${pos}-${i}`, team:'X', pos, rank:P.length+1, fpPpr:fp });
+  for (let i=1;i<=24;i++) mk('QB', i, 300 - i*5);
+  for (let i=1;i<=80;i++) mk('RB', i, 320 - i*3);      // deep RB/WR still on the board (the higher-VORP "alt")
+  for (let i=1;i<=80;i++) mk('WR', i, 320 - i*3);
+  for (let i=1;i<=24;i++) mk('TE', i, 200 - i*5);
+  for (let i=1;i<=16;i++) mk('K',   i, 150 - i*3);
+  for (let i=1;i<=16;i++) mk('DST', i, 150 - i*3);
+  // Full roster EXCEPT K and DST, almost out of picks -> K/DST become a forced roster necessity.
+  const roster = [ {id:'q',pos:'QB'},{id:'r1',pos:'RB'},{id:'r2',pos:'RB'},{id:'w1',pos:'WR'},{id:'w2',pos:'WR'},{id:'t',pos:'TE'},
+    {id:'r3',pos:'RB'},{id:'w3',pos:'WR'},{id:'b1',pos:'RB'},{id:'b2',pos:'WR'},{id:'b3',pos:'TE'},{id:'b4',pos:'QB'},{id:'b5',pos:'RB'} ];
+  const { candidates, board } = recommend(P, [], roster, settings, 15, []);
+  const pick = candidates[0];
+  console.log('   pick:', pick?.pos, '| forced:', pick?.forced, '| mustFillNow:', board.mustFillNow, '| swing:', JSON.stringify(board.vonaSwing));
+  check('the necessity pick is a K/DST (the only way one tops the board)', pick?.pos === 'K' || pick?.pos === 'DST');
+  check('no scarcity swing fires for that K/DST pick', board.vonaSwing === null);
+  check('if a swing ever fires, its position is never K/DST', !board.vonaSwing || (board.vonaSwing.pos !== 'K' && board.vonaSwing.pos !== 'DST'));
+}
+
+// ============================================================================
 console.log('\n' + (results.every(r=>r.ok)
-  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty + K/DST scarcity exclusion + ADP-fit magnitude honesty behave as shipped.`
+  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty + K/DST scarcity exclusion + ADP-fit magnitude honesty + K/DST swing exclusion behave as shipped.`
   : `FAILURES: ${results.filter(r=>!r.ok).map(r=>r.name).join('; ')}`));
 process.exit(results.every(r=>r.ok) ? 0 : 1);
