@@ -641,14 +641,17 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
   let vonaSwing = null;
   const pick = scored[0];
   const boardThinned = taken.size >= teams;
-  // K/DST are excluded from the swing (SCARCITY_SKIP_POS): their tiny startable counts would otherwise
-  // clear the gap trivially and make the analyst frame a late K/DST as "the scarcest startable position"
-  // — the same misleading read scarcityLine already guards against. Filling them is roster necessity, not
-  // scarcity, so a K/DST pick never produces a scarcity-swing note.
+  // K/DST are excluded from the swing (SCARCITY_SKIP_POS) on BOTH sides of the comparison — the position
+  // we secure (pick.pos) AND the position we frame as deeper (alt.pos). The clause/prompt read "<pos> is
+  // scarcer than <altPos>", so a K/DST on either side yields the misleading "DST/K is the scarcest
+  // startable position" framing scarcityLine already guards against. Filling K/DST is a roster necessity
+  // (the ROSTER NECESSITY note's job), not a scarcity read. Today alt already can't be K/DST because their
+  // VORP is zeroed (line ~539) and the swing needs alt.vorp > pick.vorp ≥ 0; skipping them here makes the
+  // exclusion explicit and independent of that zeroing, so a K/DST never appears on either side.
   if (boardThinned && pick && !pick.forced && pick.need && !SCARCITY_SKIP_POS.has(pick.pos)) {
-    let alt = null; // highest raw-value (VORP) candidate at a DIFFERENT position — the name we passed over
+    let alt = null; // highest raw-value (VORP) candidate at a DIFFERENT, non-K/DST position — the name we passed over
     for (const c of scored) {
-      if (c.pos === pick.pos) continue;
+      if (c.pos === pick.pos || SCARCITY_SKIP_POS.has(c.pos)) continue;
       if (!alt || c.vorp > alt.vorp) alt = c;
     }
     const startable = startableLeft[pick.pos] || 0;

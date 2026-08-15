@@ -515,7 +515,37 @@ console.log('\nPART 15 — no VONA scarcity swing for a K/DST pick (necessity, n
 }
 
 // ============================================================================
+// PART 16 — K/DST excluded from the OTHER side of the swing too (the altPos comparison). The clause/prompt
+// read "<pos> is scarcer than <altPos> — only N startable <pos> left vs. M <altPos>": if altPos were K/DST
+// that's the reported bug ("QB is scarcer than DST — only N startable DST left"). alt is the highest-VORP
+// name at a different position; K/DST must never be selected as that alt, even when their raw value is
+// enormous. This scenario fires a real TE swing (like Part 1) but stacks the board with absurdly high-value
+// K/DST — if they weren't excluded they'd dominate the alt pick; the swing must still name a skill altPos.
+// ============================================================================
+console.log('\nPART 16 — K/DST never appear as the swing\'s altPos (skill comparison only)');
+{
+  const P = []; const mk = (pos,i,fp) => P.push({ id:`${pos}${i}`, name:`${pos}-${i}`, team:'X', pos, rank:P.length+1, fpPpr:fp });
+  for (let i=1;i<=24;i++) mk('QB', i, 360 - i*7);
+  for (let i=1;i<=60;i++) mk('RB', i, 330 - i*5);
+  for (let i=1;i<=60;i++) mk('WR', i, 310 - i*5);
+  for (let i=1;i<=24;i++) mk('TE', i, i<=5 ? 210 - (i-1)*18 : 110 - (i-5)*6); // steep elite top-5 (TE is the scarce need)
+  for (let i=1;i<=16;i++) mk('K',   i, 900 - i*4);   // absurd raw value: would win the alt pick if not excluded
+  for (let i=1;i<=16;i++) mk('DST', i, 900 - i*4);
+  const CUT = { TE:5, RB:15, WR:15, QB:10 };
+  const topIds = (pos,n) => P.filter(p=>p.pos===pos).sort((a,b)=>b.fpPpr-a.fpPpr).slice(0,n).map(p=>p.id);
+  const drafted = [...topIds('TE',CUT.TE),...topIds('RB',CUT.RB),...topIds('WR',CUT.WR),...topIds('QB',CUT.QB)];
+  const roster = [ {id:'q',pos:'QB'},{id:'r1',pos:'RB'},{id:'r2',pos:'RB'},{id:'w1',pos:'WR'},{id:'w2',pos:'WR'},{id:'r3',pos:'RB'} ]; // no TE => TE need
+  const { candidates, board } = recommend(P, drafted, roster, settings, 7, ['TE','TE','TE','RB']);
+  const sw = board.vonaSwing;
+  const clause = sw ? vonaScarcityClause(sw) : '';
+  console.log('   pick:', candidates[0]?.pos, '| swing:', JSON.stringify(sw), '| clause:', JSON.stringify(clause));
+  check('the swing still fires on the scarce TE need (setup is valid)', !!sw && sw.pos === 'TE' && candidates[0]?.pos === 'TE');
+  check('altPos is a skill position, NOT K/DST, despite their huge raw value', !!sw && sw.altPos !== 'K' && sw.altPos !== 'DST');
+  check('neither side of the clause names K or DST', !/\b(K|DST)\b/.test(clause));
+}
+
+// ============================================================================
 console.log('\n' + (results.every(r=>r.ok)
-  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty + K/DST scarcity exclusion + ADP-fit magnitude honesty + K/DST swing exclusion behave as shipped.`
+  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty + K/DST scarcity exclusion + ADP-fit magnitude honesty + K/DST swing exclusion (pick + altPos) behave as shipped.`
   : `FAILURES: ${results.filter(r=>!r.ok).map(r=>r.name).join('; ')}`));
 process.exit(results.every(r=>r.ok) ? 0 : 1);
