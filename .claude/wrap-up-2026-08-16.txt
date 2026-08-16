@@ -1,0 +1,26 @@
+FantasyEdge Session — 2026-08-16
+Branch: feature/kdst-enrichment-v1
+
+Summary:
+Environment/tooling session — no FantasyEdge app code changed. The work was getting the NotebookLM MCP server working end-to-end so the project has a persistent-memory notebook, then building a native "wrap-up" skill to feed that memory. NotebookLM is now authenticated, a memory notebook exists ("FantasyEdge Memory"), and /wrap-up is installed. Note: the notebooklm MCP add_source (write) path is currently broken against the live NotebookLM UI (stale dialog selectors in v2.0.0, which is the latest release), so this summary was added manually.
+
+Features / changes:
+- Installed a native Claude Code "wrap-up" skill at .claude/skills/wrap-up/SKILL.md. On /wrap-up it summarizes the session (features/bugs/decisions + git grounding) and appends it to the "FantasyEdge Memory" NotebookLM notebook via the notebooklm MCP add_source tool.
+- Registered the NotebookLM notebook (uuid 9de47de9-4cde-4069-a69e-2e429bda2d20) in the MCP library, renamed it "FantasyEdge Memory", set it active.
+
+Bugs fixed (NotebookLM MCP auth chain — each cause hid the next):
+- setup_auth failed instantly. Missing system unzip left an earlier puppeteer Chrome as a corrupt partial extract (puppeteer Chrome was ultimately a red herring).
+- Real root cause: notebooklm-mcp v2.0.0 uses patchright (stealth Playwright), NOT puppeteer. Its Chromium (~/.cache/ms-playwright/chromium-1228) was never installed, so launches died in ~12ms. Fixed via patchright-core cli.js install chromium.
+- Chromium then failed on missing system libs. Installed the Ubuntu 24.04 t64 package set (libnss3, libnspr4, libasound2t64, libatk1.0-0t64, libatk-bridge2.0-0t64, libcups2t64, libgtk-3-0t64, libatspi2.0-0t64, libgbm1). First apt attempt installed nothing because pre-t64 names don't exist on noble and apt aborted the batch.
+- Login wouldn't persist: setup_auth polls for tab URL startsWith("https://notebooklm.google.com/") but NotebookLM redirects the homepage to notebook.google.com (no "lm"), so the check never matched. Login succeeded (SID/SSID/HSID/SAPISID/__Secure-1PSID cookies in chrome_profile) but state.json was never written, so get_health stayed authenticated:false.
+
+Decisions:
+- Fixed auth WITHOUT re-login by regenerating browser_state/state.json from the authenticated persistent chrome_profile via patchright storageState(). The authenticated flag only checks state.json existence (24h freshness); cookies were valid, only persistence was blocked by the domain-alias bug.
+- Did NOT install pjmattingly/Claude-persistent-memory — it has no wrap-up skill / no installable Claude Code skill (manual Drive+Colab+extension workflow). Built a native skill capturing its intent instead.
+
+Open / next:
+- notebooklm MCP add_source is broken vs current NotebookLM UI (stale selectors). Options: patch dist/notebooklm/selectors.js overlay/add-source selectors against the live DOM + restart the server, or keep adding sources manually.
+- state.json has a 24h freshness check; if it lapses, regenerate from the profile (see notebooklm-auth-workaround Claude memory) rather than re-running setup_auth.
+- wrap-up skill will be reliably available next session (skills load at startup).
+
+Commits this session: none.
