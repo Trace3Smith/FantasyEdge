@@ -604,6 +604,16 @@ function projLine(p) {
   return `<div class="proj" title="Raw 2026 consensus projection — one input to the blended FPTS shown above (which is what ranks the board).">Proj ${pr.fpts} FPTS${stats ? ' · ' + stats : ''}</div>`;
 }
 
+// K/DST board line — surfaces the v1 enrichment label (enrichNflKdst: projection anchor, offense tier,
+// dome, kicker job security) so the human sees WHICH K/DST is the stronger pick in the late window. The
+// label already leads with the projection, so K/DST rows use this in place of projLine (no double proj).
+// Empty when the row carries no kdst label (not yet enriched / no signal) — additive and failure-tolerant.
+function kdstLine(p) {
+  const label = p && p.kdst && p.kdst.label;
+  if (!label) return '';
+  return `<div class="proj kdst" title="Why this K/DST — projection, team offense, dome, and kicker job security. About WHICH K/DST to take in the late window, not drafting them earlier.">${escapeHtml(label)}</div>`;
+}
+
 let adpBuiltAt = null; // when our ADP copy was last fetched (from the NFL dataset)
 
 async function loadPool() {
@@ -1162,7 +1172,11 @@ function renderAvailable(filter = '') {
       const fpts = p.fpPpr != null ? nflFpts(p, scoring).toFixed(1) : null;
       const fptsHtml = fpts != null ? ` · <span class="fpts-blend" title="Blend — our ranking value (~0.65 projection + 0.35 recent actuals). The Proj line below is the raw projection.">${fpts} FPTS</span>` : '';
       meta = ` · ${p.team} · #${rk}${fptsHtml}${adpStr != null ? ' · ADP ' + adpStr : ''}`;
-      extra = projLine(p) + renderOpportunity(p, 'compact');
+      // K/DST show the v1 enrichment label (which is the stronger pick), falling back to the plain proj
+      // line if the dataset isn't kdst-enriched yet — so a K/DST row never loses its projection. Skill
+      // players keep the proj line + opportunity snapshot.
+      const isKD = p.pos === 'K' || p.pos === 'DST';
+      extra = isKD ? (kdstLine(p) || projLine(p)) : projLine(p) + renderOpportunity(p, 'compact');
     }
     const sug = p.id === suggestedId;
     return `<div class="cand${selectedId === p.id ? ' selected' : ''}${sug ? ' cand-suggested' : ''}" data-id="${p.id}"><div class="cand-main"><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>${sug ? ` <span class="cand-sug">${sugLabel(suggestedReason, p.pos)}</span>` : ''}
