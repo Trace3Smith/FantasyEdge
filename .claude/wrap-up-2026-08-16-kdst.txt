@@ -1,0 +1,48 @@
+FantasyEdge Session — 2026-08-16 (K/DST board UI)
+Branch: feature/kdst-enrichment-v1
+
+Summary:
+Extended the v1 K/DST enrichment to the draft board UI. The p.kdst signal
+(projection, offense tier, dome, kicker job security) already shaped the Coach's
+TEXT advice but wasn't visible on the board itself — a human scanning the board
+couldn't see WHICH K/DST was the stronger late-window pick. Now the label renders
+on K/DST rows. Frontend-only; no backend/scoring change.
+
+Features / changes:
+- fantasyedge-draft.html: added kdstLine(p) (mirrors projLine styling) and used it
+  as the row `extra` for K/DST in renderAvailable(). Renders p.kdst.label on K/DST
+  rows, e.g. "proj 140 pts · MIN offense #6 · dome · lead K".
+- For K/DST the label REPLACES the generic proj line (it already leads with the
+  projection — no double proj), and FALLS BACK to projLine when a row isn't
+  kdst-enriched yet, so a K/DST row never loses its projection. Skill players
+  unchanged.
+
+Data flow (verified by reading, not changed):
+- p.kdst is attached by the daily cron (enrichNflKdst) and reaches the frontend
+  because api/sports.js:140 returns dataset.players directly for NFL (full spread),
+  and the board keeps full player objects. draft.js:589 already exposed kdstLabel to
+  the analyst; this change surfaces the same signal to the human.
+
+Decisions:
+- Chose to surface the existing server-built label verbatim rather than re-derive
+  formatting in the UI (single source of truth).
+- Fallback to projLine on unenriched rows to avoid a transient regression during the
+  cron enrichment window.
+
+Verification:
+- Backend verify:coach suite: 66/66 (enrichment logic untouched).
+- Rendered the real kdstLine + row template + board CSS in a patchright/Chromium
+  harness with feed-shaped data; screenshot confirmed the label displays, is escaped,
+  and the unenriched fallback works. NOT a full authed-SPA boot (needs Clerk + KV +
+  multi-screen nav; .env.local only has an OIDC token) — a future /run-skill-generator
+  recipe would make full end-to-end runs one command.
+
+Open / next:
+- Possible v2: more signals (DST strength-of-schedule/matchup, kicker home/road, form).
+- Consider a project run-skill to boot the draft board for real UI verification.
+
+Commits this session (feature/kdst-enrichment-v1):
+- dbdb662 Draft board: surface the K/DST v1 enrichment label on K/DST rows
+(Earlier same-day commits fe4d1e1 / 19c0b4d / 85c1eb7 were the NotebookLM memory
+tooling + skills + CLAUDE.md — captured in the "FantasyEdge Memory — setup & skills"
+note.)
