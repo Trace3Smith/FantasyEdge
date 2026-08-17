@@ -15,8 +15,8 @@
 //
 // Pure attachment, additive, failure-tolerant: a missing signal just drops out of the label; a failed depth
 // pull degrades to the last good cached map. DST gets projFpts + its OWN defense rank (v2 — points-allowed
-// rank from teamContext) + dome flag; no offense/job (it IS the defense). Runs in the daily cron AFTER
-// enrichNflProjections (needs p.proj) — see api/cron/refresh.js.
+// rank) + takeaway rank (v3 — INT+FR per game, orthogonal to points-allowed) + dome flag; no offense/job
+// (it IS the defense). Runs in the daily cron AFTER enrichNflProjections (needs p.proj) — see api/cron/refresh.js.
 
 import { keyFor } from './fantasyProjections.js';
 import { NFL_DEPTH_KEY } from './kv.js';
@@ -116,7 +116,8 @@ export function kdstForPlayer(p, tc = {}, depthMap = {}) {
     if (hurt) parts.push(`injury: ${d.injury}`);
 
     return {
-      projFpts, offenseRank, offenseTier, defenseRank: null, defenseTier: null, dome,
+      projFpts, offenseRank, offenseTier, defenseRank: null, defenseTier: null,
+      takeawayRank: null, takeawayTier: null, dome,
       jobRole, jobOrder: d?.order ?? null, jobInjury: d?.injury ?? null,
       label: parts.join(' · ') || null,
     };
@@ -129,14 +130,20 @@ export function kdstForPlayer(p, tc = {}, depthMap = {}) {
     const abbr = (t?.abbr) || p.team || null;
     const defenseRank = t?.defenseRank ?? null;
     const defenseTier = rankTierOf(defenseRank, t?.teamsRanked);
+    // v3: takeaway rank (INT + FR per game) — a ball-hawking defense drives fantasy DST scoring beyond
+    // points-allowed. Orthogonal to defenseRank, so it's an ADDITIONAL "which DST" signal, not a proxy.
+    const takeawayRank = t?.takeawayRank ?? null;
+    const takeawayTier = rankTierOf(takeawayRank, t?.teamsRanked);
     const dome = abbr ? DOME_TEAMS.has(abbr) : null;
 
     const parts = [];
     if (projFpts != null) parts.push(`proj ${Math.round(projFpts)} pts`);
     if (defenseRank) parts.push(`${abbr || 'team'} defense #${defenseRank}`);
+    if (takeawayRank) parts.push(`takeaways #${takeawayRank}`);
 
     return {
-      projFpts, offenseRank: null, offenseTier: null, defenseRank, defenseTier, dome,
+      projFpts, offenseRank: null, offenseTier: null, defenseRank, defenseTier,
+      takeawayRank, takeawayTier, dome,
       jobRole: null, jobOrder: null, jobInjury: null,
       label: parts.join(' · ') || null,
     };

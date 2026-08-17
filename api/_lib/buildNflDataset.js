@@ -212,6 +212,7 @@ async function buildDsts(season) {
           playsPerGame: games > 0 ? plays / games : 0,
           pointsFor: tm.pf, offensePpg: games > 0 ? tm.pf / games : 0, // offense tier inputs (rank added below)
           pointsAgainst: tm.pa, defensePpg: games > 0 ? tm.pa / games : 0, // defense tier inputs (rank added below)
+          takeaways: int + fr, takeawaysPerGame: games > 0 ? (int + fr) / games : 0, // big-play tier inputs (v3, rank below)
         };
         return { dst, ctx };
       } catch {
@@ -239,6 +240,13 @@ async function buildDsts(season) {
     .filter((c) => c.games > 0)
     .sort((a, b) => a.defensePpg - b.defensePpg)
     .forEach((c, i) => { c.defenseRank = i + 1; });
+  // Takeaway rank (1 = MOST interceptions + fumble recoveries per game) — the v3 K/DST big-play signal.
+  // Orthogonal to points-allowed: a ball-hawking defense drives fantasy DST scoring (turnovers) beyond a
+  // bend-don't-break unit that ranks well on points allowed but forces few takeaways.
+  Object.values(teamContext)
+    .filter((c) => c.games > 0)
+    .sort((a, b) => b.takeawaysPerGame - a.takeawaysPerGame)
+    .forEach((c, i) => { c.takeawayRank = i + 1; });
   const teamsRanked = ranked.length;
   for (const c of Object.values(teamContext)) c.teamsRanked = teamsRanked; // denominator for tiering
   return { dsts, teamContext };
