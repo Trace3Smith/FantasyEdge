@@ -8,3 +8,5 @@ scripts/capture-board.js
 # Session wrap-up backups are local artifacts; the real memory lives in the
 # FantasyEdge Memory NotebookLM notebook. Already-committed ones stay tracked.
 .claude/wrap-up-*.txt
+# Generated screenshots from the run-draft-board skill (regenerated on each run).
+.claude/skills/run-draft-board/*.png
