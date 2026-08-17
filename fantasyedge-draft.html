@@ -107,6 +107,8 @@
   /* The Coach's recommended player, highlighted on the board and scrolled into view. */
   .cand.cand-suggested { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); background: rgba(212,160,23,0.08); }
   .cand-sug { margin-left: 6px; font-size: 10px; font-weight: 700; color: var(--gold); letter-spacing: 0.3px; white-space: nowrap; }
+  .cand-sug.kdst-best { color: var(--green); } /* best-available K/DST hint (v4) — green, distinct from the gold Coach pick */
+  .cand.cand-bestkd { border-color: rgba(76,175,80,0.45); }
   .pos-q{color:#e85d75}.pos-r{color:#4ec9b0}.pos-w{color:#7aa2f7}.pos-t{color:#e0af68}.pos-k{color:#bb9af7}.pos-d{color:#9ece6a}
 
   .lock-overlay { position: relative; }
@@ -612,6 +614,24 @@ function kdstLine(p) {
   const label = p && p.kdst && p.kdst.label;
   if (!label) return '';
   return `<div class="proj kdst" title="Why this K/DST — projection, team offense, dome, and kicker job security. About WHICH K/DST to take in the late window, not drafting them earlier.">${escapeHtml(label)}</div>`;
+}
+
+// v4 — "which K/DST" ordering score for the best-available hint on the board. Projection is the ANCHOR
+// (v1: it already prices in role/offense/expectation); the enrichment RANKS (v2 defense, v3 takeaways for
+// DST; v1 offense/dome/job for K) add a small, BOUNDED tilt so two close options break toward the stronger
+// real defense / ball-hawk / better-offense-context kicker. Projection (~100-150) dominates; the tilt is
+// ~ -0.5..2.5, so it only decides genuine coin-flips — it never floats a clearly-lower projection above a
+// higher one, and it never affects WHEN K/DST are drafted (that stays the engine's job). No kdst -> -Inf.
+function kdstScore(p) {
+  const k = p && p.kdst;
+  if (!k) return -Infinity;
+  const proj = k.projFpts ?? (p.proj && p.proj.fpts) ?? 0;
+  const bonus = (r) => (r ? (32 - r) / 32 : 0); // 0..~1, a better (lower) rank scores higher
+  let tilt = 0;
+  if (p.pos === 'DST') tilt = bonus(k.defenseRank) + bonus(k.takeawayRank);
+  else if (p.pos === 'K') tilt = bonus(k.offenseRank) + (k.dome ? 0.5 : 0)
+    + (k.jobRole === 'lead' ? 0.5 : k.jobRole === 'backup' ? -0.5 : 0);
+  return proj + tilt;
 }
 
 let adpBuiltAt = null; // when our ADP copy was last fetched (from the NFL dataset)
@@ -1157,6 +1177,21 @@ function renderAvailable(filter = '') {
     const sugP = players.find((p) => p.id === suggestedId && !state.drafted.has(p.id));
     if (sugP && !list.includes(sugP)) list.push(sugP);
   }
+  // v4: identify the strongest available K and DST by the enrichment signals, for a best-available "which"
+  // hint below. NFL only (roto has no K/DST); scans the full pool — not just the visible top 60 — so the
+  // true best is still marked if it sits deeper. Purely a hint: no reordering, no change to WHEN K/DST go.
+  const bestKdst = {};
+  if (!isRoto()) {
+    for (const pos of ['K', 'DST']) {
+      let bestId = null, bestS = -Infinity;
+      for (const p of players) {
+        if (p.pos !== pos || state.drafted.has(p.id)) continue;
+        const s = kdstScore(p);
+        if (s > bestS) { bestS = s; bestId = p.id; }
+      }
+      if (bestId != null) bestKdst[pos] = bestId;
+    }
+  }
   $('availList').innerHTML = list.map((p) => {
     const rk = rankMap.get(p.id) ?? '—';
     let meta, extra = '';
@@ -1179,7 +1214,10 @@ function renderAvailable(filter = '') {
       extra = isKD ? (kdstLine(p) || projLine(p)) : projLine(p) + renderOpportunity(p, 'compact');
     }
     const sug = p.id === suggestedId;
-    return `<div class="cand${selectedId === p.id ? ' selected' : ''}${sug ? ' cand-suggested' : ''}" data-id="${p.id}"><div class="cand-main"><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>${sug ? ` <span class="cand-sug">${sugLabel(suggestedReason, p.pos)}</span>` : ''}
+    // Best-available K/DST hint (v4) — shown only when this row isn't already the Coach's suggestion, so
+    // the two badges never stack. Green "★ best K/DST" = the stronger option by the enrichment signals.
+    const bestKD = !sug && (p.pos === 'K' || p.pos === 'DST') && bestKdst[p.pos] === p.id;
+    return `<div class="cand${selectedId === p.id ? ' selected' : ''}${sug ? ' cand-suggested' : ''}${bestKD ? ' cand-bestkd' : ''}" data-id="${p.id}"><div class="cand-main"><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>${sug ? ` <span class="cand-sug">${sugLabel(suggestedReason, p.pos)}</span>` : bestKD ? ` <span class="cand-sug kdst-best" title="Best available ${p.pos} by the enrichment signals — which one to take when you draft a ${p.pos}, not a nudge to draft one now.">★ best ${p.pos}</span>` : ''}
       <span class="meta">${meta}</span>${extra}</div><button class="cand-add" data-add="${p.id}" title="Draft ${p.name.replace(/"/g, '&quot;')}">+</button></div>`;
   }).join('');
   // Row click = inspect (open the detail sidebar); the + button = draft. So browsing stats never
