@@ -1178,10 +1178,15 @@ function renderAvailable(filter = '') {
     if (sugP && !list.includes(sugP)) list.push(sugP);
   }
   // v4: identify the strongest available K and DST by the enrichment signals, for a best-available "which"
-  // hint below. NFL only (roto has no K/DST); scans the full pool — not just the visible top 60 — so the
-  // true best is still marked if it sits deeper. Purely a hint: no reordering, no change to WHEN K/DST go.
+  // hint below — but ONLY once K/DST are draft-relevant (late window / roster necessity). This mirrors the
+  // analyst's lateForKD gate (draftContext.js) exactly — round >= rounds-2 OR the engine's mustFillNow /
+  // fillSoon roster-necessity flags on the last board — so the board badge and the Coach agree, and the
+  // badge can never read as a nudge to draft a K/DST early. NFL only; scans the full pool. No reordering.
   const bestKdst = {};
-  if (!isRoto()) {
+  const kdRounds = state.settings.rounds || Math.round((state.totalPicks || 0) / (state.settings.teams || 1));
+  const lateForKD = roundOf(state.pickIndex, state.settings.teams) >= kdRounds - 2
+    || lastBoard?.mustFillNow || lastBoard?.fillSoon;
+  if (!isRoto() && lateForKD) {
     for (const pos of ['K', 'DST']) {
       let bestId = null, bestS = -Infinity;
       for (const p of players) {
