@@ -14,8 +14,9 @@
 //                  feed lacks depth order, so it comes from the players dump (fetchKickerDepth, cached).
 //
 // Pure attachment, additive, failure-tolerant: a missing signal just drops out of the label; a failed depth
-// pull degrades to the last good cached map. DST gets projFpts (+ dome flag) only — no offense/job (it IS
-// the defense). Runs in the daily cron AFTER enrichNflProjections (needs p.proj) — see api/cron/refresh.js.
+// pull degrades to the last good cached map. DST gets projFpts + its OWN defense rank (v2 — points-allowed
+// rank from teamContext) + dome flag; no offense/job (it IS the defense). Runs in the daily cron AFTER
+// enrichNflProjections (needs p.proj) — see api/cron/refresh.js.
 
 import { keyFor } from './fantasyProjections.js';
 import { NFL_DEPTH_KEY } from './kv.js';
@@ -76,9 +77,10 @@ function jobRoleOf(d) {
   return d.competition ? 'competition' : 'lead'; // unranked + uncontested = de-facto starter
 }
 
-// Coarse offense tier from a 1-based rank within `n` ranked teams (thirds). The label carries the raw rank
-// number too, so the exact "mid-pack" read isn't lost to bucketing.
-function offenseTierOf(rank, n) {
+// Coarse tier from a 1-based rank within `n` ranked teams (thirds) — used for both the kicker's offense
+// rank and the DST's defense rank. The label carries the raw rank number too, so the exact "mid-pack"
+// read isn't lost to bucketing.
+function rankTierOf(rank, n) {
   if (!rank || !n) return null;
   if (rank <= Math.ceil(n / 3)) return 'top';
   if (rank <= Math.ceil((2 * n) / 3)) return 'mid';
@@ -97,7 +99,7 @@ export function kdstForPlayer(p, tc = {}, depthMap = {}) {
     const abbr = (p.teamId != null && tc[p.teamId]?.abbr) || p.team || null;
     const t = p.teamId != null ? tc[p.teamId] : null;
     const offenseRank = t?.offenseRank ?? null;
-    const offenseTier = offenseTierOf(offenseRank, t?.teamsRanked);
+    const offenseTier = rankTierOf(offenseRank, t?.teamsRanked);
     const dome = abbr ? DOME_TEAMS.has(abbr) : null;
     const d = depthMap[keyFor('K', p.name)] || null;
     const jobRole = jobRoleOf(d);
@@ -114,19 +116,29 @@ export function kdstForPlayer(p, tc = {}, depthMap = {}) {
     if (hurt) parts.push(`injury: ${d.injury}`);
 
     return {
-      projFpts, offenseRank, offenseTier, dome,
+      projFpts, offenseRank, offenseTier, defenseRank: null, defenseTier: null, dome,
       jobRole, jobOrder: d?.order ?? null, jobInjury: d?.injury ?? null,
       label: parts.join(' · ') || null,
     };
   }
   if (p.pos === 'DST') {
+    // v2: a DST's own defensive strength (points-allowed rank from teamContext) is the "which DST" signal
+    // beyond the raw projection. Joins teamContext by p.teamId (buildNflDataset stamps it on the DST row).
     const projFpts = p.proj?.fpts ?? null;
-    const abbr = p.team || null;
+    const t = p.teamId != null ? tc[p.teamId] : null;
+    const abbr = (t?.abbr) || p.team || null;
+    const defenseRank = t?.defenseRank ?? null;
+    const defenseTier = rankTierOf(defenseRank, t?.teamsRanked);
     const dome = abbr ? DOME_TEAMS.has(abbr) : null;
+
+    const parts = [];
+    if (projFpts != null) parts.push(`proj ${Math.round(projFpts)} pts`);
+    if (defenseRank) parts.push(`${abbr || 'team'} defense #${defenseRank}`);
+
     return {
-      projFpts, offenseRank: null, offenseTier: null, dome,
+      projFpts, offenseRank: null, offenseTier: null, defenseRank, defenseTier, dome,
       jobRole: null, jobOrder: null, jobInjury: null,
-      label: projFpts != null ? `proj ${Math.round(projFpts)} pts` : null,
+      label: parts.join(' · ') || null,
     };
   }
   return null;

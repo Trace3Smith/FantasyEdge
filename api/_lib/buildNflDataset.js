@@ -191,6 +191,7 @@ async function buildDsts(season) {
         const n = { sacks, int, fr, td, safeties, blk, pa: tm.pa, paPerGame };
         const dst = {
           id: 'dst-' + tm.id,
+          teamId: String(tm.id), // join key back to teamContext (defense rank — v2 K/DST enrichment)
           name: tm.name + ' D/ST',
           team: tm.abbr,
           league: null,
@@ -210,6 +211,7 @@ async function buildDsts(season) {
           id: String(tm.id), abbr: tm.abbr, targets, plays, games,
           playsPerGame: games > 0 ? plays / games : 0,
           pointsFor: tm.pf, offensePpg: games > 0 ? tm.pf / games : 0, // offense tier inputs (rank added below)
+          pointsAgainst: tm.pa, defensePpg: games > 0 ? tm.pa / games : 0, // defense tier inputs (rank added below)
         };
         return { dst, ctx };
       } catch {
@@ -231,6 +233,12 @@ async function buildDsts(season) {
     .filter((c) => c.games > 0)
     .sort((a, b) => b.offensePpg - a.offensePpg);
   ranked.forEach((c, i) => { c.offenseRank = i + 1; });
+  // Defense rank (1 = FEWEST points allowed per game) across the same played-teams set — the v2 K/DST
+  // signal for "which DST". Same completed-season proxy at draft time as offenseRank above.
+  Object.values(teamContext)
+    .filter((c) => c.games > 0)
+    .sort((a, b) => a.defensePpg - b.defensePpg)
+    .forEach((c, i) => { c.defenseRank = i + 1; });
   const teamsRanked = ranked.length;
   for (const c of Object.values(teamContext)) c.teamsRanked = teamsRanked; // denominator for tiering
   return { dsts, teamContext };

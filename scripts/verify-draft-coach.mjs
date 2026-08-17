@@ -492,35 +492,38 @@ console.log('\nPART 14 — ADP-fit magnitude honesty (big reach reads "notable",
 }
 
 // ============================================================================
-// PART 17 — K/DST v1 enrichment: pick a BETTER K/DST within the late window (WHICH, not WHEN). Two halves:
-// (A) the pure signal builder kdstForPlayer() composes projection anchor + offense tier + dome + kicker job
-// security into one label; (B) the Coach draft-context surfaces that label for K/DST rows in the late-round
+// PART 17 — K/DST v1+v2 enrichment: pick a BETTER K/DST within the late window (WHICH, not WHEN). Two halves:
+// (A) the pure signal builder kdstForPlayer() composes projection anchor + kicker offense rank/dome/job
+// security AND (v2) the DST's OWN defense rank into one label; (B) the Coach draft-context surfaces that
+// label for K/DST rows in the late-round
 // window ONLY — never earlier — so timing (SCARCITY_SKIP_POS / VORP) is untouched and this is purely which.
 // ============================================================================
 console.log('\nPART 17 — K/DST enrichment picks a better K/DST within the window (which, not when)');
 {
   // (A) Pure builder. Two teams: MIN (dome, mid offense #6) and BUF (outdoor, top offense #1).
-  const tc = { '1': { abbr:'MIN', offenseRank:6, teamsRanked:32 }, '2': { abbr:'BUF', offenseRank:1, teamsRanked:32 } };
+  const tc = { '1': { abbr:'MIN', offenseRank:6, defenseRank:3, teamsRanked:32 }, '2': { abbr:'BUF', offenseRank:1, defenseRank:20, teamsRanked:32 } };
   const depthMap = {
     [keyFor('K','Will Reichard')]: { order:1, competition:false, injury:null },        // locked starter
     [keyFor('K','Camp Legman')]:   { order:null, competition:true, injury:null },       // unranked, contested
   };
   const leadK = kdstForPlayer({ pos:'K', name:'Will Reichard', teamId:'1', proj:{fpts:148} }, tc, depthMap);
   const compK = kdstForPlayer({ pos:'K', name:'Camp Legman', teamId:'2', proj:{fpts:150} }, tc, depthMap);
-  const dst   = kdstForPlayer({ pos:'DST', name:'Vikings D/ST', team:'MIN', proj:{fpts:120} }, tc, depthMap);
+  const dst   = kdstForPlayer({ pos:'DST', name:'Vikings D/ST', team:'MIN', proj:{fpts:120} }, tc, depthMap);           // no teamId join
+  const dstRanked = kdstForPlayer({ pos:'DST', name:'Vikings D/ST', teamId:'1', team:'MIN', proj:{fpts:120} }, tc, depthMap); // v2: joins teamContext
   const rb    = kdstForPlayer({ pos:'RB', name:'Some Back', proj:{fpts:250} }, tc, depthMap);
   console.log('   leadK:', JSON.stringify(leadK.label));
   console.log('   compK:', JSON.stringify(compK.label));
-  console.log('   dst  :', JSON.stringify(dst.label));
+  console.log('   dst  :', JSON.stringify(dst.label), '| dstRanked:', JSON.stringify(dstRanked.label));
   check('lead kicker label fuses projection + offense rank + dome + lead-K', leadK.label === 'proj 148 pts · MIN offense #6 · dome · lead K');
   check('a contested kicker reads as a competition, not a lock', /in a K competition/.test(compK.label) && !/lead K/.test(compK.label));
   check('outdoor top-offense kicker shows the rank but no dome', /BUF offense #1/.test(compK.label) && !/dome/.test(compK.label));
-  check('DST label is the projection anchor only (no offense/job/dome)', dst.label === 'proj 120 pts' && dst.offenseRank === null && dst.jobRole === null);
+  check('DST with no team join falls back to projection only', dst.label === 'proj 120 pts' && dst.defenseRank === null && dst.offenseRank === null && dst.jobRole === null);
+  check('DST v2 fuses projection + its OWN defense rank (which DST, not when)', dstRanked.label === 'proj 120 pts · MIN defense #3' && dstRanked.defenseTier === 'top' && dstRanked.offenseRank === null && dstRanked.jobRole === null);
   check('a skill player gets no kdst signal', rb === null);
 
   // (B) Coach context surfaces the label in the LATE window and NOT before (timing unchanged).
   const K1 = { id:'k1', pos:'K', name:'Will Reichard', fpPpr:130, kdst: leadK };
-  const D1 = { id:'d1', pos:'DST', name:'Vikings D/ST', fpPpr:120, kdst: dst };
+  const D1 = { id:'d1', pos:'DST', name:'Vikings D/ST', fpPpr:120, kdst: dstRanked };
   const R1 = { id:'r1', pos:'RB', name:'Bijan Robinson', fpPpr:340, proj:{fpts:340}, adp:{ppr:2} };
   const pool = [R1, K1, D1];
   const byId = new Map(pool.map(p => [p.id, p]));
@@ -541,6 +544,7 @@ console.log('\nPART 17 — K/DST enrichment picks a better K/DST within the wind
   const early = build(0);  // round 1 -> K/DST must NOT surface
   console.log('   late K line present:', /K — Will Reichard/.test(late), '| early K present:', /Will Reichard/.test(early));
   check('late window surfaces the kicker enrichment label to the Coach', late.includes('Will Reichard (proj 148 pts · MIN offense #6 · dome · lead K)'));
+  check('late window surfaces the DST defense-rank label to the Coach (v2)', late.includes('Vikings D/ST (proj 120 pts · MIN defense #3)'));
   check('late window nudges toward the stronger K/DST (which, not when)', /prefer the stronger option on these signals/.test(late) && /not drafting them earlier/.test(late));
   check('K/DST are still gated to the late window (they never surface in round 1)', !/Will Reichard/.test(early) && !/Vikings D\/ST/.test(early));
 
@@ -580,13 +584,13 @@ console.log('\nPART 17 — K/DST enrichment picks a better K/DST within the wind
     boardCmp:(a,b)=>(rankMap.get(a.id)??1e9)-(rankMap.get(b.id)??1e9),
     adpFor, nflFpts,
   });
-  const GUIDE = ' For K/DST, prefer the stronger option on these signals (projection, offense tier, dome, kicker job security) — this is about WHICH one, not drafting them earlier.';
+  const GUIDE = ' For K/DST, prefer the stronger option on these signals (projection, offense/defense rank, dome, kicker job security) — this is about WHICH one, not drafting them earlier.';
   const lateStripped = late.replace(GUIDE, '').replace(/ \(proj[^)]*\)/g, ''); // remove the two K/DST-only additions
   check('the ONLY change to the Coach context is the K/DST annotation + guidance; all else byte-identical', lateStripped === lateNo);
 }
 
 // ============================================================================
 console.log('\n' + (results.every(r=>r.ok)
-  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty + K/DST scarcity exclusion + ADP-fit magnitude honesty + K/DST v1 enrichment behave as shipped.`
+  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty + K/DST scarcity exclusion + ADP-fit magnitude honesty + K/DST v1/v2 enrichment (which K/DST, incl. DST defense rank) behave as shipped.`
   : `FAILURES: ${results.filter(r=>!r.ok).map(r=>r.name).join('; ')}`));
 process.exit(results.every(r=>r.ok) ? 0 : 1);
