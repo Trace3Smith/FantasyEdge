@@ -57,10 +57,12 @@ skill + all K/DST (~170 KB) to stay light.
   offline flow (path chooser → setup → Start → board).
 - ✅ Late-window **gating** (v4): the default run is Round 1, so the "★ best K/DST" badge is
   correctly ABSENT. That's the gate working — not a bug.
-- ⚠️ To see the **★ best** badge you must be in the late window (round ≥ rounds-2). The
-  offline flow starts at Round 1 and reaching round 14 needs ~150 manual picks, so the badge
-  itself is covered by the unit tests + the standalone harness rather than this boot. If you
-  need it on screen, temporarily lower `rounds` in the fixture flow or drive picks.
+- ✅ The **★ best** badge itself: run with `--late`. It shrinks the roster (rounds=6) + smallest
+  league and drafts the top player until the badge appears (the real round-based lateForKD gate
+  flips true), then scrolls the badged row into view and reports it. Verified: at ~round 11 the
+  best-by-kdstScore DST (e.g. LA Rams, proj 106 · defense #1 · takeaways #4) shows the green
+  "★ best DST". Note the badged row is the best by score, which is NOT necessarily the top of
+  the rank-ordered list — the driver reports/scrolls to it explicitly.
 - ⚠️ The Draft **Coach** shows "couldn't pull a recommendation" — `/api/draft/advise` is
   mocked empty. Expected; this skill verifies the board, not the analyst.
 - ⚠️ Until the branch deploys, K/DST `kdst` values in the fixture are **synthetic** (real

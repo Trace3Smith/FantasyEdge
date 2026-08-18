@@ -10,10 +10,13 @@
  * carries the enrichment. Everything the change touches — renderAvailable, kdstLine,
  * kdstScore, the best-available badge + late-window gate — runs for real.
  *
- * Usage:  node run-board.cjs [--filter=dst] [--out=/path/board.png] [--headed]
+ * Usage:  node run-board.cjs [--filter=dst] [--out=/path/board.png] [--headed] [--late]
  *   --filter   text typed into the board search (default "dst" so K/DST rows show)
  *   --out      screenshot path (default scratchpad/draft-board.png next to this file)
  *   --headed   show the browser (default headless)
+ *   --late     drive to the late K/DST window so the "★ best" badge appears. Configures a
+ *              short draft (min roster -> rounds=6, smallest league) and drafts the top
+ *              player until round >= rounds-2, exercising the REAL round-based lateForKD gate.
  */
 const path = require('path');
 const os = require('os');
@@ -27,6 +30,7 @@ const arg = (k, d) => { const a = process.argv.find((x) => x.startsWith(`--${k}=
 const FILTER = arg('filter', 'dst');
 const OUT = arg('out', path.join(__dirname, 'draft-board.png'));
 const HEADED = process.argv.includes('--headed');
+const LATE = process.argv.includes('--late');
 
 function resolvePatchright() {
   const base = path.join(os.homedir(), '.npm/_npx');
@@ -93,21 +97,65 @@ try { document.body && document.body.classList.add('is-premium'); } catch {}
   // auth.js was stubbed, so fire the ready event the page listens for.
   await page.evaluate(() => document.dispatchEvent(new CustomEvent('fe-auth-ready')));
 
-  // Offline path chooser -> pick the manual board -> Start.
+  // Offline path chooser -> pick the manual board.
   await page.locator('#pathOffline').click({ timeout: 8000 }).catch(() => {});
+
+  // --late: shrink the draft on the setup screen so the late K/DST window is a few picks in.
+  // rounds = QB+RB+WR+TE+FLEX+K+DST+bench; min starters (K/DST fixed at 1) + 0 bench => rounds 6,
+  // so the late window is round >= 4. Also pick the smallest league size to minimise picks.
+  if (LATE) {
+    // Shrink the roster so rounds is small (min starters + 0 bench; K/DST fixed at 1 => rounds 6) and pick
+    // the smallest league, so the late window is only a few picks in. Fill via the number inputs' events.
+    for (const [sel, val] of [['#rsQB','1'],['#rsRB','1'],['#rsWR','1'],['#rsTE','1'],['#rsFLEX','0'],['#rsBench','0']]) {
+      await page.locator(sel).fill(val).catch(() => {});
+    }
+    const sizes = await page.$$eval('#teamsSel option', (os) => os.map((o) => Number(o.value)).filter((n) => n >= 2));
+    if (sizes.length) await page.selectOption('#teamsSel', String(Math.min(...sizes))).catch(() => {});
+    const rb = await page.locator('#rsBench').inputValue().catch(() => '?');
+    console.log('roster shrink: rsBench=', rb, '| league size=', sizes.length ? Math.min(...sizes) : '?');
+  }
+
   await page.locator('#startBtn').click({ timeout: 8000 });
 
   // Board renders after startOffline + loadPool (mock /api/sports).
   await page.locator('#availList .cand').first().waitFor({ state: 'visible', timeout: 15000 });
+
+  if (LATE) {
+    // Draft the top overall player (skill first) repeatedly until the "★ best" badge appears on a
+    // K/DST row — the real round-based lateForKD gate flipping true. Agnostic to the exact rounds/teams
+    // math: we watch for the badge itself. DST filter kept on so the best-DST row is visible to render it.
+    const roundNow = async () => { const t = (await page.locator('#clock').textContent().catch(() => '')) || ''; const m = t.match(/Round\s*(\d+)/i); return m ? Number(m[1]) : 1; };
+    const hasBadge = async () => (await page.locator('#availList .cand-sug.kdst-best').count()) > 0;
+    let guard = 0, found = false;
+    while (guard++ < 220) {
+      await page.fill('#availSearch', 'dst').catch(() => {});
+      if (await hasBadge()) { found = true; break; }
+      await page.fill('#availSearch', '').catch(() => {});           // clear so the top pick is a skill player
+      const add = page.locator('#availList .cand .cand-add').first();
+      if (!(await add.count())) break;                                // board exhausted
+      await add.click().catch(() => {});
+      await page.waitForTimeout(60);
+    }
+    console.log('★ badge appeared:', found, '| after', guard, 'picks | round', await roundNow());
+  }
+
   if (FILTER) { await page.fill('#availSearch', FILTER); await page.waitForTimeout(400); }
 
-  const rows = await page.$$eval('#availList .cand', (els) => els.slice(0, 8).map((e) => ({
-    pos: e.querySelector('.pos')?.textContent, nm: e.querySelector('.nm')?.textContent.trim(),
-    extra: (e.querySelector('.proj')?.textContent || '').trim(),
-    badge: (e.querySelector('.cand-sug')?.textContent || '').trim(),
-  })));
-  console.log('board rows (filter="' + FILTER + '"):');
-  rows.forEach((r) => console.log('  ', JSON.stringify(r)));
+  // The best-by-kdstScore K/DST isn't necessarily top of the rank-ordered board, so report the badged
+  // row explicitly and scroll it into view for the screenshot.
+  const badged = await page.$$eval('#availList .cand', (els) => els
+    .filter((e) => e.querySelector('.cand-sug.kdst-best'))
+    .map((e) => ({ pos: e.querySelector('.pos')?.textContent, nm: e.querySelector('.nm')?.textContent.trim(),
+      extra: (e.querySelector('.proj')?.textContent || '').trim(), badge: e.querySelector('.cand-sug.kdst-best')?.textContent.trim() })));
+  if (badged.length) { console.log('★ badged rows:'); badged.forEach((r) => console.log('  ', JSON.stringify(r)));
+    await page.locator('#availList .cand:has(.cand-sug.kdst-best)').first().scrollIntoViewIfNeeded().catch(() => {}); }
+  else {
+    const rows = await page.$$eval('#availList .cand', (els) => els.slice(0, 6).map((e) => ({
+      pos: e.querySelector('.pos')?.textContent, nm: e.querySelector('.nm')?.textContent.trim(),
+      extra: (e.querySelector('.proj')?.textContent || '').trim() })));
+    console.log('board rows (filter="' + FILTER + '", no badge — expected outside the late window):');
+    rows.forEach((r) => console.log('  ', JSON.stringify(r)));
+  }
 
   await page.screenshot({ path: OUT });
   console.log('screenshot:', OUT);
