@@ -121,8 +121,28 @@
   .loading { color: var(--gray); font-size: 13px; padding: 10px 0; }
   .empty { color: var(--gray); font-size: 13px; }
 </style>
+<style>
+  /* Phone-only mobile nav (<=430px): collapse the fixed sidebar into a slide-out drawer so main
+     content gets the full width. Desktop/tablet breakpoints are untouched. */
+  .nav-toggle{display:none;position:fixed;top:10px;left:10px;z-index:1100;width:44px;height:44px;align-items:center;justify-content:center;background:var(--dark2,#1A1A1A);border:1px solid rgba(212,160,23,0.4);border-radius:8px;cursor:pointer;}
+  .nav-toggle span,.nav-toggle span::before,.nav-toggle span::after{display:block;width:20px;height:2px;background:var(--gold,#D4A017);border-radius:2px;}
+  .nav-toggle span{position:relative;}
+  .nav-toggle span::before{content:'';position:absolute;top:-6px;}
+  .nav-toggle span::after{content:'';position:absolute;top:6px;}
+  .nav-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:900;}
+  @media (max-width:430px){
+    .sidebar{position:fixed !important;top:0;left:0;bottom:0;transform:translateX(-100%);transition:transform .25s ease;width:min(84vw,300px) !important;min-width:0 !important;z-index:1000;overflow-y:auto;}
+    body.nav-open .sidebar{transform:translateX(0);box-shadow:0 0 48px rgba(0,0,0,.7);}
+    .main{margin-left:0 !important;}
+    .nav-toggle{display:flex;}
+    body.nav-open .nav-backdrop{display:block;}
+    .topbar{padding-left:64px !important;}
+  }
+</style>
 </head>
 <body>
+<button class="nav-toggle" aria-label="Open menu"><span></span></button>
+<div class="nav-backdrop"></div>
 
 <aside class="sidebar">
   <div class="sidebar-logo">FANTASY<span>EDGE</span></div>
@@ -445,5 +465,14 @@
   if (window.FE) applyGate();
 </script>
 <script type="module" src="/auth.js"></script>
+<script>
+  (function(){
+    var t=document.querySelector('.nav-toggle'), b=document.querySelector('.nav-backdrop');
+    var close=function(){document.body.classList.remove('nav-open');};
+    if(t)t.addEventListener('click',function(){document.body.classList.toggle('nav-open');});
+    if(b)b.addEventListener('click',close);
+    document.querySelectorAll('.sidebar-nav a').forEach(function(a){a.addEventListener('click',close);});
+  })();
+</script>
 </body>
 </html>
