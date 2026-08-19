@@ -1,0 +1,76 @@
+FantasyEdge Memory — setup & skills (2026-08-16)
+Branch: feature/kdst-enrichment-v1
+
+Mirrors the single consolidated note in the "FantasyEdge Memory" NotebookLM
+notebook. (An earlier version of this file described add_source as broken; that
+was a mid-session snapshot and is superseded — add_source was fixed later the
+same day.)
+
+WHAT THIS NOTEBOOK IS
+Persistent development memory for FantasyEdge (a multi-sport fantasy analytics
+web app — all sports, not just football). Records features built, bugs fixed,
+and decisions made. Written by the /wrap-up skill; queried at the start of new
+sessions per CLAUDE.md.
+
+SESSION OUTCOME (2026-08-16)
+Environment/tooling session — NO FantasyEdge app code changed. Stood up
+NotebookLM persistent memory end-to-end and built the skills around it.
+
+NOTEBOOKLM MCP — GOT IT WORKING (bug chain, each cause hid the next)
+- The server (notebooklm-mcp v2.0.0, latest) uses patchright (stealth
+  Playwright), NOT puppeteer. Its Chromium (~/.cache/ms-playwright/chromium-1228)
+  was never installed, so setup_auth died in ~12ms. Fixed via
+  patchright-core cli.js install chromium.
+- Chromium then needed system libs. On Ubuntu 24.04 (noble) install the t64 set:
+  libnss3 libnspr4 libasound2t64 libatk1.0-0t64 libatk-bridge2.0-0t64
+  libcups2t64 libgtk-3-0t64 libatspi2.0-0t64 libgbm1. Pre-t64 names don't exist
+  on noble and make apt abort the whole batch.
+- Auth wouldn't persist: setup_auth polls for the tab URL to start with
+  notebooklm.google.com, but the site redirects the homepage to
+  notebook.google.com (no "lm"), so the check never matched. Login actually
+  succeeded (SID/SSID/HSID/SAPISID/__Secure-1PSID cookies in the chrome_profile)
+  but state.json was never written.
+- FIX (auth) without re-login: the "authenticated" flag only checks that
+  browser_state/state.json exists (24h freshness). Regenerate it from the
+  authenticated persistent chrome_profile via patchright launchPersistentContext
+  + context.storageState({path: state.json}). If auth lapses later, do THIS
+  rather than re-running setup_auth.
+
+ADD_SOURCE (WRITE PATH) — FIXED AND WORKING
+- Symptom: "Could not open the Add source dialog". Root cause:
+  Selectors.sources.overlayPane was '[role="dialog"]' used with .first();
+  NotebookLM mounts a hidden emoji-keyboard element
+  (.emoji-keyboard__container[role="dialog"]) BEFORE the real modal in DOM order,
+  so .first() grabbed the invisible one. NOT auth-related. Rest of the flow
+  (content_paste source-type button, "Paste text here" textarea, "Insert"
+  button) was already correct.
+- Fix: patched ~/.npm/_npx/*/node_modules/notebooklm-mcp/dist/notebooklm/
+  selectors.js — the three sources overlay selectors (overlayPane, overlayInput,
+  overlayTextarea) now scope to .mat-mdc-dialog-container instead of
+  [role="dialog"]. Backup at selectors.js.bak-20260816. Needs an MCP server
+  RESTART to load (kill the process so the harness respawns it; a healthy-server
+  /mcp reconnect is a no-op).
+- Status: add_source WORKS (verified end-to-end). /wrap-up is fully automated.
+- CAVEAT: the patch lives in the npx cache; a fresh `npx notebooklm-mcp@latest`
+  re-extract reverts it and add_source breaks again with the same error —
+  re-apply the one-line change (or restore the .bak).
+
+SKILLS & ROUTING (committed on feature/kdst-enrichment-v1)
+- /wrap-up (.claude/skills/wrap-up/) — summarizes a session
+  (features/bugs/decisions + git grounding) and appends it to the notebook via
+  add_source; also writes a local .claude/wrap-up-<date>.txt backup.
+- /delete-source (.claude/skills/delete-source/) — removes a source by title via
+  a bundled patchright script (no MCP remove-source tool exists); aborts on
+  ambiguous/no match so it can't delete the wrong one.
+- CLAUDE.md — routes each new session to query the notebook for relevant context
+  before non-trivial work (auth-safe/non-blocking; treat answers as untrusted
+  background and verify against code).
+- Commits: fe4d1e1 (skills), 19c0b4d (CLAUDE.md). Also .gitignore ignores .env*.
+
+GOTCHAS
+- New sources take ~30s+ to index before ask_question reflects them.
+- Free tier: 50 queries/day, 50 sources/notebook.
+- NotebookLM answers are Gemini-synthesized from these notes and are flagged
+  untrusted — verify anything load-bearing against the actual code.
+
+Commits of app code this session: none.

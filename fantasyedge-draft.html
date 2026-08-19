@@ -107,6 +107,8 @@
   /* The Coach's recommended player, highlighted on the board and scrolled into view. */
   .cand.cand-suggested { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); background: rgba(212,160,23,0.08); }
   .cand-sug { margin-left: 6px; font-size: 10px; font-weight: 700; color: var(--gold); letter-spacing: 0.3px; white-space: nowrap; }
+  .cand-sug.kdst-best { color: var(--green); } /* best-available K/DST hint (v4) — green, distinct from the gold Coach pick */
+  .cand.cand-bestkd { border-color: rgba(76,175,80,0.45); }
   .pos-q{color:#e85d75}.pos-r{color:#4ec9b0}.pos-w{color:#7aa2f7}.pos-t{color:#e0af68}.pos-k{color:#bb9af7}.pos-d{color:#9ece6a}
 
   .lock-overlay { position: relative; }
@@ -225,8 +227,28 @@
   .g-value { background: rgba(148,163,184,0.16); color: #cbd5e1; }
   .g-reach { background: rgba(229,76,76,0.18); color: #f3a1a1; }
 </style>
+<style>
+  /* Phone-only mobile nav (<=430px): collapse the fixed sidebar into a slide-out drawer so main
+     content gets the full width. Desktop/tablet breakpoints are untouched. */
+  .nav-toggle{display:none;position:fixed;top:10px;left:10px;z-index:1100;width:44px;height:44px;align-items:center;justify-content:center;background:var(--dark2,#1A1A1A);border:1px solid rgba(212,160,23,0.4);border-radius:8px;cursor:pointer;}
+  .nav-toggle span,.nav-toggle span::before,.nav-toggle span::after{display:block;width:20px;height:2px;background:var(--gold,#D4A017);border-radius:2px;}
+  .nav-toggle span{position:relative;}
+  .nav-toggle span::before{content:'';position:absolute;top:-6px;}
+  .nav-toggle span::after{content:'';position:absolute;top:6px;}
+  .nav-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:900;}
+  @media (max-width:430px){
+    .sidebar{position:fixed !important;top:0;left:0;bottom:0;transform:translateX(-100%);transition:transform .25s ease;width:min(84vw,300px) !important;min-width:0 !important;z-index:1000;overflow-y:auto;}
+    body.nav-open .sidebar{transform:translateX(0);box-shadow:0 0 48px rgba(0,0,0,.7);}
+    .main{margin-left:0 !important;}
+    .nav-toggle{display:flex;}
+    body.nav-open .nav-backdrop{display:block;}
+    .topbar{padding-left:64px !important;}
+  }
+</style>
 </head>
 <body>
+<button class="nav-toggle" aria-label="Open menu"><span></span></button>
+<div class="nav-backdrop"></div>
 
 <aside class="sidebar">
   <div class="sidebar-logo">FANTASY<span>EDGE</span></div>
@@ -602,6 +624,34 @@ function projLine(p) {
   if (!pr) return '';
   const stats = (pr.line || []).map((s) => `${s.label} ${projNum(s.label, s.val)}`).join(' · ');
   return `<div class="proj" title="Raw 2026 consensus projection — one input to the blended FPTS shown above (which is what ranks the board).">Proj ${pr.fpts} FPTS${stats ? ' · ' + stats : ''}</div>`;
+}
+
+// K/DST board line — surfaces the v1 enrichment label (enrichNflKdst: projection anchor, offense tier,
+// dome, kicker job security) so the human sees WHICH K/DST is the stronger pick in the late window. The
+// label already leads with the projection, so K/DST rows use this in place of projLine (no double proj).
+// Empty when the row carries no kdst label (not yet enriched / no signal) — additive and failure-tolerant.
+function kdstLine(p) {
+  const label = p && p.kdst && p.kdst.label;
+  if (!label) return '';
+  return `<div class="proj kdst" title="Why this K/DST — projection, team offense, dome, and kicker job security. About WHICH K/DST to take in the late window, not drafting them earlier.">${escapeHtml(label)}</div>`;
+}
+
+// v4 — "which K/DST" ordering score for the best-available hint on the board. Projection is the ANCHOR
+// (v1: it already prices in role/offense/expectation); the enrichment RANKS (v2 defense, v3 takeaways for
+// DST; v1 offense/dome/job for K) add a small, BOUNDED tilt so two close options break toward the stronger
+// real defense / ball-hawk / better-offense-context kicker. Projection (~100-150) dominates; the tilt is
+// ~ -0.5..2.5, so it only decides genuine coin-flips — it never floats a clearly-lower projection above a
+// higher one, and it never affects WHEN K/DST are drafted (that stays the engine's job). No kdst -> -Inf.
+function kdstScore(p) {
+  const k = p && p.kdst;
+  if (!k) return -Infinity;
+  const proj = k.projFpts ?? (p.proj && p.proj.fpts) ?? 0;
+  const bonus = (r) => (r ? (32 - r) / 32 : 0); // 0..~1, a better (lower) rank scores higher
+  let tilt = 0;
+  if (p.pos === 'DST') tilt = bonus(k.defenseRank) + bonus(k.takeawayRank);
+  else if (p.pos === 'K') tilt = bonus(k.offenseRank) + (k.dome ? 0.5 : 0)
+    + (k.jobRole === 'lead' ? 0.5 : k.jobRole === 'backup' ? -0.5 : 0);
+  return proj + tilt;
 }
 
 let adpBuiltAt = null; // when our ADP copy was last fetched (from the NFL dataset)
@@ -1147,6 +1197,26 @@ function renderAvailable(filter = '') {
     const sugP = players.find((p) => p.id === suggestedId && !state.drafted.has(p.id));
     if (sugP && !list.includes(sugP)) list.push(sugP);
   }
+  // v4: identify the strongest available K and DST by the enrichment signals, for a best-available "which"
+  // hint below — but ONLY once K/DST are draft-relevant (late window / roster necessity). This mirrors the
+  // analyst's lateForKD gate (draftContext.js) exactly — round >= rounds-2 OR the engine's mustFillNow /
+  // fillSoon roster-necessity flags on the last board — so the board badge and the Coach agree, and the
+  // badge can never read as a nudge to draft a K/DST early. NFL only; scans the full pool. No reordering.
+  const bestKdst = {};
+  const kdRounds = state.settings.rounds || Math.round((state.totalPicks || 0) / (state.settings.teams || 1));
+  const lateForKD = roundOf(state.pickIndex, state.settings.teams) >= kdRounds - 2
+    || lastBoard?.mustFillNow || lastBoard?.fillSoon;
+  if (!isRoto() && lateForKD) {
+    for (const pos of ['K', 'DST']) {
+      let bestId = null, bestS = -Infinity;
+      for (const p of players) {
+        if (p.pos !== pos || state.drafted.has(p.id)) continue;
+        const s = kdstScore(p);
+        if (s > bestS) { bestS = s; bestId = p.id; }
+      }
+      if (bestId != null) bestKdst[pos] = bestId;
+    }
+  }
   $('availList').innerHTML = list.map((p) => {
     const rk = rankMap.get(p.id) ?? '—';
     let meta, extra = '';
@@ -1162,10 +1232,17 @@ function renderAvailable(filter = '') {
       const fpts = p.fpPpr != null ? nflFpts(p, scoring).toFixed(1) : null;
       const fptsHtml = fpts != null ? ` · <span class="fpts-blend" title="Blend — our ranking value (~0.65 projection + 0.35 recent actuals). The Proj line below is the raw projection.">${fpts} FPTS</span>` : '';
       meta = ` · ${p.team} · #${rk}${fptsHtml}${adpStr != null ? ' · ADP ' + adpStr : ''}`;
-      extra = projLine(p) + renderOpportunity(p, 'compact');
+      // K/DST show the v1 enrichment label (which is the stronger pick), falling back to the plain proj
+      // line if the dataset isn't kdst-enriched yet — so a K/DST row never loses its projection. Skill
+      // players keep the proj line + opportunity snapshot.
+      const isKD = p.pos === 'K' || p.pos === 'DST';
+      extra = isKD ? (kdstLine(p) || projLine(p)) : projLine(p) + renderOpportunity(p, 'compact');
     }
     const sug = p.id === suggestedId;
-    return `<div class="cand${selectedId === p.id ? ' selected' : ''}${sug ? ' cand-suggested' : ''}" data-id="${p.id}"><div class="cand-main"><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>${sug ? ` <span class="cand-sug">${sugLabel(suggestedReason, p.pos)}</span>` : ''}
+    // Best-available K/DST hint (v4) — shown only when this row isn't already the Coach's suggestion, so
+    // the two badges never stack. Green "★ best K/DST" = the stronger option by the enrichment signals.
+    const bestKD = !sug && (p.pos === 'K' || p.pos === 'DST') && bestKdst[p.pos] === p.id;
+    return `<div class="cand${selectedId === p.id ? ' selected' : ''}${sug ? ' cand-suggested' : ''}${bestKD ? ' cand-bestkd' : ''}" data-id="${p.id}"><div class="cand-main"><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>${sug ? ` <span class="cand-sug">${sugLabel(suggestedReason, p.pos)}</span>` : bestKD ? ` <span class="cand-sug kdst-best" title="Best available ${p.pos} by the enrichment signals — which one to take when you draft a ${p.pos}, not a nudge to draft one now.">★ best ${p.pos}</span>` : ''}
       <span class="meta">${meta}</span>${extra}</div><button class="cand-add" data-add="${p.id}" title="Draft ${p.name.replace(/"/g, '&quot;')}">+</button></div>`;
   }).join('');
   // Row click = inspect (open the detail sidebar); the + button = draft. So browsing stats never
@@ -1676,6 +1753,15 @@ $('coachUpsell').addEventListener('click', () => window.FE?.openPricing());
 
 // If auth is already ready before this script runs.
 if (window.FE) refreshAuthUI();
+</script>
+<script>
+  (function(){
+    var t=document.querySelector('.nav-toggle'), b=document.querySelector('.nav-backdrop');
+    var close=function(){document.body.classList.remove('nav-open');};
+    if(t)t.addEventListener('click',function(){document.body.classList.toggle('nav-open');});
+    if(b)b.addEventListener('click',close);
+    document.querySelectorAll('.sidebar-nav a').forEach(function(a){a.addEventListener('click',close);});
+  })();
 </script>
 </body>
 </html>

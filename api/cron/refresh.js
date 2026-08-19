@@ -18,6 +18,7 @@ import { buildNhlMatchup } from '../_lib/nhlMatchup.js';
 import { buildNbaMatchup } from '../_lib/nbaMatchup.js';
 import { buildNflDvp } from '../_lib/nflDvp.js';
 import { enrichNflProjections } from '../_lib/fantasyProjections.js';
+import { enrichNflKdst } from '../_lib/enrichNflKdst.js';
 import { enrichNflAdp } from '../_lib/fantasyAdp.js';
 import { enrichNflContext } from '../_lib/enrichNflContext.js';
 import { enrichNflBlend } from '../_lib/nflBlend.js';
@@ -165,6 +166,15 @@ export default async function handler(req, res) {
             await enrichNflProjections(built, redis);
           } catch (err) {
             built.counts = { ...built.counts, projError: err.message };
+          }
+          // K/DST v1 enrichment: pick a BETTER kicker/defense within the late-round window (projection
+          // anchor + offense tier + dome + Sleeper depth job-security) WITHOUT changing when K/DST get
+          // drafted. Needs p.proj (above) + teamContext. Additive + failure-tolerant (degrades to the last
+          // good depth map). Deliberately does NOT touch VORP / desire curves / SCARCITY_SKIP_POS.
+          try {
+            await enrichNflKdst(built, redis);
+          } catch (err) {
+            built.counts = { ...built.counts, kdstError: err.message };
           }
           // ADP from the Fantasy Football Calculator free JSON API (PPR/Standard/Half).
           // Additive + failure-tolerant — falls back to the last good pull in KV.

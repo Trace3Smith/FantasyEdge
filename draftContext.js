@@ -56,13 +56,26 @@ export function buildDraftContext(ctx) {
     const byPos = {};
     for (const p of players) { if (!s.drafted.has(p.id)) (byPos[p.pos] ||= []).push(p); }
     const lines = [];
+    let kdstShown = false;
     for (const pos of positions) {
       const list = (byPos[pos] || []).sort((a, b) => (rankMap.get(a.id) ?? 1e9) - (rankMap.get(b.id) ?? 1e9)).slice(0, 6);
       if (!list.length) continue;
-      const items = list.map((p) => { const a = adpFor(p, scoringCode); return `${p.name}${a != null ? ` (ADP ${Math.round(a)})` : ''}`; }).join(', ');
+      // K/DST have no meaningful ADP; instead surface the enrichment (p.kdst.label — projection anchor,
+      // kicker offense rank + DST defense rank + DST takeaways, dome, kicker job security) so the Coach
+      // picks the STRONGER K/DST within this window. Annotates only; board order (by rankMap) and the
+      // late-window gate above are untouched.
+      const kdst = pos === 'K' || pos === 'DST';
+      const items = list.map((p) => {
+        if (kdst) { if (p.kdst?.label) kdstShown = true; return `${p.name}${p.kdst?.label ? ` (${p.kdst.label})` : ''}`; }
+        const a = adpFor(p, scoringCode);
+        return `${p.name}${a != null ? ` (ADP ${Math.round(a)})` : ''}`;
+      }).join(', ');
       lines.push(`${pos} — ${items}`);
     }
-    if (lines.length) posBoardStr = ` ON THE BOARD — available players NOT on your roster (best first by position, with ADP): ${lines.join('; ')}.`;
+    if (lines.length) {
+      posBoardStr = ` ON THE BOARD — available players NOT on your roster (best first by position, with ADP): ${lines.join('; ')}.`;
+      if (kdstShown) posBoardStr += ' For K/DST, prefer the stronger option on these signals (projection, offense/defense rank, DST takeaways, dome, kicker job security) — this is about WHICH one, not drafting them earlier.';
+    }
   }
 
   // Roster-construction caps the pick engine enforces, surfaced so the Coach's OWN advice respects them
