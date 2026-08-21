@@ -2,24 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FantasyEdge — Player Rankings</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
 <style>
   :root {
-    --gold: #D4A017; 
-    --gold-light: #F0C040;
-    --black: #080808;
-    --dark: #111111;
-    --dark2: #1A1A1A;
-    --dark3: #222222;
-    --dark4: #2A2A2A;
-    --white: #F5F5F0;
-    --gray: #888888;
-    --gray-light: #AAAAAA;
-    --green: #4CAF50;
-    --red: #F44336;
-    --orange: #FF9800;
+    /* Common palette + typography tokens live in assets/theme.css. Only the
+       page-specific per-sport accent tokens remain here. */
     /* Per-sport accent theming. The base layer defaults to the FantasyEdge gold
        identity, so any sport without an override renders exactly as before. Each
        sport swaps these in via body[data-sport="..."] (set by applySport). This is
@@ -88,7 +79,7 @@
   body {
     background: var(--dark);
     color: var(--white);
-    font-family: 'Barlow', sans-serif;
+    font-family: var(--font-sans);
     display: flex;
     min-height: 100vh;
   }
@@ -107,7 +98,7 @@
   .sidebar-logo {
     padding: 24px 20px 20px;
     border-bottom: 1px solid rgba(212,160,23,0.15);
-    font-family: 'Bebas Neue', sans-serif;
+    font-family: var(--font-display);
     font-size: 22px;
     letter-spacing: 3px;
     color: var(--white);
@@ -191,6 +182,7 @@
   .main {
     margin-left: 200px;
     flex: 1;
+    min-width: 0; /* allow this flex item to shrink below content width (prevents page overflow) */
     display: flex;
     flex-direction: column;
     min-height: 100vh;
@@ -209,9 +201,9 @@
     border-bottom: 1px solid rgba(255,255,255,0.06);
   }
   .page-title {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 32px;
-    letter-spacing: 3px;
+    font-family: var(--font-display);
+    font-size: 34px;
+    letter-spacing: 0.3px;
     color: var(--white);
     line-height: 1;
   }
@@ -266,7 +258,7 @@
   .strip-clickable.strip-empty { opacity: 0.4; cursor: default; }
   .strip-clickable.strip-empty:hover { background: none; }
   .strip-icon { font-size: 22px; }
-  .strip-number { font-family: 'Bebas Neue', sans-serif; font-size: 28px; line-height: 1; color: var(--white); }
+  .strip-number { font-family: var(--font-display); font-size: 28px; line-height: 1; color: var(--white); }
   .strip-label { font-size: 9px; font-weight: 600; letter-spacing: 1.5px; color: var(--gray); text-transform: uppercase; margin-top: 2px; }
   .strip-divider { width: 1px; background: rgba(255,255,255,0.06); margin: 8px 0; }
   .roto-bar {
@@ -305,7 +297,7 @@
     font-weight: 600;
     cursor: pointer;
     transition: all 0.15s;
-    font-family: 'Barlow', sans-serif;
+    font-family: var(--font-sans);
   }
   .pos-btn:hover { border-color: var(--gold); color: var(--gold); }
   .pos-btn.active { background: var(--gold); border-color: var(--gold); color: var(--black); }
@@ -317,16 +309,16 @@
   .nfl-sel {
     padding: 6px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1);
     background: var(--black); color: var(--gray-light); font-size: 12px; font-weight: 600;
-    font-family: 'Barlow', sans-serif; cursor: pointer;
+    font-family: var(--font-sans); cursor: pointer;
   }
   .nfl-set {
     display: inline-flex; align-items: center; gap: 4px; font-size: 10px; letter-spacing: 1px;
-    text-transform: uppercase; color: var(--gray); font-family: 'Barlow', sans-serif;
+    text-transform: uppercase; color: var(--gray); font-family: var(--font-sans);
   }
   .nfl-set input {
     width: 42px; padding: 5px 6px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1);
     background: var(--black); color: var(--white); font-size: 12px; font-weight: 600;
-    font-family: 'Barlow', sans-serif; text-align: center;
+    font-family: var(--font-sans); text-align: center;
   }
   .search-row { padding: 0 28px 14px; }
   .search-box { position: relative; display: inline-flex; align-items: center; width: 100%; max-width: 320px; }
@@ -339,7 +331,7 @@
     background: var(--dark2);
     color: var(--white);
     font-size: 13px;
-    font-family: 'Barlow', sans-serif;
+    font-family: var(--font-sans);
     transition: all 0.15s;
   }
   .search-input::placeholder { color: var(--gray); }
@@ -383,7 +375,7 @@
   tbody tr { border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.12s; }
   tbody tr:hover { background: rgba(255,255,255,0.03); }
   tbody td { padding: 13px 12px; font-size: 13px; vertical-align: middle; white-space: nowrap; }
-  .td-rank { font-family: 'Bebas Neue', sans-serif; font-size: 18px; color: var(--gray); text-align: center; width: 40px; }
+  .td-rank { font-family: var(--font-display); font-size: 18px; color: var(--gray); text-align: center; width: 40px; }
   .player-cell { display: flex; align-items: center; gap: 10px; min-width: 180px; }
   .player-avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--dark3); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.08); }
   .player-name { font-weight: 600; font-size: 13px; color: var(--white); }
@@ -559,7 +551,7 @@
   #rankingsTable.show-extra-cols .extra-col { display: table-cell; }
   .own-pct { color: var(--gray-light); font-size: 12px; }
   .loading-row td { text-align: center; padding: 60px 20px; color: var(--gray); }
-  .loading-title { font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 2px; color: var(--gold); margin-bottom: 6px; }
+  .loading-title { font-family: var(--font-display); font-size: 22px; letter-spacing: 0.5px; color: var(--gold); margin-bottom: 6px; }
   .loading-sub { font-size: 12px; color: var(--gray); }
   .error-row td { text-align: center; padding: 60px 20px; color: var(--red); }
 </style>
@@ -572,13 +564,21 @@
   .nav-toggle span::before{content:'';position:absolute;top:-6px;}
   .nav-toggle span::after{content:'';position:absolute;top:6px;}
   .nav-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:900;}
-  @media (max-width:430px){
+  @media (max-width:768px){
     .sidebar{position:fixed !important;top:0;left:0;bottom:0;transform:translateX(-100%);transition:transform .25s ease;width:min(84vw,300px) !important;min-width:0 !important;z-index:1000;overflow-y:auto;}
     body.nav-open .sidebar{transform:translateX(0);box-shadow:0 0 48px rgba(0,0,0,.7);}
-    .main{margin-left:0 !important;}
+    /* min-width:0 lets the flex item shrink to the viewport so .table-wrap's
+       overflow-x:auto actually contains the wide (min-width:900) table — the
+       table scrolls sideways within its own box, the page never does. */
+    .main{margin-left:0 !important;padding-top:60px;min-width:0;}
     .nav-toggle{display:flex;}
     body.nav-open .nav-backdrop{display:block;}
     .topbar{padding-left:64px !important;}
+    .table-wrap{padding:0 12px 40px;}
+    .stats-strip{flex-wrap:wrap;padding:0 16px;}
+    .sport-tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+    .sport-tab{white-space:nowrap;flex:0 0 auto;}
+    .pos-filters,.search-row{padding-left:16px;padding-right:16px;}
   }
 </style>
 </head>
@@ -1871,7 +1871,7 @@
     ['stripTotal', 'stripHot', 'stripCold'].forEach(id => document.getElementById(id).textContent = '—');
     document.getElementById('tableBody').innerHTML = `<tr><td colspan="16" style="padding:64px 24px;text-align:center">
       <div style="font-size:40px;margin-bottom:10px">🔒</div>
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:var(--gold);margin-bottom:8px">PGA Rankings is a Premium feature</div>
+      <div style="font-family:var(--font-display);font-size:28px;letter-spacing:2px;color:var(--gold);margin-bottom:8px">PGA Rankings is a Premium feature</div>
       <div style="font-size:13px;color:var(--gray);max-width:440px;margin:0 auto 20px;line-height:1.6">World rankings, recent-form trends, course-fit scores, and cut probabilities for the current tournament — updated daily.</div>
       <button id="pgaUpsell" style="background:var(--gold);color:#111;border:none;border-radius:8px;padding:11px 22px;font-family:inherit;font-weight:700;font-size:14px;cursor:pointer">Go Premium</button>
     </td></tr>`;
@@ -1993,7 +1993,7 @@
       // here — not at bootstrap — so it also fires after a premium sport unlocks and loads via auth-ready.
       if (pendingFocus) { const k = pendingFocus; pendingFocus = null; focusPlayer(k); }
     } catch(err) {
-      document.getElementById('tableBody').innerHTML = `<tr class="error-row"><td colspan="16"><div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;margin-bottom:6px">Failed to Load Data</div><div style="font-size:12px;color:var(--gray)">${err.message}</div></td></tr>`;
+      document.getElementById('tableBody').innerHTML = `<tr class="error-row"><td colspan="16"><div style="font-family:var(--font-display);font-size:22px;letter-spacing:2px;margin-bottom:6px">Failed to Load Data</div><div style="font-size:12px;color:var(--gray)">${err.message}</div></td></tr>`;
     }
   }
 
