@@ -7,7 +7,28 @@ import { createClerkClient } from '@clerk/backend';
 // .trim() guards against trailing whitespace/newlines in pasted env values — a
 // trailing newline in an API key corrupts the Authorization header (Stripe surfaces
 // it as a StripeConnectionError; Clerk JWKS fetches fail as "invalid session").
-export const stripe = new Stripe((process.env.STRIPE_SECRET_KEY || '').trim());
+//
+// Lazily constructed: `new Stripe('')` throws at construction when the key is
+// absent, which would crash EVERY module that imports this file at import time —
+// including api/sports.js (via auth.js), which never uses Stripe. Deferring
+// construction to first actual use keeps those unrelated modules importable when
+// STRIPE_SECRET_KEY isn't present (e.g. Preview deploys), while payment endpoints
+// still get a real client (and still surface a clear error if the key is missing
+// when they actually call Stripe). Behaviour in production is unchanged.
+let _stripe = null;
+function getStripe() {
+  if (!_stripe) _stripe = new Stripe((process.env.STRIPE_SECRET_KEY || '').trim());
+  return _stripe;
+}
+// A Proxy preserves the existing `import { stripe }` + `stripe.checkout.sessions
+// .create(...)` usage exactly; only the first property access triggers construction.
+export const stripe = new Proxy({}, {
+  get(_target, prop) {
+    const client = getStripe();
+    const value = client[prop];
+    return typeof value === 'function' ? value.bind(client) : value;
+  },
+});
 
 export const clerkClient = createClerkClient({
   secretKey: (process.env.CLERK_SECRET_KEY || '').trim(),
