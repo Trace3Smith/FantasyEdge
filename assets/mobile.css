@@ -36,7 +36,7 @@
 
   /* ---- Title/topbar clears the fixed toggle ---- */
   .topbar{padding-left:64px !important;}      /* pages with a sticky .topbar (dashboard, brackets) */
-  .top-header{padding-top:40px;}              /* pages with an in-flow .top-header title */
+  .top-header{padding-top:calc(58px + env(safe-area-inset-top));} /* clears the fixed toggle (10 + 44px) */
 
   /* ---- Dashboard ---- */
   .content{padding:20px 16px;}
@@ -51,12 +51,50 @@
   .section-tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;}
   .stab{white-space:nowrap;flex:0 0 auto;}
 
-  /* ---- Rankings ---- */
-  .table-wrap{padding-left:12px;padding-right:12px;} /* the wide table scrolls inside its own overflow-x box */
+  /* ---- Rankings top controls ---- */
   .stats-strip{flex-wrap:wrap;}
   .sport-tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;}
   .sport-tab{white-space:nowrap;flex:0 0 auto;}
   .pos-filters,.search-row,.stats-strip{padding-left:16px;padding-right:16px;}
+
+  /* ---- Rankings: compact stacked player CARDS (replaces the wide scrolling
+     table on phones). Scoped to #rankingsTable so nothing else is affected. In
+     the default ALL view each stat cell carries its own inline label, so the
+     grid reads clearly. ---- */
+  .table-wrap{padding-left:12px;padding-right:12px;overflow-x:visible;}
+  #rankingsTable{min-width:0;width:100%;display:block;}
+  #rankingsTable thead{display:none;}                 /* header row not needed once rows stack */
+  #rankingsTable tbody{display:block;}
+  #rankingsTable tbody tr td{border:none;padding:0;}  /* reset the table cell box model */
+
+  /* Each player row becomes a card. */
+  #rankingsTable tbody tr:not(.row-detail):not(.loading-row):not(.error-row){
+    display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;
+    background:var(--dark2,#1A1A1A);border:1px solid rgba(255,255,255,0.07);
+    border-radius:8px;padding:12px 14px;margin:0 0 8px;
+  }
+  /* Line 1: rank + player (avatar over which sit name / team). The player cell
+     grows to fill the line, so the position + stats wrap onto the rows below. */
+  #rankingsTable td.td-rank{order:0;flex:0 0 auto;font-size:18px;line-height:1;}
+  #rankingsTable tbody tr>td:nth-child(2){order:1;flex:1 1 auto;min-width:0;}
+  #rankingsTable .player-avatar{width:34px;height:34px;font-size:16px;flex-shrink:0;}
+  #rankingsTable .player-name{white-space:normal;overflow-wrap:anywhere;display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;} /* name + badges wrap below */
+  #rankingsTable .player-meta{white-space:normal;}
+
+  /* Position chip rides onto the stat rows; the standalone team column is a
+     duplicate of the player-meta team, so hide it on mobile. */
+  #rankingsTable tbody tr>td:nth-child(3){order:2;flex:0 0 auto;}
+  #rankingsTable tbody tr>td:nth-child(4){display:none;}
+
+  /* Stats: GP + the stat columns + stars/trend/own wrap into a compact 2-col grid. */
+  #rankingsTable td.gp-col,
+  #rankingsTable tbody tr>td:nth-child(n+5){order:3;flex:1 1 40%;min-width:calc(50% - 12px);font-size:13px;color:var(--gray-light);}
+
+  /* Expandable detail row + status rows stay full width. */
+  #rankingsTable tr.row-detail{display:block;}
+  #rankingsTable tr.row-detail>td{display:block;padding:0;}
+  #rankingsTable tr.loading-row,#rankingsTable tr.error-row{display:block;text-align:center;}
+  #rankingsTable tr.loading-row>td,#rankingsTable tr.error-row>td{display:block;padding:24px 8px;}
 
   /* ---- Brackets ---- */
   .mode-tabs{flex-direction:column;width:100%;}
