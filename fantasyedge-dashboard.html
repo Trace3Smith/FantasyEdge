@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FantasyEdge — Last Night's Results</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700&family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="assets/mobile.js" defer></script>
 <style>
   :root{--gold:#D4A017;--gold-light:#F0C040;--black:#080808;--dark:#111111;--dark2:#1A1A1A;--dark3:#222222;--dark4:#2A2A2A;--gray:#888888;--gray-light:#AAAAAA;--white:#F5F5F0;--green:#4CAF50;--red:#F44336;--orange:#FF9800;--blue:#2196F3;--purple:#9C27B0;}
   *{margin:0;padding:0;box-sizing:border-box;}
@@ -143,8 +144,11 @@
   .p-link:hover{background:rgba(212,160,23,0.07);}
   .p-link:hover .p-name,.p-link:hover .hero-name{color:var(--gold);}
 </style>
+<link rel="stylesheet" href="assets/mobile.css">
 </head>
 <body>
+<button class="nav-toggle" aria-label="Open menu"><span></span></button>
+<div class="nav-backdrop"></div>
 <div class="cursor" id="cursor"></div>
 <div class="cursor-ring" id="cursorRing"></div>
 

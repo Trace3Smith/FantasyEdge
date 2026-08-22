@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FantasyEdge — About &amp; Features</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="assets/mobile.js" defer></script>
 <style>
   :root {
     --gold: #D4A017; --gold-light: #F0C040; --black: #080808; --dark: #111111;
@@ -62,8 +63,11 @@
   a.inline { color: var(--gold-light); text-decoration: none; }
   a.inline:hover { text-decoration: underline; }
 </style>
+<link rel="stylesheet" href="assets/mobile.css">
 </head>
 <body>
+<button class="nav-toggle" aria-label="Open menu"><span></span></button>
+<div class="nav-backdrop"></div>
 
 <aside class="sidebar">
   <div class="sidebar-logo">FANTASY<span>EDGE</span></div>

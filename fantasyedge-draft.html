@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FantasyEdge — Draft Room</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="assets/mobile.js" defer></script>
 <style>
   :root {
     --gold: #D4A017; --gold-light: #F0C040; --black: #080808; --dark: #111111;
@@ -225,8 +226,11 @@
   .g-value { background: rgba(148,163,184,0.16); color: #cbd5e1; }
   .g-reach { background: rgba(229,76,76,0.18); color: #f3a1a1; }
 </style>
+<link rel="stylesheet" href="assets/mobile.css">
 </head>
 <body>
+<button class="nav-toggle" aria-label="Open menu"><span></span></button>
+<div class="nav-backdrop"></div>
 
 <aside class="sidebar">
   <div class="sidebar-logo">FANTASY<span>EDGE</span></div>
