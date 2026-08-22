@@ -2,20 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FantasyEdge — Team Manager</title>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
 <style>
-  :root {
-    --gold: #D4A017; --gold-light: #F0C040; --black: #080808; --dark: #111111;
-    --dark2: #1A1A1A; --dark3: #222222; --dark4: #2A2A2A; --white: #F5F5F0;
-    --gray: #888888; --gray-light: #AAAAAA; --green: #4CAF50; --red: #F44336; --orange: #FF9800;
-  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: var(--dark); color: var(--white); font-family: 'Barlow', sans-serif; display: flex; min-height: 100vh; }
+  body { background: var(--dark); color: var(--white); font-family: var(--font-sans); display: flex; min-height: 100vh; }
   /* ---- sidebar (shared chrome) ---- */
   .sidebar { width: 200px; min-width: 200px; background: var(--black); border-right: 1px solid rgba(212,160,23,0.15); display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; overflow-y: auto; }
-  .sidebar-logo { padding: 24px 20px 20px; border-bottom: 1px solid rgba(212,160,23,0.15); font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 3px; color: var(--white); }
+  .sidebar-logo { padding: 24px 20px 20px; border-bottom: 1px solid rgba(212,160,23,0.15); font-family: var(--font-display); font-size: 22px; letter-spacing: 3px; color: var(--white); }
   .sidebar-logo span { color: var(--gold); }
   .sidebar-section-label { padding: 18px 20px 6px; font-size: 10px; font-weight: 600; letter-spacing: 2px; color: var(--gray); text-transform: uppercase; }
   .sidebar-nav { list-style: none; padding: 0 8px; }
@@ -31,11 +28,11 @@
   /* ---- main ---- */
   .main { margin-left: 200px; flex: 1; padding: 28px 34px 60px; max-width: 1080px; }
   .top-header { margin-bottom: 22px; }
-  .page-title { font-family: 'Bebas Neue', sans-serif; font-size: 32px; letter-spacing: 2px; }
+  .page-title { font-family: var(--font-display); font-size: 34px; letter-spacing: 0.3px; }
   .page-title span { color: var(--gold); }
   .page-subtitle { color: var(--gray); font-size: 13px; margin-top: 2px; }
 
-  .panel { background: var(--dark2); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 22px; margin-bottom: 20px; }
+  .panel { background: var(--dark2); border: 1px solid rgba(255,255,255,0.06); border-radius: 4px; padding: 22px; margin-bottom: 20px; }
   .panel h2 { font-size: 18px; margin-bottom: 4px; }
   .panel .hint { color: var(--gray); font-size: 13px; line-height: 1.55; margin-bottom: 16px; }
 
@@ -51,11 +48,11 @@
   label.fld { display: block; margin-bottom: 14px; }
   label.fld .lbl { display: block; font-size: 12px; color: var(--gray-light); margin-bottom: 6px; font-weight: 600; }
   label.fld .lbl code { color: var(--gold-light); background: rgba(212,160,23,0.1); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
-  input.txt, textarea.txt { width: 100%; background: var(--dark3); color: var(--white); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 10px 12px; font-family: 'Barlow', monospace, sans-serif; font-size: 13px; line-height: 1.4; }
+  input.txt, textarea.txt { width: 100%; background: var(--dark3); color: var(--white); border: 1px solid rgba(255,255,255,0.12); border-radius: 5px; padding: 10px 12px; font-family: 'Barlow', monospace, sans-serif; font-size: 13px; line-height: 1.4; }
   input.txt:focus, textarea.txt:focus { border-color: rgba(212,160,23,0.55); outline: none; }
   textarea.txt { resize: vertical; min-height: 64px; word-break: break-all; }
 
-  .btn { padding: 11px 20px; border-radius: 8px; border: none; cursor: pointer; font-family: inherit; font-weight: 700; font-size: 14px; }
+  .btn { padding: 11px 20px; border-radius: 5px; border: none; cursor: pointer; font-family: inherit; font-weight: 700; font-size: 14px; }
   .btn-gold { background: var(--gold); color: #111; }
   .btn-gold:hover:not(:disabled) { background: var(--gold-light); }
   .btn-ghost { background: transparent; border: 1px solid rgba(255,255,255,0.2); color: var(--gray-light); }
@@ -63,7 +60,7 @@
   .btn:disabled { opacity: .5; cursor: default; }
   .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 
-  .msg { font-size: 13px; margin-top: 12px; padding: 10px 14px; border-radius: 8px; display: none; }
+  .msg { font-size: 13px; margin-top: 12px; padding: 10px 14px; border-radius: 4px; display: none; }
   .msg.show { display: block; }
   .msg.err { background: rgba(244,67,54,0.12); border: 1px solid rgba(244,67,54,0.4); color: #ffb4ad; }
   .msg.ok { background: rgba(76,175,80,0.12); border: 1px solid rgba(76,175,80,0.4); color: #b6e3b8; }
@@ -75,23 +72,29 @@
 
   /* ---- leagues / rosters ---- */
   .leagues-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px; }
-  .league-card { background: var(--dark2); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; margin-bottom: 16px; overflow: hidden; }
-  .league-card .lc-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; background: rgba(212,160,23,0.05); border-bottom: 1px solid rgba(255,255,255,0.06); flex-wrap: wrap; }
-  .lc-head .lc-league { font-size: 12px; color: var(--gray); letter-spacing: .5px; text-transform: uppercase; }
-  .lc-head .lc-team { font-size: 18px; font-weight: 700; }
-  .lc-head .lc-meta { font-size: 12px; color: var(--gray-light); margin-top: 2px; }
-  .lc-head .lc-record { font-size: 13px; color: var(--gold-light); font-weight: 600; }
+  .league-card { background: var(--dark2); border: 1px solid rgba(255,255,255,0.06); border-radius: 4px; margin-bottom: 16px; overflow: hidden; }
+  .league-card .lc-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 20px; background: rgba(212,160,23,0.05); border-bottom: 1px solid var(--rule); flex-wrap: wrap; }
+  .lc-head .lc-league { font-size: 11px; color: var(--gray); letter-spacing: 1.5px; text-transform: uppercase; }
+  .lc-head .lc-team { font-family: var(--font-display); font-size: 26px; letter-spacing: 0.3px; line-height: 1.05; margin-top: 2px; }
+  .lc-head .lc-meta { font-size: 12px; color: var(--gray-light); margin-top: 3px; }
+  .lc-head .lc-record { font-family: var(--font-display); font-size: 26px; color: var(--gold-light); line-height: 1; letter-spacing: 1px; }
 
   table.roster { width: 100%; border-collapse: collapse; font-size: 13px; }
-  table.roster th { text-align: left; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray); padding: 8px 18px; border-bottom: 1px solid rgba(255,255,255,0.06); }
-  table.roster td { padding: 8px 18px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  table.roster th { text-align: left; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--gray); padding: 10px 18px; border-bottom: 1px solid var(--rule); }
+  table.roster td { padding: 11px 18px; border-bottom: 1px solid var(--rule-soft); }
+  /* Starters read as the primary lineup: full-strength text + a gold lineup-sheet rule
+     on the leading edge. */
+  table.roster tbody tr:not(.bench):not(.bench-sep) td:first-child { box-shadow: inset 3px 0 0 var(--gold); }
   table.roster tr.bench td { color: var(--gray-light); }
-  table.roster tr.bench-sep td { padding: 4px 18px; background: rgba(255,255,255,0.02); color: var(--gray); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
-  .slot-badge { display: inline-block; min-width: 46px; text-align: center; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.08); color: var(--gray-light); }
+  table.roster tr.bench td .pname { font-weight: 500; }
+  /* Bench divider: a clear editorial section break between starters and bench. */
+  table.roster tr.bench-sep td { padding: 9px 18px; background: rgba(212,160,23,0.05); border-top: 1px solid var(--rule); color: var(--gold); font-family: var(--font-condensed); font-size: 11px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; }
+  .slot-badge { display: inline-block; min-width: 48px; text-align: center; font-family: var(--font-condensed); font-size: 11px; font-weight: 700; letter-spacing: .5px; padding: 3px 6px; border-radius: 3px; background: rgba(255,255,255,0.06); color: var(--gray-light); }
   .slot-badge.start { background: rgba(212,160,23,0.16); color: var(--gold-light); }
   .pname { font-weight: 600; }
   .pmeta { color: var(--gray); font-size: 12px; }
-  .inj { color: var(--orange); font-size: 11px; font-weight: 700; margin-left: 4px; }
+  /* Injury is player status → red (status colours are red/green only). */
+  .inj { color: #e0685f; font-size: 10px; font-weight: 700; letter-spacing: .5px; margin-left: 6px; }
 
   .empty { color: var(--gray); font-size: 13px; padding: 8px 0; }
   .loading { color: var(--gray-light); font-size: 14px; padding: 20px 0; }
@@ -99,22 +102,22 @@
   /* ---- premium lock ---- */
   .locked { text-align: center; padding: 50px 20px; }
   .locked .lock-emoji { font-size: 44px; margin-bottom: 12px; }
-  .locked h2 { font-family: 'Bebas Neue', sans-serif; font-size: 30px; letter-spacing: 2px; color: var(--gold); margin-bottom: 10px; }
+  .locked h2 { font-family: var(--font-display); font-size: 30px; letter-spacing: 2px; color: var(--gold); margin-bottom: 10px; }
   .locked p { font-size: 13px; color: var(--gray-light); line-height: 1.6; margin: 0 auto 22px; max-width: 460px; }
   .locked button { background: var(--gold); color: #111; border: none; border-radius: 8px; padding: 12px 24px; font-family: inherit; font-weight: 700; font-size: 14px; cursor: pointer; }
   .hidden { display: none !important; }
   /* Sport selector */
   .sport-bar { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0; }
-  .sport-btn { background: rgba(255,255,255,0.05); color: var(--gray-light); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 9px 18px; font-family: inherit; font-weight: 700; font-size: 14px; letter-spacing: .5px; cursor: pointer; transition: all .12s; }
+  .sport-btn { background: rgba(255,255,255,0.05); color: var(--gray-light); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 9px 18px; font-family: var(--font-condensed); font-weight: 700; font-size: 14px; letter-spacing: 1px; text-transform: uppercase; cursor: pointer; transition: all .12s; }
   .sport-btn:hover { background: rgba(255,255,255,0.09); }
   .sport-btn.active { background: var(--gold); color: #111; border-color: var(--gold); }
   .sport-btn .soon { font-size: 9px; font-weight: 700; text-transform: uppercase; opacity: .6; margin-left: 5px; vertical-align: middle; }
   .coming { text-align: center; padding: 40px 20px; }
   .coming-emoji { font-size: 40px; margin-bottom: 12px; }
-  .coming h3 { font-family: 'Bebas Neue', sans-serif; font-size: 26px; letter-spacing: 1.5px; color: var(--gold); margin-bottom: 10px; }
+  .coming h3 { font-family: var(--font-display); font-size: 26px; letter-spacing: 1.5px; color: var(--gold); margin-bottom: 10px; }
   .coming p { max-width: 440px; margin: 0 auto; }
   /* Lineup suggestions */
-  .sugg { margin: 0 0 14px; padding: 12px 14px; background: rgba(212,160,23,0.07); border: 1px solid rgba(212,160,23,0.25); border-radius: 10px; }
+  .sugg { margin: 0 0 14px; padding: 14px 16px; background: rgba(212,160,23,0.07); border: 1px solid rgba(212,160,23,0.25); border-left: 3px solid var(--gold); border-radius: 4px; }
   .sugg-ok { color: #9bdc9e; font-size: 13px; background: rgba(76,175,80,0.08); border-color: rgba(76,175,80,0.3); }
   .sugg-head { font-weight: 700; font-size: 13px; color: var(--gold-light); margin-bottom: 8px; }
   .sugg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
@@ -194,10 +197,10 @@
   .nav-toggle span::before{content:'';position:absolute;top:-6px;}
   .nav-toggle span::after{content:'';position:absolute;top:6px;}
   .nav-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:900;}
-  @media (max-width:430px){
+  @media (max-width:768px){
     .sidebar{position:fixed !important;top:0;left:0;bottom:0;transform:translateX(-100%);transition:transform .25s ease;width:min(84vw,300px) !important;min-width:0 !important;z-index:1000;overflow-y:auto;}
     body.nav-open .sidebar{transform:translateX(0);box-shadow:0 0 48px rgba(0,0,0,.7);}
-    .main{margin-left:0 !important;}
+    .main{margin-left:0 !important;min-width:0;padding-top:64px;}
     .nav-toggle{display:flex;}
     body.nav-open .nav-backdrop{display:block;}
     .topbar{padding-left:64px !important;}

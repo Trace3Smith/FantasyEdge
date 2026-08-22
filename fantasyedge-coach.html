@@ -2,29 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FantasyEdge — AI Coach</title>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
 <style>
-  :root {
-    --gold: #D4A017;
-    --gold-light: #F0C040;
-    --black: #080808;
-    --dark: #111111;
-    --dark2: #1A1A1A;
-    --dark3: #222222;
-    --dark4: #2A2A2A;
-    --white: #F5F5F0;
-    --gray: #888888;
-    --gray-light: #AAAAAA;
-    --green: #4CAF50;
-    --red: #F44336;
-  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: var(--dark); color: var(--white); font-family: 'Barlow', sans-serif; display: flex; min-height: 100vh; }
+  body { background: var(--dark); color: var(--white); font-family: var(--font-sans); display: flex; min-height: 100vh; }
   /* ---- sidebar (shared chrome) ---- */
   .sidebar { width: 200px; min-width: 200px; background: var(--black); border-right: 1px solid rgba(212,160,23,0.15); display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; overflow-y: auto; }
-  .sidebar-logo { padding: 24px 20px 20px; border-bottom: 1px solid rgba(212,160,23,0.15); font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 3px; color: var(--white); }
+  .sidebar-logo { padding: 24px 20px 20px; border-bottom: 1px solid rgba(212,160,23,0.15); font-family: var(--font-display); font-size: 22px; letter-spacing: 3px; color: var(--white); }
   .sidebar-logo span { color: var(--gold); }
   .sidebar-section-label { padding: 18px 20px 6px; font-size: 10px; font-weight: 600; letter-spacing: 2px; color: var(--gray); text-transform: uppercase; }
   .sidebar-nav { list-style: none; padding: 0 8px; }
@@ -40,7 +28,7 @@
   /* ---- main / chat ---- */
   .main { margin-left: 200px; flex: 1; display: flex; flex-direction: column; height: 100vh; }
   .top-header { padding: 22px 32px 18px; border-bottom: 1px solid rgba(212,160,23,0.12); }
-  .page-title { font-family: 'Bebas Neue', sans-serif; font-size: 30px; letter-spacing: 2px; }
+  .page-title { font-family: var(--font-display); font-size: 30px; letter-spacing: 0.3px; }
   .page-title .ai { color: var(--gold); }
   .page-subtitle { font-size: 12px; color: var(--gray); margin-top: 2px; }
 
@@ -53,7 +41,7 @@
   .msg.coach .avatar { background: rgba(212,160,23,0.15); border: 1px solid rgba(212,160,23,0.4); }
   .msg.user { flex-direction: row-reverse; }
   .msg.user .avatar { background: var(--dark4); }
-  .bubble { padding: 11px 15px; border-radius: 12px; font-size: 14px; line-height: 1.6; max-width: 80%; white-space: pre-wrap; word-wrap: break-word; }
+  .bubble { padding: 11px 15px; border-radius: 4px; font-size: 14px; line-height: 1.6; max-width: 80%; white-space: pre-wrap; word-wrap: break-word; }
   .msg.coach .bubble { background: var(--dark2); border: 1px solid rgba(255,255,255,0.06); border-top-left-radius: 3px; }
   .msg.user .bubble { background: var(--gold); color: #111; font-weight: 500; border-top-right-radius: 3px; }
   .msg.error .bubble { background: rgba(244,67,54,0.12); border: 1px solid rgba(244,67,54,0.4); color: #ffb4ad; }
@@ -69,7 +57,7 @@
   .suggest:hover { color: var(--gold); border-color: var(--gold); }
 
   .composer { border-top: 1px solid rgba(212,160,23,0.12); padding: 14px 32px 20px; }
-  .composer-inner { max-width: 760px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end; background: var(--dark2); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 8px 8px 8px 14px; }
+  .composer-inner { max-width: 760px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end; background: var(--dark2); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px 8px 8px 14px; }
   .composer-inner:focus-within { border-color: rgba(212,160,23,0.5); }
   #coachInput { flex: 1; background: transparent; border: none; outline: none; color: var(--white); font-family: inherit; font-size: 14px; line-height: 1.5; resize: none; max-height: 140px; padding: 6px 0; }
   #coachInput::placeholder { color: var(--gray); }
@@ -82,7 +70,7 @@
   .coach-locked { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; text-align: center; }
   .coach-locked .lock-card { max-width: 460px; }
   .coach-locked .lock-emoji { font-size: 44px; margin-bottom: 12px; }
-  .coach-locked h2 { font-family: 'Bebas Neue', sans-serif; font-size: 30px; letter-spacing: 2px; color: var(--gold); margin-bottom: 10px; }
+  .coach-locked h2 { font-family: var(--font-display); font-size: 30px; letter-spacing: 0.5px; color: var(--gold); margin-bottom: 10px; }
   .coach-locked p { font-size: 13px; color: var(--gray-light); line-height: 1.6; margin-bottom: 22px; }
   .coach-locked button { background: var(--gold); color: #111; border: none; border-radius: 8px; padding: 12px 24px; font-family: inherit; font-weight: 700; font-size: 14px; cursor: pointer; }
   .coach-locked button:hover { background: var(--gold-light); }
@@ -97,10 +85,10 @@
   .nav-toggle span::before{content:'';position:absolute;top:-6px;}
   .nav-toggle span::after{content:'';position:absolute;top:6px;}
   .nav-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:900;}
-  @media (max-width:430px){
+  @media (max-width:768px){
     .sidebar{position:fixed !important;top:0;left:0;bottom:0;transform:translateX(-100%);transition:transform .25s ease;width:min(84vw,300px) !important;min-width:0 !important;z-index:1000;overflow-y:auto;}
     body.nav-open .sidebar{transform:translateX(0);box-shadow:0 0 48px rgba(0,0,0,.7);}
-    .main{margin-left:0 !important;}
+    .main{margin-left:0 !important;min-width:0;padding-top:60px;}
     .nav-toggle{display:flex;}
     body.nav-open .nav-backdrop{display:block;}
     .topbar{padding-left:64px !important;}

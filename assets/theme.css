@@ -1,0 +1,123 @@
+/* ============================================================================
+   FantasyEdge — shared theme
+   ----------------------------------------------------------------------------
+   Single source of truth for design tokens and typography across every page.
+   Linked in each page's <head> ABOVE its inline <style> block, so per-page
+   inline rules still win on equal specificity. The common palette lives here
+   only; page-specific tokens (e.g. rankings' per-sport --sport-* accents) stay
+   inline on their page.
+
+   Aesthetic: premium sports-almanac / editorial. Deep charcoal surfaces, warm
+   white text, a single restrained gold accent, muted gray support, and
+   red / green reserved strictly for status. Refined serif display paired with a
+   clean grotesque sans.
+   ============================================================================ */
+
+:root {
+  /* ---- Brand + accent (restrained gold) ---- */
+  --gold: #D4A017;
+  --gold-light: #F0C040;
+  --gold-dark: #A07810;
+
+  /* ---- Surfaces (deep charcoal / black) ---- */
+  --black: #080808;
+  --dark: #111111;
+  --dark2: #1A1A1A;
+  --dark3: #222222;
+  --dark4: #2A2A2A;
+
+  /* ---- Text ---- */
+  --white: #F5F5F0;        /* warm white */
+  --gray: #8C8C8C;         /* muted support (nudged up from #888 for contrast) */
+  --gray-light: #AEAEA6;   /* warm-tinted light gray */
+
+  /* ---- Status — RED / GREEN ONLY ---- */
+  --green: #4CAF50;
+  --red: #F44336;
+
+  /* ---- Demoted decorative accents ----
+     Formerly orange / blue used for non-status emphasis. Collapsed toward the
+     gold + neutral palette so hue no longer competes with the gold accent or
+     reads as a status signal. Kept as named tokens so existing
+     var(--orange)/var(--blue) references resolve unchanged. */
+  --orange: var(--gold);       /* warm highlight -> gold */
+  --blue: #6E7A8A;             /* info/neutral -> muted slate (not a status hue) */
+
+  /* ---- Hairline / divider ---- */
+  --rule: rgba(212,160,23,0.14);       /* thin gold-tinted divider */
+  --rule-soft: rgba(255,255,255,0.06); /* neutral row divider */
+
+  /* ---- Typography ---- */
+  --font-display: 'DM Serif Display', Georgia, 'Times New Roman', serif; /* refined editorial display */
+  --font-sans: 'Barlow', system-ui, -apple-system, Segoe UI, sans-serif; /* clean body sans */
+  --font-condensed: 'Barlow Condensed', 'Barlow', system-ui, sans-serif; /* condensed labels / eyebrows */
+}
+
+/* Tabular, lining figures everywhere so scores and stats align in columns and
+   on the decimal. Only affects digits; leaves letterforms untouched. */
+body {
+  font-variant-numeric: tabular-nums lining-nums;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* DM Serif Display is a single 400 weight; it already reads as a bold display
+   face, so heading elements should not be synthetically bolded. */
+
+/* ---------------------------------------------------------------------------
+   Shared app-shell refinements
+   The sidebar + topbar are identical across all eight app pages, so their
+   polish lives here. Selectors are intentionally one level more specific than
+   the per-page single-class rules so they win despite loading first.
+   --------------------------------------------------------------------------- */
+
+/* The serif wordmark and page title read better with tight tracking than the
+   wide tracking the old condensed face needed. */
+.sidebar .sidebar-logo { letter-spacing: 0.5px; }
+.topbar .topbar-left h1 { letter-spacing: 0.3px; }
+
+/* Stronger, more editorial active nav state: a solid gold rule on the leading
+   edge (drawn with an inset shadow so it adds no layout shift). */
+.sidebar .sidebar-nav li a { border-radius: 3px; }
+.sidebar .sidebar-nav li a.active {
+  box-shadow: inset 3px 0 0 var(--gold);
+  font-weight: 600;
+}
+
+/* Comfortable touch targets in the mobile drawer (>= ~44px tall). */
+@media (max-width: 430px) {
+  .sidebar .sidebar-nav li a { padding-top: 12px; padding-bottom: 12px; }
+}
+
+/* Accessibility: a clear keyboard-focus ring. Two pages hide the OS pointer
+   (custom cursor), so a visible focus indicator matters for keyboard users.
+   Only shows on keyboard focus (:focus-visible), never on mouse click. */
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   Shared mobile layer (<= 768px)
+   Cross-cutting responsive rules that apply on every page. Page-specific
+   layout (grid collapse, table scroll, heading clamps) lives in each page's
+   own mobile block; this file carries only what is truly shared. Desktop
+   (>= 769px) is untouched, preserving the redesigned appearance.
+   --------------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  /* iPhone Safari zooms the page when a focused input's text is < 16px. */
+  input, select, textarea { font-size: 16px; }
+
+  /* Nothing should be able to exceed the viewport width. */
+  img, svg, video, canvas, table { max-width: 100%; }
+
+  /* Long unbroken tokens (player names, cookie strings, URLs) wrap instead of
+     forcing the page wider. */
+  body { overflow-wrap: anywhere; }
+
+  /* Safe-area insets for notch / home indicator (viewport-fit=cover). */
+  body { padding-bottom: env(safe-area-inset-bottom); }
+  .nav-toggle { top: calc(10px + env(safe-area-inset-top)); }
+  .sidebar { padding-top: env(safe-area-inset-top); }
+}
