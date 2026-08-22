@@ -53,7 +53,7 @@
 
   /* ---- Rankings top controls ---- */
   .stats-strip{flex-wrap:wrap;}
-  .sport-tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .sport-tabs{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;max-width:100%;min-width:0;}
   .sport-tab{white-space:nowrap;flex:0 0 auto;}
   .pos-filters,.search-row,.stats-strip{padding-left:16px;padding-right:16px;}
 
@@ -61,8 +61,8 @@
      table on phones). Scoped to #rankingsTable so nothing else is affected. In
      the default ALL view each stat cell carries its own inline label, so the
      grid reads clearly. ---- */
-  .table-wrap{padding-left:12px;padding-right:12px;overflow-x:visible;}
-  #rankingsTable{min-width:0;width:100%;display:block;}
+  .table-wrap{padding-left:12px;padding-right:12px;overflow-x:hidden;}
+  #rankingsTable{min-width:0;width:100%;max-width:100%;display:block;table-layout:fixed;}
   #rankingsTable thead{display:none;}                 /* header row not needed once rows stack */
   #rankingsTable tbody{display:block;}
   #rankingsTable tbody tr td{border:none;padding:0;}  /* reset the table cell box model */
@@ -88,7 +88,20 @@
 
   /* Stats: GP + the stat columns + stars/trend/own wrap into a compact 2-col grid. */
   #rankingsTable td.gp-col,
-  #rankingsTable tbody tr>td:nth-child(n+5){order:3;flex:1 1 40%;min-width:calc(50% - 12px);font-size:13px;color:var(--gray-light);}
+  #rankingsTable tbody tr>td:nth-child(n+5){order:3;flex:1 1 42%;min-width:0;font-size:13px;color:var(--gray-light);}
+  /* Reveal the normally-hidden extra stat columns so every category shows on the card. */
+  #rankingsTable td.extra-col{display:block;}
+
+  /* Every value gets its category label directly beside it, sourced from the
+     row's real per-player data-label (position-specific: hitter vs SP vs RP).
+     The inline ALL-view label is hidden so it isn't shown twice. Cells with no
+     value ("—") are dropped so only categories that exist render. */
+  #rankingsTable tbody tr td[data-label]:not([data-label=""]) .td-stat-label{display:none;}
+  #rankingsTable tbody tr td[data-label]:not([data-label=""])::before{
+    content:attr(data-label);margin-right:6px;color:var(--gray,#8C8C8C);
+    font-weight:600;font-size:11px;letter-spacing:.3px;text-transform:uppercase;
+  }
+  #rankingsTable tbody tr td[data-label]:has(> .td-stat.muted){display:none;}
 
   /* Expandable detail row + status rows stay full width. */
   #rankingsTable tr.row-detail{display:block;}
