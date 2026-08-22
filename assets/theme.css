@@ -9,8 +9,8 @@
 
    Aesthetic: premium sports-almanac / editorial. Deep charcoal surfaces, warm
    white text, a single restrained gold accent, muted gray support, and
-   red / green reserved strictly for status. A modern premium sans display
-   (Manrope) paired with a clean grotesque sans.
+   red / green reserved strictly for status. Refined serif display paired with a
+   clean grotesque sans.
    ============================================================================ */
 
 :root {
@@ -48,7 +48,7 @@
   --rule-soft: rgba(255,255,255,0.06); /* neutral row divider */
 
   /* ---- Typography ---- */
-  --font-display: 'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif; /* modern premium sans display */
+  --font-display: 'DM Serif Display', Georgia, 'Times New Roman', serif; /* refined editorial display */
   --font-sans: 'Barlow', system-ui, -apple-system, Segoe UI, sans-serif; /* clean body sans */
   --font-condensed: 'Barlow Condensed', 'Barlow', system-ui, sans-serif; /* condensed labels / eyebrows */
 }
@@ -62,8 +62,8 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Manrope is a variable geometric sans; display elements get explicit heavy
-   weights (see the display-weight rules below) so headings read as display type. */
+/* DM Serif Display is a single 400 weight; it already reads as a bold display
+   face, so heading elements should not be synthetically bolded. */
 
 /* ---------------------------------------------------------------------------
    Shared app-shell refinements
@@ -72,20 +72,8 @@ body {
    the per-page single-class rules so they win despite loading first.
    --------------------------------------------------------------------------- */
 
-/* Display face is Manrope (a geometric sans). It needs an explicit heavy weight
-   to read as display type — the previous single-weight face didn't. Applied to
-   every element that uses var(--font-display) so the change is consistent. */
-.nav-logo, .sidebar-logo, .hero-title, .hero-name, .page-title, .topbar-left h1,
-.section-title, .cta-title, .bracket-section-title, .region-name, .champ-title,
-.lc-team, .lc-record, .loading-title, .grade-badge, .p-grade, .hero-big-num,
-.strip-number, .td-rank, .team-seed, .bowl-score-val, .bowl-vs,
-.locked h2, .needconnect h2, .coach-locked h2, .coming h3 { font-weight: 700; }
-
-/* Extra weight + tighter, contemporary tracking on the two biggest moments. */
-.hero .hero-title { font-weight: 800; letter-spacing: -1.5px; }
-nav .nav-logo { font-weight: 800; letter-spacing: 0.5px; }
-
-/* Tight tracking that Manrope wants (was wide for the old face). */
+/* The serif wordmark and page title read better with tight tracking than the
+   wide tracking the old condensed face needed. */
 .sidebar .sidebar-logo { letter-spacing: 0.5px; }
 .topbar .topbar-left h1 { letter-spacing: 0.3px; }
 
