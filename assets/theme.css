@@ -9,8 +9,8 @@
 
    Aesthetic: premium sports-almanac / editorial. Deep charcoal surfaces, warm
    white text, a single restrained gold accent, muted gray support, and
-   red / green reserved strictly for status. Refined serif display paired with a
-   clean grotesque sans.
+   red / green reserved strictly for status. A modern premium sans display
+   (Manrope) paired with a clean grotesque sans.
    ============================================================================ */
 
 :root {
@@ -36,12 +36,11 @@
   --red: #F44336;
 
   /* ---- Demoted decorative accents ----
-     Formerly orange / blue / purple used for non-status emphasis. Collapsed
-     toward the gold + neutral palette so hue no longer competes with the gold
-     accent or reads as a status signal. Kept as named tokens so existing
-     var(--orange)/var(--blue)/var(--purple) references resolve unchanged. */
+     Formerly orange / blue used for non-status emphasis. Collapsed toward the
+     gold + neutral palette so hue no longer competes with the gold accent or
+     reads as a status signal. Kept as named tokens so existing
+     var(--orange)/var(--blue) references resolve unchanged. */
   --orange: var(--gold);       /* warm highlight -> gold */
-  --purple: var(--gold);       /* decorative -> gold */
   --blue: #6E7A8A;             /* info/neutral -> muted slate (not a status hue) */
 
   /* ---- Hairline / divider ---- */
@@ -63,8 +62,8 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* DM Serif Display is a single 400 weight; it already reads as a bold display
-   face, so heading elements should not be synthetically bolded. */
+/* Manrope is a variable geometric sans; display elements get explicit heavy
+   weights (see the display-weight rules below) so headings read as display type. */
 
 /* ---------------------------------------------------------------------------
    Shared app-shell refinements
