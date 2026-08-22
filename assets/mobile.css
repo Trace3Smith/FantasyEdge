@@ -115,21 +115,44 @@
   .mode-tab:not(:last-child){border-right:none;border-bottom:1px solid rgba(212,160,23,0.15);}
   .bracket-intro,.regions-grid,.nfl-rails{grid-template-columns:1fr;}
 
-  /* ---- Landing (index / fantasyedge): compact nav + single-column sections ---- */
-  nav{padding:12px 14px;gap:10px;}
-  .nav-logo{white-space:nowrap;}
-  .nav-links{gap:12px;align-items:center;}
-  .nav-links a{white-space:nowrap;}
-  .nav-cta{white-space:nowrap;}
-  .hero{padding-left:20px;padding-right:20px;min-height:auto;}
+  /* ---- Home / landing (index / fantasyedge) ---- */
+  /* Page shell: contain any stray horizontal overflow (layout is fixed below;
+     this is only a safety net, scoped to the home page). */
+  body.home{overflow-x:hidden;max-width:100%;}
+
+  /* 1. Compact header — logo stays fully visible; links + CTA never overlap it. */
+  nav{padding:10px 14px;gap:10px;}
+  .nav-logo{font-size:18px;white-space:nowrap;}
+  .nav-links{gap:14px;align-items:center;}
+  .nav-links a{font-size:11px;letter-spacing:.5px;white-space:nowrap;padding:12px 2px;} /* ~44px tap target */
+  .nav-cta{padding:12px 14px !important;white-space:nowrap;min-height:44px;display:inline-flex;align-items:center;}
+
+  /* 2. Hero — top padding clears the fixed header; bottom padding clears the
+     absolute ticker. Headline scales with clamp(); actions stack vertically. */
+  .hero{
+    min-height:100svh;justify-content:flex-start;
+    padding:calc(84px + env(safe-area-inset-top)) 20px calc(78px + env(safe-area-inset-bottom));
+  }
   .hero-title{font-size:clamp(40px,12vw,88px);}
+  .hero-sub{font-size:15px;}
   .hero-actions{flex-direction:column;align-items:stretch;gap:12px;}
-  .hero-actions>*{width:100%;text-align:center;justify-content:center;}
+  .btn-primary{width:100%;max-width:420px;padding:16px 20px;}   /* full-width CTA, capped, never wider than viewport */
+  .btn-secondary{width:100%;max-width:420px;}                   /* secondary link stays visible below the CTA */
+
+  /* 3. Ticker — full-width but contained; the marquee is clipped inside it. */
+  .ticker{max-width:100%;overflow:hidden;}
+
+  /* 4. Below-the-fold — single column; natural wrapping; reduced gutters. */
   .sports-grid,.pricing-grid{grid-template-columns:1fr;}
   .stats-section{grid-template-columns:repeat(2,1fr);}
   .sports-section,.pricing-section,.cta-section,.stats-section{padding-left:20px;padding-right:20px;}
   .section-title{font-size:clamp(30px,8vw,52px);}
   .cta-title{font-size:clamp(34px,10vw,64px);}
   .cta-actions{flex-direction:column;align-items:stretch;}
-  .cta-actions>*{width:100%;text-align:center;justify-content:center;}
+  .cta-actions>*{width:100%;max-width:420px;text-align:center;justify-content:center;}
+
+  /* 5. Footer — stack logo / links / copyright; links wrap, never per-letter. */
+  footer{flex-direction:column;gap:18px;text-align:center;padding:40px 20px calc(40px + env(safe-area-inset-bottom));}
+  .footer-links{flex-wrap:wrap;justify-content:center;gap:14px 20px;}
+  .footer-links a{white-space:nowrap;padding:6px 2px;}
 }
