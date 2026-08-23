@@ -222,51 +222,6 @@
   .btn-secondary::after { content: '→'; transition: transform 0.2s; }
   .btn-secondary:hover::after { transform: translateX(4px); }
 
-  /* SPORTS TICKER */
-  .ticker {
-    position: absolute;
-    bottom: 0; left: 0; right: 0;
-    background: var(--dark2);
-    border-top: 1px solid rgba(212,160,23,0.2);
-    padding: 14px 0;
-    overflow: hidden;
-    opacity: 0;
-    animation: fadeIn 1s ease 1.2s forwards;
-  }
-
-  .ticker-track {
-    display: flex;
-    gap: 0;
-    animation: ticker 30s linear infinite;
-    white-space: nowrap;
-  }
-
-  .ticker-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0 40px;
-    font-family: 'Barlow Condensed', sans-serif;
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 1px;
-    color: var(--gray-light);
-    border-right: 1px solid rgba(255,255,255,0.08);
-  }
-  .ticker-item .up { color: #4CAF50; }
-  .ticker-item .down { color: #F44336; }
-  .ticker-item .sport-tag {
-    background: rgba(212,160,23,0.15);
-    color: var(--gold);
-    padding: 2px 8px;
-    font-size: 10px;
-    letter-spacing: 2px;
-  }
-
-  @keyframes ticker {
-    0% { transform: translateX(0); }
-    100% { transform: translateX(-50%); }
-  }
 
   /* SPORTS SECTION */
   .sports-section {
@@ -629,10 +584,6 @@
     from { opacity: 0; transform: translateY(30px); }
     to { opacity: 1; transform: translateY(0); }
   }
-  @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
 
   .reveal {
     opacity: 0;
@@ -693,30 +644,6 @@
     <button class="btn-secondary">See How It Works</button>
   </div>
 
-  <!-- TICKER -->
-  <div class="ticker">
-    <div class="ticker-track" id="ticker">
-      <span class="ticker-item"><span class="sport-tag">MLB</span> Shohei Ohtani <span class="up">▲ .412 Last 7</span></span>
-      <span class="ticker-item"><span class="sport-tag">NHL</span> Connor McDavid <span class="up">▲ 3 PPG Streak</span></span>
-      <span class="ticker-item"><span class="sport-tag">PGA</span> Scottie Scheffler <span class="up">▲ T2 Last 3 Events</span></span>
-      <span class="ticker-item"><span class="sport-tag">NBA</span> Luka Doncic <span class="up">▲ 34 PPG March</span></span>
-      <span class="ticker-item"><span class="sport-tag">NFL</span> CeeDee Lamb <span class="down">▼ Questionable</span></span>
-      <span class="ticker-item"><span class="sport-tag">MLB</span> Yordan Alvarez <span class="up">▲ 5 HR Last 10</span></span>
-      <span class="ticker-item"><span class="sport-tag">NHL</span> Nathan MacKinnon <span class="up">▲ Point/Game Pace</span></span>
-      <span class="ticker-item"><span class="sport-tag">PGA</span> Rory McIlroy <span class="down">▼ Missed Cut</span></span>
-      <span class="ticker-item"><span class="sport-tag">NBA</span> Jayson Tatum <span class="up">▲ 8 Straight 30+</span></span>
-      <!-- Duplicate for seamless loop -->
-      <span class="ticker-item"><span class="sport-tag">MLB</span> Shohei Ohtani <span class="up">▲ .412 Last 7</span></span>
-      <span class="ticker-item"><span class="sport-tag">NHL</span> Connor McDavid <span class="up">▲ 3 PPG Streak</span></span>
-      <span class="ticker-item"><span class="sport-tag">PGA</span> Scottie Scheffler <span class="up">▲ T2 Last 3 Events</span></span>
-      <span class="ticker-item"><span class="sport-tag">NBA</span> Luka Doncic <span class="up">▲ 34 PPG March</span></span>
-      <span class="ticker-item"><span class="sport-tag">NFL</span> CeeDee Lamb <span class="down">▼ Questionable</span></span>
-      <span class="ticker-item"><span class="sport-tag">MLB</span> Yordan Alvarez <span class="up">▲ 5 HR Last 10</span></span>
-      <span class="ticker-item"><span class="sport-tag">NHL</span> Nathan MacKinnon <span class="up">▲ Point/Game Pace</span></span>
-      <span class="ticker-item"><span class="sport-tag">PGA</span> Rory McIlroy <span class="down">▼ Missed Cut</span></span>
-      <span class="ticker-item"><span class="sport-tag">NBA</span> Jayson Tatum <span class="up">▲ 8 Straight 30+</span></span>
-    </div>
-  </div>
 </section>
 
 <!-- SPORTS -->
