@@ -6,7 +6,7 @@ Upstash Redis. Live at https://fantasy-edge-nine.vercel.app.
 ## Premium (Clerk auth + Stripe paywall)
 
 Free users see rankings as-is and get **1 mock draft per day** (basic settings,
-draft-assistant advice for rounds 1–7). **Premium ($9.99/mo or $79/yr)** unlocks
+draft-assistant advice for rounds 1–7). **Premium ($5/mo or $50/yr)** unlocks
 unlimited mock drafts, full-draft advice, real draft mode, and (Phase 2) custom
 league settings.
 
@@ -26,8 +26,8 @@ league settings.
 | `CLERK_SECRET_KEY` | Clerk dashboard | Server only. |
 | `CLERK_JWT_KEY` | Clerk → API Keys → JWT public key (PEM) | Enables networkless token verification. |
 | `STRIPE_SECRET_KEY` | Stripe dashboard | Server only. |
-| `STRIPE_PRICE_MONTHLY` | Stripe → recurring price | $9.99/month price id (`price_…`). |
-| `STRIPE_PRICE_ANNUAL` | Stripe → recurring price | $79/year price id (`price_…`). |
+| `STRIPE_PRICE_MONTHLY` | Stripe → recurring price | $5/month price id (`price_…`). |
+| `STRIPE_PRICE_ANNUAL` | Stripe → recurring price | $50/year price id (`price_…`). |
 | `STRIPE_WEBHOOK_SECRET` | Stripe → webhook endpoint | Signing secret (`whsec_…`). |
 | `APP_URL` | — | Base URL for Stripe redirects, e.g. `https://fantasy-edge-nine.vercel.app`. |
 | `ANTHROPIC_API_KEY` | (already set in prod) | Reused by `api/draft/advise.js` for pick rationales. |
@@ -37,7 +37,7 @@ already provisioned for the rankings cache.
 
 ### Stripe setup
 
-1. Create one **Product** with two recurring **Prices**: $9.99/month and $79/year.
+1. Create one **Product** with two recurring **Prices**: $5/month and $50/year.
    Put their ids in `STRIPE_PRICE_MONTHLY` / `STRIPE_PRICE_ANNUAL`.
 2. Add a **webhook endpoint** at `/api/stripe/webhook` subscribed to:
    `checkout.session.completed`, `customer.subscription.updated`,
