@@ -1,0 +1,91 @@
+FantasyEdge — Session wrap-up — 2026-08-23
+Topic: Visual redesign (kept separate) · full mobile-responsive rollout · Stripe
+       hardening · rankings mobile cards + stat labels · home-page ticker removal.
+
+================================================================================
+SHIPPED TO PRODUCTION (main → https://www.fantasyedgeapp.com)
+================================================================================
+Production line advanced through several merges; final prod commit removes the
+home ticker. What is live on main now:
+- Original desktop design preserved (Bebas Neue, original colors/layout).
+- Full mobile responsiveness across all pages (drawer nav ≤768px, min-width:0
+  flex fix, single-column collapses, contained table scroll, safe-area insets,
+  ≥16px inputs, brackets mobile-selector fix).
+- Rankings mobile: compact stacked player CARDS with every stat value labeled
+  (hitters/SP/RP via real p.statLabels; no hardcoding).
+- Stripe lazy-init hardening (api/_lib/billing.js) so a missing STRIPE_SECRET_KEY
+  can't crash /api/sports (and other importers) at module load.
+- Home page ticker REMOVED from the landing pages.
+
+Merged PRs: #34 (Stripe lazy-init), #36 (mobile responsiveness, off main),
+#37 (rankings mobile cards), #38 (rankings mobile stat labels),
+#39 (home-page mobile layout), #41 (remove home ticker).
+Closed (not merged): #40 (data-driven live ticker — see below).
+Open for review (NOT on main, NOT promoted): #35 (full editorial visual redesign,
+stacked on base redesign-base), #33 (K/DST feature + bundled redesign commit).
+
+================================================================================
+KEY TECHNICAL DECISIONS / GOTCHAS
+================================================================================
+- The editorial "sports-almanac" REDESIGN (DM Serif Display, gold-restrained
+  palette, tabular nums, sharper cards) is intentionally KEPT SEPARATE from
+  production. It lives on feature/visual-redesign (PR #35, base redesign-base)
+  and is also bundled inside #33. The user reverted Manrope→DM Serif, then chose
+  to ship ONLY mobile responsiveness to prod, leaving the redesign for review.
+- Shared mobile layer = assets/mobile.css, linked LAST in <head> so its
+  @media(max-width:768px) rules override the pages' inline base rules by source
+  order. Drawer JS = assets/mobile.js. Breakpoint is 768px.
+- THE recurring fix: `.main{min-width:0}` on flex layouts — lets the flex item
+  shrink below content width so wide tables/topbars don't force page overflow.
+- Rankings wide table → mobile CARDS: CSS-only, scoped to #rankingsTable, thead
+  hidden, each <tr> becomes a flex card; stat labels come from data-label added
+  to each stat <td> from p.statLabels (formatStat calls unchanged → desktop
+  byte-identical). In ALL view the inline label is hidden to avoid doubling.
+- Stripe crash root cause: billing.js built `new Stripe('')` at module top level;
+  any importer (incl. api/sports.js via auth.js) crashed when the key was absent
+  (Preview env). Fixed with a lazy Proxy that defers construction to first use.
+  STRIPE_SECRET_KEY is Production-scoped only (not Preview) — that's why previews
+  showed "Couldn't load this slate"; production was always fine.
+- The dashboard "Last Night's Results" games and the OLD home ticker items were
+  HARDCODED sample data. The app has NO unified cross-sport live game-status API;
+  only PGA inField + NFL/CFB pickem game states exist, plus per-player recent-form
+  `tag`+`formReason` in /api/sports?sport=X (hot/cold).
+- PR #40 (data-driven ticker) used the recent-form proxy: show a sport only if it
+  has current hot/in-form players, hide the ticker when none. It WORKS (verified
+  against real MLB data pulled from prod), but the user chose to REMOVE the ticker
+  entirely instead (#41) and closed #40 (left open branch feature/ticker-live-events).
+- Vercel Deployment Protection (ssoProtection) was toggled off for iPhone testing
+  then re-enabled to "prod_deployment_urls_and_all_previews" (= previews gated,
+  production custom domain public). It is currently ON.
+
+================================================================================
+VERIFICATION METHOD
+================================================================================
+- Local patchright harness in the session scratchpad (serves the repo, stubs
+  /api + auth, measures documentElement.scrollWidth vs clientWidth). Verified
+  zero horizontal overflow at 375/390/430/768/1440 and no console errors.
+- Real MLB data for rankings-card verification was fetched from the public prod
+  domain (/api/sports?sport=mlb) into a fixture.
+- Draft board verified via the run-draft-board skill.
+
+================================================================================
+FILES OF NOTE
+================================================================================
+- assets/mobile.css      — shared mobile layer (drawer, collapses, rankings cards)
+- assets/mobile.js       — drawer toggle
+- assets/theme.css       — REDESIGN design tokens/typography (only on redesign
+                           branches / #35 / #33; NOT on main)
+- assets/ticker.js       — data-driven ticker (only on closed PR #40's branch)
+- api/_lib/billing.js    — Stripe lazy-init (on main)
+
+================================================================================
+OPEN / FOLLOW-UPS
+================================================================================
+- NotebookLM auth expired this session → this wrap-up was NOT pushed to the
+  "FantasyEdge Memory" notebook. Re-auth (regenerate state.json per the
+  notebooklm-auth-workaround memory) then push this summary.
+- Decide the fate of the visual redesign (PR #35) — merge to main or keep parked.
+- Known pre-existing: rankings DESKTOP table overflows ~148px at 1440 (original;
+  intentionally left as-is since desktop was to stay unchanged).
+- Review noted (not addressed): index.html and fantasyedge.html are byte-identical
+  duplicates; per-page drawer blocks vs a shared layer.
