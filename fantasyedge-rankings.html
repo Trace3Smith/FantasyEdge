@@ -558,6 +558,9 @@
   /* Two spare sortable columns beyond the stat line — PGA's CUT%/FIT and NFL's Proj/'25 points. */
   .extra-col { display: none; }
   #rankingsTable.show-extra-cols .extra-col { display: table-cell; }
+  /* Locked (premium) / inactive (off-season) states replace the body with a
+     message; hide the now-empty column header so it doesn't hang above it. */
+  #rankingsTable.locked thead { display: none; }
   .own-pct { color: var(--gray-light); font-size: 12px; }
   .loading-row td { text-align: center; padding: 60px 20px; color: var(--gray); }
   .loading-title { font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 2px; color: var(--gold); margin-bottom: 6px; }
@@ -600,7 +603,7 @@
 <main class="main">
   <div class="top-header">
     <div class="page-title">PLAYER RANKINGS</div>
-    <div class="page-subtitle" id="updateLabel">Updated live · Loading...</div>
+    <div class="page-subtitle" id="updateLabel">Updated daily · Loading…</div>
     <div class="sport-tabs" id="sportTabs">
       <div class="sport-tab" data-sport="nfl"><span class="dot"></span>NFL</div>
       <div class="sport-tab" data-sport="nba"><span class="dot"></span>NBA</div>
@@ -702,7 +705,7 @@
         </tr>
       </thead>
       <tbody id="tableBody">
-        <tr class="loading-row"><td colspan="16"><div class="loading-title">Loading Live Data...</div><div class="loading-sub">Fetching real stats from MLB Stats API</div></td></tr>
+        <tr class="loading-row"><td colspan="16"><div class="loading-title">Loading Rankings…</div><div class="loading-sub">Fetching the latest daily dataset…</div></td></tr>
       </tbody>
     </table>
   </div>
@@ -1852,6 +1855,7 @@
 
   function renderLocked() {
     document.getElementById('updateLabel').textContent = 'Premium feature';
+    document.getElementById('rankingsTable').classList.add('locked'); // hide the empty column header behind the upsell
     ['stripTotal', 'stripHot', 'stripCold'].forEach(id => document.getElementById(id).textContent = '—');
     document.getElementById('tableBody').innerHTML = `<tr><td colspan="16" style="padding:64px 24px;text-align:center">
       <div style="font-size:40px;margin-bottom:10px">🔒</div>
@@ -1861,6 +1865,21 @@
     </td></tr>`;
     document.getElementById('pgaUpsell').onclick = () =>
       (window.FE && window.FE.openPricing) ? window.FE.openPricing() : (window.location.href = '/fantasyedge-draft.html');
+  }
+
+  // Accurate empty state for a sport with no current dataset (off-season / no
+  // active slate) — distinct from a real fetch failure. Reuses .locked to hide
+  // the (now-empty) column header.
+  function renderInactive(sport) {
+    const label = (sport || '').toUpperCase();
+    document.getElementById('updateLabel').textContent = 'No current data';
+    document.getElementById('rankingsTable').classList.add('locked');
+    ['stripTotal', 'stripHot', 'stripCold'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '—'; });
+    document.getElementById('tableBody').innerHTML = `<tr><td colspan="16" style="padding:56px 24px;text-align:center">
+      <div style="font-size:34px;margin-bottom:10px">📅</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2px;color:var(--gold);margin-bottom:8px">${label} — no active slate right now</div>
+      <div style="font-size:13px;color:var(--gray);max-width:440px;margin:0 auto;line-height:1.6">This sport looks off-season or between games, so there are no current rankings. Check back when the season is underway.</div>
+    </td></tr>`;
   }
 
   function showFocusToast(msg) {
@@ -1945,7 +1964,8 @@
   async function loadAndRender(sport) {
     currentSport = sport;
     if (isLocked(sport)) { renderLocked(); return; }
-    document.getElementById('tableBody').innerHTML = '<tr class="loading-row"><td colspan="16"><div class="loading-title">Loading Live Data...</div><div class="loading-sub">Fetching real stats...</div></td></tr>';
+    document.getElementById('rankingsTable').classList.remove('locked'); // restore the header if we came from a locked/inactive sport
+    document.getElementById('tableBody').innerHTML = '<tr class="loading-row"><td colspan="16"><div class="loading-title">Loading Rankings…</div><div class="loading-sub">Fetching the latest daily dataset…</div></td></tr>';
     try {
       // Premium sports are gated server-side, so attach the Clerk session token.
       // (isLocked already short-circuits non-premium users before we get here.)
@@ -1958,7 +1978,7 @@
       if (res.status === 401 || res.status === 403) { renderLocked(); return; }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      if (!data.players || !data.players.length) throw new Error('No players returned');
+      if (!data.players || !data.players.length) { renderInactive(sport); return; } // off-season / no active slate — accurate empty state, not an error
       allPlayers = data.players;
       computeTeamGames(allPlayers); // per-team season games, for the GP column's "happened" denominator
       // Real measured bounds of the rolling windows (MLB only; null elsewhere, and null if
@@ -1968,8 +1988,10 @@
       // Today's BvP matchups (MLB only; null off-day or other sports). Reset per load so a
       // stale sport's data never leaks into another's rows.
       bvpData = data.bvp || null;
-      const now = new Date();
-      document.getElementById('updateLabel').textContent = `Updated live · ${now.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}`;
+      // "Updated daily" reflects the daily-cached dataset; label with the payload's
+      // builtAt timestamp (fall back to today only if the field is absent).
+      const built = data.builtAt ? new Date(data.builtAt) : new Date();
+      document.getElementById('updateLabel').textContent = `Updated daily · ${built.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}`;
       updateStrip(allPlayers);
       buildWindowControls(allPlayers); // Season/L15/L30 toggle for sports with rolling data
       renderTable(allPlayers);
