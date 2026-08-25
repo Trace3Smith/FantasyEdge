@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "verify:coach": "node scripts/verify-draft-coach.mjs",
+    "test:draft": "node scripts/test-draft-ai.mjs",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {

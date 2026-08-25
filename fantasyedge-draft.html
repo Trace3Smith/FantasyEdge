@@ -417,6 +417,8 @@ import { nflFpts, nflReplacementLevels, nflBoardCmp } from '/nflScoring.js';
 import { nbaPlayerValue, nbaBoardCmp, nbaRankMap, DEFAULT_LINEUP as nbaLineup, eligibleSlots as nbaElig } from '/nbaScoring.js';
 import { value as mlbValue, boardCmp as mlbBoardCmp, rankMap as mlbRankMap, DEFAULT_LINEUP as mlbLineup, eligibleSlots as mlbElig } from '/mlbScoring.js';
 import { value as nhlValue, boardCmp as nhlBoardCmp, rankMap as nhlRankMap, DEFAULT_LINEUP as nhlLineup, eligibleSlots as nhlElig } from '/nhlScoring.js';
+// AI opponent pick logic — roster-need + ADP/value aware (see draftAI.js). Pure module, unit-tested.
+import { pickNflOpponent, pickRotoOpponent } from '/draftAI.js';
 // Shared player-display module — the SAME code Player Rankings renders through, so the detail
 // sidebar's stars, category pills, tags/trends, sortable category list, and prior-year line match it.
 import { renderStarsBlock, renderCategoryList, renderPrevYear, renderOpportunity, getTagHTML, getTrendHTML } from '/playerDisplay.js';
@@ -864,26 +866,37 @@ function advance() {
   finishDraft();
 }
 
-// AI opponents draft like real managers: by FantasyPros ADP for the league's scoring,
-// usually taking the best ADP left and occasionally reaching a few spots. Players with
-// no ADP (K/DST and undrafted depth) sink ~2 rounds below their board rank, so kickers
-// and defenses naturally go late without a special rule.
-function bestForAI(round) {
+// AI opponents draft like real managers: they weigh what their own roster still needs (open
+// starting slots, positional scarcity) against who's actually available — ADP for NFL, category
+// value for roto — instead of blindly taking the best ADP within a window. That gives realistic
+// roster construction (fill QB/RB/WR/TE/FLEX, don't hoard a position, grab K/DST late) rather than
+// lopsided rosters. The pick math lives in the pure, unit-tested draftAI.js module.
+//
+// `teamIdx` is the AI team on the clock; its current roster is derived from the picks it's already
+// made (state.roster tracks only the user, so opponents read back from state.picks).
+function opponentRoster(teamIdx) {
+  return state.picks.filter((pk) => pk.teamIndex === teamIdx).map((pk) => ({ pos: pk.pos }));
+}
+
+function bestForAI(teamIdx, round) {
   const scoring = state.settings.scoring || 'ppr';
-  // Roto sports have no ADP, so opponents pick straight off the category board (best value
-  // left); NFL opponents pick by ADP, with no-ADP players (K/DST/depth) sinking ~2 rounds.
-  const avail = isRoto()
-    ? players.filter((p) => !state.drafted.has(p.id)).sort(boardCmp)
-    : players.filter((p) => !state.drafted.has(p.id))
-        .sort((a, b) => {
-          const adpVal = (p) => { const x = adpFor(p, scoring); return x != null ? x : (p.rank != null ? p.rank + 24 : 999); };
-          return adpVal(a) - adpVal(b);
-        });
-  if (!avail.length) return null;
-  // Reach window widens slightly as the draft goes (later ADP is noisier). The
-  // exponent biases the pick toward the top of the window (best ADP available).
-  const window = Math.min(avail.length, 3 + Math.floor(round / 3));
-  return avail[Math.floor(Math.pow(Math.random(), 1.6) * window)];
+  const have = opponentRoster(teamIdx);
+  const totalRounds = state.settings.rounds;
+  if (isRoto()) {
+    // Roto sports have no ADP — order the board by category value, then let the module fill the
+    // sport's lineup slots (via its eligibility model) rather than stacking one position.
+    const available = players.filter((p) => !state.drafted.has(p.id)).sort(boardCmp);
+    const mod = rotoMod();
+    return pickRotoOpponent({ available, have, lineup: mod.lineup, eligibleSlots: mod.elig, round, totalRounds });
+  }
+  // NFL: order by ADP for the league's scoring (no-ADP K/DST/depth sink ~2 rounds below their
+  // board rank), then let the module weigh open starter needs + position caps against that ADP.
+  const available = players.filter((p) => !state.drafted.has(p.id))
+    .sort((a, b) => {
+      const adpVal = (p) => { const x = adpFor(p, scoring); return x != null ? x : (p.rank != null ? p.rank + 24 : 999); };
+      return adpVal(a) - adpVal(b);
+    });
+  return pickNflOpponent({ available, have, starters: state.settings.starters, round, totalRounds });
 }
 
 function recordPick(player, teamIdx) {
@@ -896,7 +909,7 @@ function recordPick(player, teamIdx) {
 }
 
 function aiPick(teamIdx) {
-  const p = bestForAI(roundOf(state.pickIndex, state.settings.teams));
+  const p = bestForAI(teamIdx, roundOf(state.pickIndex, state.settings.teams));
   if (!p) { state.pickIndex++; return; }
   recordPick(p, teamIdx);
 }
