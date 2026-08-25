@@ -104,8 +104,8 @@
   #rankingsTable tbody tr td[data-label]:has(> .td-stat.muted){display:none;}
 
   /* Expandable detail row + status rows stay full width. */
-  #rankingsTable tr.row-detail{display:block;}
-  #rankingsTable tr.row-detail>td{display:block;padding:0;}
+  #rankingsTable tr.row-detail.open{display:block;}
+  #rankingsTable tr.row-detail.open>td{display:block;padding:0;}
   #rankingsTable tr.loading-row,#rankingsTable tr.error-row{display:block;text-align:center;}
   #rankingsTable tr.loading-row>td,#rankingsTable tr.error-row>td{display:block;padding:24px 8px;}
 
