@@ -2107,6 +2107,13 @@
       for (const pos of Object.keys(d)) document.getElementById('rs' + pos).value = d[pos];
       initNflPersonalize(); // populate the linked-league dropdown for Premium personalization
     }
+    // Relabel the stat-column headers for this sport NOW — synchronously, before the async
+    // loadAndRender() fetch resolves. updateStatHeaders() otherwise runs only inside renderTable
+    // (after data arrives), so a sport switch would leave the PREVIOUS sport's (or the static
+    // baseball) column labels showing during the load window, on a slow/failed fetch, and while a
+    // premium/inactive sport sits locked. renderTable calls it again post-fetch (idempotent: same
+    // currentType/currentPos/combineCats), so this only changes WHEN the labels become correct.
+    updateStatHeaders();
   }
 
   // Read the starting-roster steppers back into nflLeague (VORP replacement depth).
