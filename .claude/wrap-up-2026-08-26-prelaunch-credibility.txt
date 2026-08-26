@@ -1,0 +1,129 @@
+FantasyEdge — Session wrap-up — 2026-08-26
+Topic: Credibility fixes · roster-aware mock-draft AI · rankings header fix ·
+       pre-launch pricing/golf/feature/links cleanup. All shipped to production.
+
+================================================================================
+SHIPPED TO PRODUCTION (main -> https://www.fantasyedgeapp.com)
+================================================================================
+Six PRs merged this session (squash, in order), each auto-deployed to prod via the
+Git integration (main = production branch) and verified live:
+
+- #42  docs: reconcile README pricing with shipped pricing ($5/mo, $50/yr).
+- #43  fix(landing): Pricing nav -> #pricing anchor, wire dead "Start Free" CTA,
+       footer Sports/Pricing links.
+- #44  fix(rankings): "Updated live" -> "Updated daily" from payload builtAt; PGA
+       locked-state header hidden; accurate inactive/empty state (renderInactive).
+- #45  Mock draft: roster-need + ADP-aware AI opponents (new pure module draftAI.js
+       + focused tests). See details below.
+- #46  Rankings: relabel stat headers on sport switch (fixes stale PGA/MLB/NHL
+       <thead> during the async load window). See details below.
+- #47  Pre-launch fixes: pricing accuracy, free golf, NFL settings free, free
+       mock-draft bullet, dead footer links, search empty state (+ follow-up:
+       Contact mailto + sidebar upsell copy). See details below.
+
+Final prod build verified: index/rankings 200; free-golf API returns 200 for an
+ANONYMOUS GET /api/sports?sport=pga (server gate truly removed, not just the UI).
+
+================================================================================
+STRIPE VERIFICATION GATE (#42/#43/#44)
+================================================================================
+User gated these merges on confirming Stripe = $5/mo & $50/yr WITHOUT exposing or
+changing secrets. Could NOT verify from this environment: Vercel Stripe vars
+(STRIPE_SECRET_KEY, STRIPE_PRICE_MONTHLY/ANNUAL) are Production-scoped + Sensitive
+(write-only, unretrievable); .env.local has them commented; checkout.js requires a
+real Clerk user so no session could be minted to read a hosted price. Reported the
+blocker + exact checklist (Stripe Dashboard prices + Vercel env ids; or `stripe
+prices retrieve <id>` expecting unit_amount 500/month, 5000/year). User then
+CONFIRMED externally, and the three PRs were merged. No Stripe/payment code touched.
+
+================================================================================
+#45 — ROSTER-AWARE MOCK-DRAFT AI (draftAI.js)
+================================================================================
+Opponents used to draft best-ADP-in-a-reach-window, ignoring roster construction
+(hoarded RBs, skipped K/DST). Now they weigh remaining roster requirements +
+positional needs + position caps against ADP (NFL) / category value (roto).
+
+- NEW /draftAI.js — pure, dependency-free, unit-tested. Exports pickNflOpponent,
+  pickRotoOpponent, nflOpenNeeds, nflPosCaps, rotoOpenSlots. NFL: open starter
+  slots (QB/RB/WR/TE/FLEX), soft caps (K/DST=1, QB/TE=starter+1, RB/WR deep for
+  FLEX/bench), must-fill switch late so every slot fills. Roto: each sport's
+  slot-eligibility model. Preserves the long-standing ADP/board ordering + the
+  pow(rand,1.6) reach window.
+- fantasyedge-draft.html: bestForAI now derives the AI team's roster (from
+  state.picks) and delegates to the module. Only opponent auto-picks changed;
+  user suggestions/advise engine, scoring, board, UI untouched.
+- Tests: scripts/test-draft-ai.mjs (npm run test:draft) — full simulated NFL
+  (10x15) + NBA (10x13) snake drafts assert legal/realistic rosters, plus
+  need/cap/must-fill unit checks. 7/7 pass. Plain-node pattern (no framework),
+  matching scripts/verify-draft-coach.mjs.
+
+================================================================================
+#46 — RANKINGS PER-SPORT STAT HEADERS
+================================================================================
+Investigation: headers DO relabel via updateStatHeaders() — it writes h1..h8 by
+COMPUTED id (getElementById('h'+(i+1))) + innerHTML <span class="th-lbl">, which is
+why a literal-`h1` grep found nothing. STAT_HEADERS.pga already existed. The real
+bug: updateStatHeaders() ran ONLY inside renderTable() (after the async fetch), so
+applySport() left the previous sport's / static baseball labels showing during the
+load window (reproduced: MLB->PGA kept h1="AVG" ~1.5s before flipping to SG:OTT).
+Fix: one line — call updateStatHeaders() at the end of applySport(). Idempotent;
+no change to sorting, data-stat/zkey bindings, or the combine checkboxes.
+
+================================================================================
+#47 — PRE-LAUNCH FIXES (copy/config; no scoring/auth/data/payment changes)
+================================================================================
+1. Pricing freshness accuracy (index.html + fantasyedge.html, kept byte-identical):
+   one daily dataset refresh for everyone (vercel.json cron), no delay tiering / no
+   live-update mechanism anywhere in api/. Free "Delayed stats (24hr)" -> "Updated
+   daily"; Premium "Live stat updates (all sports)" -> "Updated daily (all sports)";
+   removed the inactive "Live stat updates" upsell (feature doesn't exist).
+2. Free golf: removed 'pga' from client PREMIUM_SPORTS (now empty) AND `premium:true`
+   from the pga SPORTS config in api/sports.js (the real trust boundary). Draft
+   mode's PGA exclusion in draft.js left untouched (intentional).
+3. NFL settings free (api/draft/mock-start.js): moved NFL scoring/roster/rounds
+   overrides OUT of if(premium) so free users draft for their real league (engine is
+   already settings-aware). Roto rounds override stays Premium; free daily mock quota
+   + Premium-unlimited unchanged. Default free flow (no custom settings) is identical
+   to before. (User chose the "Preferred: unlock" option over the disclose-only one.)
+4. Free mock-draft bullet added to the pricing Free column: "1 free mock draft per
+   day with AI Draft Coach (through round 7)" (matches FREE_MAX_ROUND=7).
+5. Dead links + search empty state: footer Blog removed, Contact -> mailto (now
+   traceryansmith@gmail.com per user). Rankings search shows "No players matching
+   '<q>' in <SPORT> — try another sport." (query HTML-escaped via escHtml) instead
+   of a silent blank board.
+   Follow-up: rankings sidebar upsell "Unlock live stats, ..." -> "Unlock hot/cold
+   alerts, ..." (same nonexistent-live-stats claim; hot/cold is a real feature).
+
+================================================================================
+KEY TECHNICAL NOTES / GOTCHAS (carried forward)
+================================================================================
+- Deploy model: main IS the production branch — merging to main auto-deploys to
+  PROD via Git integration (no separate promote step). `vercel deploy --yes
+  --scope fantasy-edge-s-projects` makes a standalone PREVIEW (SSO-gated). CLI
+  deploy w/o scope, and `--scope <personal>`, both error ("Not authorized" /
+  "cannot set Personal Account as scope") — always use the team scope.
+- Patchright harness route-order gotcha (bit me again): routes match
+  LAST-registered-FIRST, so register the broad **/api/** catch-all BEFORE the
+  specific **/api/sports** or the catch-all shadows it ({} -> renderInactive ->
+  locked). Harnesses live in the session scratchpad.
+- Search box listener is on KEYUP, not input/change — patchright fill() won't
+  trigger it; use type()/pressSequentially() to exercise search in tests.
+- Vercel "Sensitive" env vars are write-only (can't be pulled/read) -> Stripe
+  price verification is impossible from this env; needs the dashboard or a
+  restricted read-only key. (See notebooklm-auth-workaround memory for the other
+  standing gotcha.)
+- index.html and fantasyedge.html are byte-identical landing duplicates; keep them
+  in sync (cp index.html fantasyedge.html after edits).
+
+================================================================================
+OPEN / FOLLOW-UPS
+================================================================================
+- Confirm the mailbox traceryansmith@gmail.com is monitored (now the public
+  Contact link in production).
+- Redesign still parked: PR #35 (editorial visual redesign, base redesign-base)
+  and #33 (K/DST + bundled redesign) remain OPEN, NOT on main. #40 (data-driven
+  ticker) closed.
+- Pre-existing (intentionally left): rankings DESKTOP table overflows ~148px at
+  1440 (desktop was to stay unchanged).
+- Untracked stragglers in the working tree from the kdst branch (.claude/wrap-up-*
+  txts, .claude/skills/run-draft-board/) — not committed; ignore or clean up.
