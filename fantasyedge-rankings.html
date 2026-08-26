@@ -595,7 +595,7 @@
     <li><a data-sport="pga">⛳ PGA</a></li>
   </ul>
   <div class="upgrade-box">
-    <p>Unlock live stats, Team Manager add/drop &amp; lineup recs.</p>
+    <p>Unlock hot/cold alerts, Team Manager add/drop &amp; lineup recs.</p>
     <a href="#" class="upgrade-btn">Get Premium — $5/mo</a>
   </div>
 </aside>
@@ -1128,7 +1128,13 @@
       }
     }
     if (!filtered.length) {
-      tbody.innerHTML = '<tr class="loading-row"><td colspan="16"><div class="loading-title">No Players Found</div><div class="loading-sub">Try a different position filter</div></td></tr>';
+      // Search is scoped to the active sport tab, so a name from another sport (e.g. "Mahomes"
+      // while on MLB) legitimately matches nothing here — say so, and point elsewhere, rather
+      // than showing a blank board that reads as broken.
+      const emptySub = term
+        ? `No players matching “${escHtml(searchTerm.trim())}” in ${currentSport.toUpperCase()} — try another sport.`
+        : 'Try a different position filter';
+      tbody.innerHTML = `<tr class="loading-row"><td colspan="16"><div class="loading-title">No Players Found</div><div class="loading-sub">${emptySub}</div></td></tr>`;
       return;
     }
     tbody.innerHTML = filtered.map(p => {
@@ -1844,12 +1850,12 @@
     coldCard.classList.toggle('filter-active', formFilter === 'cold');
   }
 
-  // Premium-only sports: the tab is visible to everyone (so it sells itself), but
-  // the board is gated behind an active subscription. Server data stays public to
-  // match the rest of the app; this is the product's monetization gate, like the
-  // mock-draft tiers. window.FE may not be ready yet on first paint — treat unknown
-  // as locked, and re-render once auth resolves (see the fe-auth-ready listener).
-  const PREMIUM_SPORTS = new Set(['pga']);
+  // Premium-only sports: the tab is visible to everyone, and any sport listed here has its
+  // board gated behind an active subscription (with the server re-verifying — the UI lock is
+  // cosmetic). The set is currently EMPTY: golf rankings are free like every other sport.
+  // window.FE may not be ready yet on first paint — treat unknown as locked for gated sports,
+  // and re-render once auth resolves (see the fe-auth-ready listener).
+  const PREMIUM_SPORTS = new Set();
   const isLocked = (sport) =>
     PREMIUM_SPORTS.has(sport) && !(window.FE && window.FE.isPremium && window.FE.isPremium());
 

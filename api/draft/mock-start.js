@@ -33,12 +33,14 @@ export default async function handler(req, res) {
     // League size is a basic setting everyone may pick (8/10/12/14-team).
     if ([8, 10, 12, 14].includes(Number(o.teams))) settings.teams = Number(o.teams);
 
-    if (premium) {
-      // Premium may also override scoring/rounds and (NFL) the roster layout. The points-format
-      // override is NFL-only — roto leagues have no PPR/Standard toggle.
-      if (!roto && (o.scoring === 'standard' || o.scoring === 'ppr' || o.scoring === 'half')) settings.scoring = o.scoring;
+    // NFL league settings (scoring / roster layout / rounds) are available to EVERY tier — the
+    // ranking + draft engine is settings-aware for any league shape (nflReplacementDepths,
+    // minRosterFrom, leagueDemandFrom), so a free user can draft for their real league. Roto sports
+    // have no PPR/Standard toggle, and their rounds override stays Premium-only.
+    if (!roto) {
+      if (o.scoring === 'standard' || o.scoring === 'ppr' || o.scoring === 'half') settings.scoring = o.scoring;
       // Custom NFL roster layout: position counts + bench drive the draft; rounds = starters + bench.
-      const cs = !roto ? resolveStarters(o.starters) : null;
+      const cs = resolveStarters(o.starters);
       if (cs) {
         settings.starters = cs;
         const startCount = Object.values(cs).reduce((a, b) => a + b, 0);
@@ -46,10 +48,11 @@ export default async function handler(req, res) {
       } else if (Number.isInteger(o.rounds) && o.rounds >= 10 && o.rounds <= 20) {
         settings.rounds = o.rounds;
       }
-    } else {
-      // Free tier: enforce the daily quota (settings otherwise stay basic).
-      await consumeMockQuota(userId);
+    } else if (premium && Number.isInteger(o.rounds) && o.rounds >= 10 && o.rounds <= 20) {
+      settings.rounds = o.rounds; // roto rounds override remains Premium
     }
+    // Free tier: still enforce the daily mock-draft quota (unlimited mocks stay Premium).
+    if (!premium) await consumeMockQuota(userId);
 
     const usage = await getMockUsage(userId);
     // Honor a chosen draft position (any tier — it's pure draft mechanics); fall back
