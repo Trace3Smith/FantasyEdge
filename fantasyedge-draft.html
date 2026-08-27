@@ -419,6 +419,8 @@ import { value as mlbValue, boardCmp as mlbBoardCmp, rankMap as mlbRankMap, DEFA
 import { value as nhlValue, boardCmp as nhlBoardCmp, rankMap as nhlRankMap, DEFAULT_LINEUP as nhlLineup, eligibleSlots as nhlElig } from '/nhlScoring.js';
 // AI opponent pick logic — roster-need + ADP/value aware (see draftAI.js). Pure module, unit-tested.
 import { pickNflOpponent, pickRotoOpponent } from '/draftAI.js';
+// Snake/linear pick order — shared with the server advice endpoint (see draftOrder.js).
+import { teamOnClock } from '/draftOrder.js';
 // Shared player-display module — the SAME code Player Rankings renders through, so the detail
 // sidebar's stars, category pills, tags/trends, sortable category list, and prior-year line match it.
 import { renderStarsBlock, renderCategoryList, renderPrevYear, renderOpportunity, getTagHTML, getTrendHTML } from '/playerDisplay.js';
@@ -847,13 +849,7 @@ async function startMock() {
 
 // Draft flow --------------------------------------------------------------------
 const roundOf = (i, teams) => Math.floor(i / teams) + 1;
-// Which team slot (0-based) is on the clock at overall pick `i`. Linear keeps the same
-// order every round; snake reverses it on even rounds. Mock drafts are always snake.
-function teamOnClock(i, teams, format = 'snake') {
-  const round = roundOf(i, teams), inRound = i % teams;
-  if (format === 'linear') return inRound;
-  return round % 2 === 1 ? inRound : teams - 1 - inRound; // snake
-}
+// teamOnClock(i, teams, format) is imported from /draftOrder.js (shared with the server).
 
 function advance() {
   const { settings } = state;

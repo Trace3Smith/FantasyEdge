@@ -362,7 +362,7 @@ function positionRuns(recentPicks) {
  * @param recentPicks recent league picks [{ pos }] for run detection (optional)
  * @returns { candidates, runs } — candidates sorted best-first
  */
-export function recommend(players, drafted, roster = [], settings = DEFAULT_SETTINGS, round = 1, recentPicks = []) {
+export function recommend(players, drafted, roster = [], settings = DEFAULT_SETTINGS, round = 1, recentPicks = [], picksUntilNext = Infinity) {
   const sport = settings.sport || 'nfl';
   const cfg = ROTO[sport];
   // Re-hydrate the roster: callers pass [{ id, pos }] (positions + ids only), but the team-balance logic
@@ -372,8 +372,8 @@ export function recommend(players, drafted, roster = [], settings = DEFAULT_SETT
   // entry's own fields win on conflict, so the drafted SLOT (pos) is preserved.
   const byId = new Map(players.map((p) => [p.id, p]));
   const hydrated = (roster || []).map((r) => { const full = r && byId.get(r.id); return full ? { ...full, ...r } : r; });
-  if (cfg) return recommendRoto(players, drafted, hydrated, settings, round, recentPicks, cfg);
-  return recommendNfl(players, drafted, hydrated, settings, round, recentPicks);
+  if (cfg) return recommendRoto(players, drafted, hydrated, settings, round, recentPicks, cfg, picksUntilNext);
+  return recommendNfl(players, drafted, hydrated, settings, round, recentPicks, picksUntilNext);
 }
 
 // --- Roto (category) recommender -------------------------------------------------------------
@@ -384,7 +384,7 @@ export function recommend(players, drafted, roster = [], settings = DEFAULT_SETT
 // balances cats rather than always grabbing the highest raw z. Positional need comes from open
 // starting slots; a late-draft forced tier guarantees a legal lineup. No ADP/projections in v1,
 // so those candidate fields are null and mock opponents pick by category value.
-function recommendRoto(players, drafted, roster = [], settings = {}, round = 1, recentPicks = [], M) {
+function recommendRoto(players, drafted, roster = [], settings = {}, round = 1, recentPicks = [], M, picksUntilNext = Infinity) {
   const taken = drafted instanceof Set ? drafted : new Set(drafted);
   const teams = settings.teams || 12;
   const totalRounds = settings.rounds || 13;
@@ -451,11 +451,12 @@ function recommendRoto(players, drafted, roster = [], settings = {}, round = 1, 
     startableLeft, slack, teams, picksLeft, totalRounds, needs, weakCats,
     mustFillNow: slack <= 0 && needs.length > 0,
     fillSoon: slack === 1 && needs.length > 0,
+    picksUntilNext, // picks until the user's next turn (plumbed through; not yet consumed)
   };
   return { candidates: scored.slice(0, 12), runs, board };
 }
 
-function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS, round = 1, recentPicks = []) {
+function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS, round = 1, recentPicks = [], picksUntilNext = Infinity) {
   const taken = drafted instanceof Set ? drafted : new Set(drafted);
   const scoring = settings.scoring || 'ppr';
   const levels = replacementLevels(players, scoring, settings);
@@ -656,6 +657,7 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
     startableLeft, slack, teams, picksLeft, totalRounds, needs, slots, vonaSwing,
     mustFillNow: slack <= 0 && needs.length > 0,
     fillSoon: slack === 1 && needs.length > 0,
+    picksUntilNext, // picks until the user's next turn (plumbed through; not yet consumed)
   };
   // Pool consistency with the Coach chat: the chat can surface the best-available-by-VALUE player at a
   // position (its per-position board draws from the full pool by blend), so the "My pick" analyst's

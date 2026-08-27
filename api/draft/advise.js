@@ -12,6 +12,7 @@ import { NBA_CATS } from '../../nbaScoring.js';
 import { MLB_CATS } from '../../mlbScoring.js';
 import { NHL_CATS } from '../../nhlScoring.js';
 import { adpFitPhrase } from '../../pickReasons.js';
+import { teamOnClock, picksUntilNextTurn } from '../../draftOrder.js';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-4-6';
@@ -294,7 +295,15 @@ export default async function handler(req, res) {
     }
     const players = await loadPlayers(sport);
     const roster = Array.isArray(b.roster) ? b.roster : [];
-    const { candidates, runs, board } = recommend(players, b.drafted || [], roster, settings, round, b.recentPicks || []);
+    // Advice fires on the user's turn, so the team on the clock at the current overall pick IS the
+    // user — derive the pick gap to their NEXT turn (snake mocks) and hand it to recommend(). Made
+    // available now for future need-scaling; nothing consumes it yet (needFactor is unchanged).
+    const drafted = b.drafted || [];
+    const pickIndex = drafted.length;                       // on the clock => picks already made
+    const totalPicks = settings.teams * settings.rounds;
+    const userTeam = teamOnClock(pickIndex, settings.teams); // snake (mocks are always snake)
+    const picksUntilNext = picksUntilNextTurn(pickIndex, userTeam, settings.teams, totalPicks);
+    const { candidates, runs, board } = recommend(players, drafted, roster, settings, round, b.recentPicks || [], picksUntilNext);
 
     // The analyst (Claude) call is the costly part; callers can skip it (e.g. offline
     // mode's real-time refreshes while the user's pick is still a few spots away), in
