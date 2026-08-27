@@ -175,6 +175,12 @@ const VONA_MAX = 0.5;
 // cross-position VONA "scarcity swing" language fires. A 1-count gap is pool-shape noise, not scarcity.
 const VONA_MIN_STARTABLE_GAP = 2;
 
+// Positions kept OUT of every scarcity read (the "fewest first" analyst line AND the VONA scarcity swing).
+// K/DST are streamed/matchup last-round picks whose tiny startable counts are near-random, not scarcity —
+// framing them as "scarcer than RB/WR" is misleading. Their late-round timing is the ROSTER NECESSITY
+// note's job. Single source of truth so the prompt line and the swing gate can't drift. No-op for roto.
+const SCARCITY_SKIP_POS = new Set(['K', 'DST']);
+
 // Need multiplier — how much to want this position right now, reading both our roster
 // and the live board. No fixed round logic: urgency emerges from (1) whether we still
 // owe a starting slot, (2) how fast startable players at the position are drying up,
@@ -283,15 +289,15 @@ export function vonaScarcityPromptNote(swing) {
     + `Explain WHY this tradeoff is worth it in your rationale, but do NOT restate the raw startable counts.`;
 }
 // Positional-scarcity line for the analyst prompt: startable players left by position, fewest first. K/DST
-// are EXCLUDED — they're streamed/matchup last-round picks whose tiny startable counts (near-random value)
-// would otherwise sort to the FRONT of a "fewest first" list and falsely imply early urgency, letting the
-// analyst pair them with a genuinely scarce QB/TE. Their late-round timing is the ROSTER NECESSITY note's
-// job, not scarcity. Kept here (offline-testable) so advise.js's prompt and this rule can't drift. Roto
-// sports have no K/DST in startableLeft, so the filter is a no-op there. Returns 'n/a' when none qualify.
+// are EXCLUDED (SCARCITY_SKIP_POS) — they're streamed/matchup last-round picks whose tiny startable counts
+// (near-random value) would otherwise sort to the FRONT of a "fewest first" list and falsely imply early
+// urgency, letting the analyst pair them with a genuinely scarce QB/TE. Their late-round timing is the
+// ROSTER NECESSITY note's job, not scarcity. Kept here (offline-testable) so advise.js's prompt and this
+// rule can't drift. Roto sports have no K/DST in startableLeft, so the filter is a no-op there. Returns
+// 'n/a' when none qualify.
 export function scarcityLine(startableLeft) {
-  const SKIP = new Set(['K', 'DST']);
   const parts = Object.entries(startableLeft || {})
-    .filter(([pos]) => !SKIP.has(pos))
+    .filter(([pos]) => !SCARCITY_SKIP_POS.has(pos))
     .sort((a, b) => a[1] - b[1])
     .map(([pos, c]) => `${pos} ${c}`);
   return parts.join(', ') || 'n/a';
@@ -635,10 +641,17 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
   let vonaSwing = null;
   const pick = scored[0];
   const boardThinned = taken.size >= teams;
-  if (boardThinned && pick && !pick.forced && pick.need) {
-    let alt = null; // highest raw-value (VORP) candidate at a DIFFERENT position — the name we passed over
+  // K/DST are excluded from the swing (SCARCITY_SKIP_POS) on BOTH sides of the comparison — the position
+  // we secure (pick.pos) AND the position we frame as deeper (alt.pos). The clause/prompt read "<pos> is
+  // scarcer than <altPos>", so a K/DST on either side yields the misleading "DST/K is the scarcest
+  // startable position" framing scarcityLine already guards against. Filling K/DST is a roster necessity
+  // (the ROSTER NECESSITY note's job), not a scarcity read. Today alt already can't be K/DST because their
+  // VORP is zeroed (line ~539) and the swing needs alt.vorp > pick.vorp ≥ 0; skipping them here makes the
+  // exclusion explicit and independent of that zeroing, so a K/DST never appears on either side.
+  if (boardThinned && pick && !pick.forced && pick.need && !SCARCITY_SKIP_POS.has(pick.pos)) {
+    let alt = null; // highest raw-value (VORP) candidate at a DIFFERENT, non-K/DST position — the name we passed over
     for (const c of scored) {
-      if (c.pos === pick.pos) continue;
+      if (c.pos === pick.pos || SCARCITY_SKIP_POS.has(c.pos)) continue;
       if (!alt || c.vorp > alt.vorp) alt = c;
     }
     const startable = startableLeft[pick.pos] || 0;
