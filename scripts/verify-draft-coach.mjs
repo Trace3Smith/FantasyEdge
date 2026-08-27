@@ -487,7 +487,52 @@ console.log('\nPART 14 — ADP-fit magnitude honesty (big reach reads "notable",
 }
 
 // ============================================================================
+// PART 15 — K/DST force ONLY in the final pick(s). A replacement-level kicker/defense is always
+// there in the last round and has no runs to beat, so the engine must never make K/DST a
+// forced/must-fill necessity mid-draft (the reported "took Myers with 8 picks left" bug). Every
+// other position still forces on slack exactly as before.
+// ============================================================================
+console.log('PART 15 — K/DST force only in the final pick(s)');
+{
+  const P = []; const mk = (pos,i,fp) => P.push({ id:`${pos}${i}`, name:`${pos}-${i}`, team:'X', pos, rank:P.length+1, fpPpr:fp, proj:{fpts:fp} });
+  for (let i=1;i<=24;i++) mk('QB', i, 300 - i*6);
+  for (let i=1;i<=80;i++) mk('RB', i, 320 - i*3);
+  for (let i=1;i<=80;i++) mk('WR', i, 320 - i*3);
+  for (let i=1;i<=24;i++) mk('TE', i, 200 - i*5);
+  for (let i=1;i<=16;i++) mk('K',   i, 120 - i*2);
+  for (let i=1;i<=16;i++) mk('DST', i, 120 - i*2);
+  // picksLeft is driven by rounds - roster.length, so we set rounds per case to place the pick.
+  const withPicksLeft = (roster, picksLeft) => ({ ...settings, teams:12, rounds: roster.length + picksLeft });
+
+  // Case A — open WR + K + DST with only 3 picks left (slack<=0). WR must force; K/DST must NOT.
+  const rosterA = [ {id:'q',pos:'QB'},{id:'r1',pos:'RB'},{id:'r2',pos:'RB'},{id:'w1',pos:'WR'},{id:'t',pos:'TE'},{id:'r3',pos:'RB'} ];
+  const A = recommend(P, [], rosterA, withPicksLeft(rosterA, 3), 10, []);
+  const forceA = (A.board.forceNeeds||[]).map(n=>n.pos).sort();
+  const needsA = A.board.needs.map(n=>n.pos).sort();
+  const kA = A.candidates.find(c=>c.pos==='K');
+  console.log(`   A open{WR,K,DST} picksLeft=3: forceNeeds=${JSON.stringify(forceA)} needs=${JSON.stringify(needsA)} mustFillNow=${A.board.mustFillNow} top=${A.candidates[0]?.pos}`);
+  check('K/DST are NOT a must-fill necessity with 3 picks left (only WR forces)', forceA.join()==='WR' && A.board.mustFillNow===true);
+  check('K/DST are still reported as open roster needs (informational, not forced)', needsA.includes('K') && needsA.includes('DST'));
+  check('the top pick with 3 picks left is a real need, not a K/DST', A.candidates[0] && A.candidates[0].pos!=='K' && A.candidates[0].pos!=='DST');
+  check('a kicker candidate (if shown) is not flagged forced mid-draft', !kA || kA.forced===false);
+
+  // Case B — the reported bug: ONLY K & DST open, but 6 picks left. No necessity, no kicker steer.
+  const rosterB = [ {id:'q',pos:'QB'},{id:'r1',pos:'RB'},{id:'r2',pos:'RB'},{id:'w1',pos:'WR'},{id:'w2',pos:'WR'},{id:'t',pos:'TE'},{id:'r3',pos:'RB'} ];
+  const B = recommend(P, [], rosterB, withPicksLeft(rosterB, 6), 8, []);
+  console.log(`   B open{K,DST} picksLeft=6: forceNeeds=${JSON.stringify((B.board.forceNeeds||[]).map(n=>n.pos))} mustFillNow=${B.board.mustFillNow} top=${B.candidates[0]?.pos}`);
+  check('with 6 picks left and only K/DST open, no roster necessity fires', (B.board.forceNeeds||[]).length===0 && B.board.mustFillNow===false);
+  check('and the top pick is a skill player, not a kicker/defense', B.candidates[0] && B.candidates[0].pos!=='K' && B.candidates[0].pos!=='DST');
+
+  // Case C — the final 2 picks, only K & DST open. NOW they must force (a legal lineup demands it).
+  const C = recommend(P, [], rosterB, withPicksLeft(rosterB, 2), 12, []);
+  const forceC = (C.board.forceNeeds||[]).map(n=>n.pos).sort();
+  console.log(`   C open{K,DST} picksLeft=2: forceNeeds=${JSON.stringify(forceC)} mustFillNow=${C.board.mustFillNow} top=${C.candidates[0]?.pos} forced=${C.candidates[0]?.forced}`);
+  check('with 2 picks left, K and DST DO become mandatory', forceC.join()==='DST,K' && C.board.mustFillNow===true);
+  check('and a K/DST now leads the board as a forced pick', C.candidates[0] && (C.candidates[0].pos==='K'||C.candidates[0].pos==='DST') && C.candidates[0].forced===true);
+}
+
+// ============================================================================
 console.log('\n' + (results.every(r=>r.ok)
-  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty + K/DST scarcity exclusion + ADP-fit magnitude honesty behave as shipped.`
+  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty + K/DST scarcity exclusion + K/DST last-pick timing + ADP-fit magnitude honesty behave as shipped.`
   : `FAILURES: ${results.filter(r=>!r.ok).map(r=>r.name).join('; ')}`));
 process.exit(results.every(r=>r.ok) ? 0 : 1);

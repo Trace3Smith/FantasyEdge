@@ -113,7 +113,7 @@ export function buildDraftContext(ctx) {
   // Late-draft roster necessity: nudge the Coach to recommend filling mandatory K/DST (or
   // any open required slot) once the user is out of (or nearly out of) spare picks.
   let needStr = '';
-  const needPos = (lastBoard?.needs || []).map((n) => n.pos);
+  const needPos = (lastBoard?.forceNeeds || lastBoard?.needs || []).map((n) => n.pos);
   if (lastBoard?.mustFillNow && needPos.length) {
     needStr = ` ROSTER NECESSITY: the user still must fill ${needPos.join(' and ')} and has only ${lastBoard.picksLeft} pick(s) left — they can't field a legal lineup without them, so recommend drafting ${needPos.join('/')} now even though the value is low.`;
   } else if (lastBoard?.fillSoon && needPos.length) {
