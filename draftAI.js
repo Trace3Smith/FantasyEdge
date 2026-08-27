@@ -17,6 +17,12 @@
 // `available` is the pool already sorted best-first by the caller (ADP for NFL, boardCmp for
 // roto) — this module never re-derives value, so it can't drift from the board.
 
+// The roster-need primitives (open starting needs, position caps, roto open-slot assignment) live
+// in the shared draftRoster.js so the opponent AI, the rankings board, and the server recommend
+// engine can't drift. Re-exported so existing importers (scripts/test-draft-ai.mjs) keep working.
+import { nflOpenNeeds, nflPosCaps, rotoOpenSlots, NFL_FLEX } from './draftRoster.js';
+export { nflOpenNeeds, nflPosCaps, rotoOpenSlots };
+
 // ---- shared selection core --------------------------------------------------------------------
 
 // The reach window: opponents usually take one of the top few, occasionally reaching a little
@@ -35,42 +41,7 @@ function countByPos(have) {
 }
 
 // ---- NFL (points flow: ADP + fixed starter slots) --------------------------------------------
-
-const NFL_FLEX = ['RB', 'WR', 'TE']; // positions a FLEX slot can absorb
-
-// Open MANDATORY starting needs for an NFL roster, given league `starters` counts and what the
-// team already `have`. FLEX is handled last: it's only "needed" once RB/WR/TE surplus (players
-// beyond their own starter counts) can't cover it. Mirrors the board's openStartingNeeds model.
-export function nflOpenNeeds(starters, have) {
-  const counts = countByPos(have);
-  const hardNeeds = {};
-  let totalHard = 0;
-  for (const [pos, n] of Object.entries(starters || {})) {
-    if (pos === 'FLEX') continue;
-    const need = Math.max(0, (Number(n) || 0) - (counts[pos] || 0));
-    if (need > 0) { hardNeeds[pos] = need; totalHard += need; }
-  }
-  let surplus = 0;
-  for (const pos of NFL_FLEX) surplus += Math.max(0, (counts[pos] || 0) - (Number(starters?.[pos]) || 0));
-  const flexNeed = Math.max(0, (Number(starters?.FLEX) || 0) - surplus);
-  return { hardNeeds, totalHard, flexNeed };
-}
-
-// Soft per-position caps: how many of a position a sane manager will roster. K/DST are capped at
-// their (single) starter slot — nobody drafts two defenses; QB/TE get one backup; RB/WR stay
-// deep for FLEX and bench. Prevents the "5 QBs, no kicker" rosters blind-ADP drafting produced.
-export function nflPosCaps(starters) {
-  const s = starters || {};
-  const flex = Number(s.FLEX) || 0;
-  return {
-    QB: (Number(s.QB) || 1) + 1,
-    TE: (Number(s.TE) || 1) + 1,
-    K: Number(s.K) || 1,
-    DST: Number(s.DST) || 1,
-    RB: (Number(s.RB) || 2) + flex + 3,
-    WR: (Number(s.WR) || 2) + flex + 3,
-  };
-}
+// nflOpenNeeds / nflPosCaps + NFL_FLEX are imported from draftRoster.js (see top of file).
 
 // Does a position help fill an open starting need (a specific slot, or the FLEX)?
 function fillsNflNeed(pos, open) {
@@ -115,22 +86,8 @@ export function pickNflOpponent({ available, have, starters, round, totalRounds,
 }
 
 // ---- Roto (category flow: no ADP, lineup slots via eligibility) --------------------------------
-
-// Which starting slots are still open given a roster, by greedy most-specific-first assignment.
-// Ported from the per-sport scoring modules (nba/mlb/nhlScoring openSlots) so this stays a pure,
-// import-free module. `lineup` = slot->count; `eligibleSlots(pos)` = slots a position can fill,
-// ordered tight->flex.
-export function rotoOpenSlots(have, lineup, eligibleSlots) {
-  const open = { ...lineup };
-  for (const p of have) {
-    for (const slot of eligibleSlots(p.pos)) {
-      if (open[slot] > 0) { open[slot] -= 1; break; }
-    }
-  }
-  const out = {};
-  for (const [slot, n] of Object.entries(open)) if (n > 0) out[slot] = n;
-  return out;
-}
+// rotoOpenSlots is imported from draftRoster.js (see top of file) — the same greedy open-slot
+// assignment the per-sport scoring modules now delegate to, so opponents and the board never drift.
 
 // UTIL/BENCH take anyone, so they never represent positional scarcity — only "specific" open
 // slots count as a genuine need (and drive the must-fill switch).

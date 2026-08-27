@@ -15,6 +15,8 @@
 
 // The nine standard categories, in board order. `sign` is already folded into each player's
 // stored z (turnovers contribute negatively), so it's here only for labels/iteration, not math.
+import { rotoOpenSlots } from './draftRoster.js'; // shared greedy open-slot assignment (single source)
+
 export const NBA_CATS = [
   { key: 'pts', label: 'PTS' },
   { key: 'reb', label: 'REB' },
@@ -67,16 +69,7 @@ export function nbaRosterSlots(settings = {}) {
 // before flex UTIL), so the leftover open slots are the team's true positional needs. Players
 // who can't claim any open starting slot are bench/overflow and don't reduce need.
 export function openSlots(roster, settings = {}) {
-  const open = nbaRosterSlots(settings); // mutable copy of remaining counts
-  for (const p of roster) {
-    for (const slot of eligibleSlots(p.pos)) {
-      if (open[slot] > 0) { open[slot] -= 1; break; }
-    }
-  }
-  // Return only slots with remaining demand.
-  const out = {};
-  for (const [slot, n] of Object.entries(open)) if (n > 0) out[slot] = n;
-  return out;
+  return rotoOpenSlots(roster, nbaRosterSlots(settings), eligibleSlots); // shared greedy assignment
 }
 
 // Does this position help fill any currently-open starting slot?
