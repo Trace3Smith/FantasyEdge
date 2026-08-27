@@ -883,7 +883,7 @@ function bestForAI(teamIdx, round) {
     // sport's lineup slots (via its eligibility model) rather than stacking one position.
     const available = players.filter((p) => !state.drafted.has(p.id)).sort(boardCmp);
     const mod = rotoMod();
-    return pickRotoOpponent({ available, have, lineup: mod.lineup, eligibleSlots: mod.elig, round, totalRounds });
+    return pickRotoOpponent({ available, have, lineup: mod.lineup, eligibleSlots: mod.elig, round, totalRounds, teamIdx });
   }
   // NFL: order by ADP for the league's scoring (no-ADP K/DST/depth sink ~2 rounds below their
   // board rank), then let the module weigh open starter needs + position caps against that ADP.
@@ -892,7 +892,7 @@ function bestForAI(teamIdx, round) {
       const adpVal = (p) => { const x = adpFor(p, scoring); return x != null ? x : (p.rank != null ? p.rank + 24 : 999); };
       return adpVal(a) - adpVal(b);
     });
-  return pickNflOpponent({ available, have, starters: state.settings.starters, round, totalRounds });
+  return pickNflOpponent({ available, have, starters: state.settings.starters, round, totalRounds, teamIdx });
 }
 
 function recordPick(player, teamIdx) {

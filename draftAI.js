@@ -40,6 +40,35 @@ function countByPos(have) {
   return c;
 }
 
+// ---- per-manager personality ------------------------------------------------------------------
+// Light, deterministic variation so a mock doesn't feel like drafting against N identical bots.
+
+// 32-bit hash — a team's personality is stable for the whole draft (seeded by its slot) yet
+// differs from its neighbours, with no per-draft state to store.
+function hash32(n) {
+  let h = ((n + 1) * 2654435761) >>> 0;
+  h ^= h >>> 15; h = Math.imul(h, 2246822519) >>> 0; h ^= h >>> 13;
+  return h >>> 0;
+}
+
+// Positions an NFL manager can "lean" into. K/DST are excluded — everyone needs exactly one, so
+// leaning there would only break legal rosters.
+const LEAN_POS = ['RB', 'WR', 'QB', 'TE'];
+
+// A subtle manager personality from the team's draft slot. Two small knobs:
+//   needBonusDelta — shifts the need-urgency bonus by -2..+2 (some managers chase needs harder).
+//   leanPos        — one position this manager over-values: +1 to its soft cap (rosters one more)
+//                    plus a small earliness nudge (drafts it a touch sooner) — e.g. RB-heavy, QB-early.
+// teamIdx == null (the analyst's own suggestion, or any caller that doesn't identify a seat) yields
+// the NEUTRAL personality, so those paths are behaviourally unchanged.
+export function managerVariation(teamIdx) {
+  if (teamIdx == null) return { needBonusDelta: 0, leanPos: null };
+  return {
+    needBonusDelta: (hash32(teamIdx) % 5) - 2,                     // -2..+2
+    leanPos: LEAN_POS[hash32(teamIdx * 2 + 1) % LEAN_POS.length],  // RB / WR / QB / TE
+  };
+}
+
 // ---- NFL (points flow: ADP + fixed starter slots) --------------------------------------------
 // nflOpenNeeds / nflPosCaps + NFL_FLEX are imported from draftRoster.js (see top of file).
 
@@ -50,10 +79,13 @@ function fillsNflNeed(pos, open) {
   return false;
 }
 
-// Choose an NFL opponent's pick. `available` is ADP-sorted best-first.
-export function pickNflOpponent({ available, have, starters, round, totalRounds, rand = Math.random }) {
+// Choose an NFL opponent's pick. `available` is ADP-sorted best-first. `teamIdx` (optional) gives
+// this seat a stable manager personality; omit it for the neutral (baseline) behaviour.
+export function pickNflOpponent({ available, have, starters, round, totalRounds, rand = Math.random, teamIdx = null }) {
   if (!available || !available.length) return null;
-  const caps = nflPosCaps(starters);
+  const { needBonusDelta, leanPos } = managerVariation(teamIdx);
+  const caps = nflPosCaps(starters); // fresh object per call — safe to tweak for this manager
+  if (leanPos) caps[leanPos] = (caps[leanPos] ?? Infinity) + 1; // leans into one position (never K/DST)
   const counts = countByPos(have);
 
   // Respect caps — but never return nothing: if the whole pool is capped positions, ignore caps.
@@ -76,8 +108,9 @@ export function pickNflOpponent({ available, have, starters, round, totalRounds,
   const scored = pool
     .map((player, idx) => {
       let bonus = 0;
-      if ((open.hardNeeds[player.pos] || 0) > 0) bonus = 6 + round;
+      if ((open.hardNeeds[player.pos] || 0) > 0) bonus = Math.max(1, 6 + round + needBonusDelta);
       else if (open.flexNeed > 0 && NFL_FLEX.includes(player.pos)) bonus = 3;
+      if (player.pos === leanPos) bonus += 2; // over-valued position drafts a touch earlier
       return { player, priority: idx - bonus };
     })
     .sort((a, b) => a.priority - b.priority)
@@ -101,9 +134,11 @@ function rotoPosCap(pos, lineup, eligibleSlots) {
   return cap + 2;
 }
 
-// Choose a roto opponent's pick. `available` is board-value-sorted best-first.
-export function pickRotoOpponent({ available, have, lineup, eligibleSlots, round, totalRounds, rand = Math.random }) {
+// Choose a roto opponent's pick. `available` is board-value-sorted best-first. `teamIdx` (optional)
+// gives this seat a stable manager personality; omit it for the neutral behaviour.
+export function pickRotoOpponent({ available, have, lineup, eligibleSlots, round, totalRounds, rand = Math.random, teamIdx = null }) {
   if (!available || !available.length) return null;
+  const { needBonusDelta } = managerVariation(teamIdx); // roto varies the need bonus only (slots are hard)
   const counts = countByPos(have);
 
   let pool = available.filter((p) => (counts[p.pos] || 0) < rotoPosCap(p.pos, lineup, eligibleSlots));
@@ -119,8 +154,9 @@ export function pickRotoOpponent({ available, have, lineup, eligibleSlots, round
     return reachPick(needed.length ? needed : pool, round, rand);
   }
 
+  const needBonus = Math.max(1, 5 + needBonusDelta);
   const scored = pool
-    .map((player, idx) => ({ player, priority: idx - (fillsSpecific(player.pos) ? 5 : 0) }))
+    .map((player, idx) => ({ player, priority: idx - (fillsSpecific(player.pos) ? needBonus : 0) }))
     .sort((a, b) => a.priority - b.priority)
     .map((s) => s.player);
   return reachPick(scored, round, rand);
