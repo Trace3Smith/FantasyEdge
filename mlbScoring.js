@@ -18,6 +18,8 @@
 // The standard roto categories, in board order. `group` ('h' hitter / 'p' pitcher) is
 // used only for labels/iteration; the sign of each cat is already folded into the stored z
 // (ERA/WHIP are inverted so lower is better → positive z).
+import { rotoOpenSlots } from './draftRoster.js'; // shared greedy open-slot assignment (single source)
+
 export const MLB_CATS = [
   { key: 'r', label: 'R', group: 'h' },
   { key: 'hr', label: 'HR', group: 'h' },
@@ -72,15 +74,7 @@ export function rosterSlots(settings = {}) {
 // drafted player claims the most-specific open slot he's eligible for, so the leftover open
 // slots are the team's true positional needs.
 export function openSlots(roster, settings = {}) {
-  const open = rosterSlots(settings);
-  for (const p of roster) {
-    for (const slot of eligibleSlots(p.pos)) {
-      if (open[slot] > 0) { open[slot] -= 1; break; }
-    }
-  }
-  const out = {};
-  for (const [slot, n] of Object.entries(open)) if (n > 0) out[slot] = n;
-  return out;
+  return rotoOpenSlots(roster, rosterSlots(settings), eligibleSlots); // shared greedy assignment
 }
 
 export function fillsOpenSlot(pos, open) {

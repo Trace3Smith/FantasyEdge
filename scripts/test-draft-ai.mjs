@@ -8,7 +8,7 @@
 
 import assert from 'node:assert/strict';
 import {
-  pickNflOpponent, pickRotoOpponent, nflOpenNeeds, nflPosCaps, rotoOpenSlots,
+  pickNflOpponent, pickRotoOpponent, nflOpenNeeds, nflPosCaps, rotoOpenSlots, managerVariation,
 } from '../draftAI.js';
 import { DEFAULT_LINEUP as nbaLineup, eligibleSlots as nbaElig } from '../nbaScoring.js';
 
@@ -61,7 +61,7 @@ function simulate(pickFn, { teams, rounds, pool, extra = () => ({}) }) {
     const team = snakeTeam(i, teams);
     const round = Math.floor(i / teams) + 1;
     const available = pool.filter((p) => !drafted.has(p.id));
-    const pick = pickFn({ available, have: rosters[team], round, totalRounds: rounds, ...extra() });
+    const pick = pickFn({ available, have: rosters[team], round, totalRounds: rounds, teamIdx: team, ...extra() });
     assert.ok(pick, `pick returned for overall ${i} (round ${round}, team ${team})`);
     drafted.add(pick.id);
     rosters[team].push({ id: pick.id, pos: pick.pos });
@@ -139,11 +139,32 @@ test('every team fills its lineup (10-team, 15-round, K/DST parked last in ADP)'
     // FLEX covered: RB+WR+TE beyond their own starter minimums leaves at least one for FLEX.
     const flexEligible = (c.RB || 0) + (c.WR || 0) + (c.TE || 0);
     assert.ok(flexEligible >= 6, `team ${t} can fill RB/WR/TE starters + FLEX (${flexEligible})`);
-    // No position hoarded past its cap.
+    // No position hoarded past its cap — using THIS manager's caps (a leaned position gets +1).
+    const { leanPos } = managerVariation(t);
+    const teamCaps = { ...caps };
+    if (leanPos) teamCaps[leanPos] = teamCaps[leanPos] + 1;
     for (const [pos, n] of Object.entries(c)) {
-      assert.ok(n <= (caps[pos] ?? Infinity), `team ${t} within cap for ${pos} (${n} <= ${caps[pos]})`);
+      assert.ok(n <= (teamCaps[pos] ?? Infinity), `team ${t} within cap for ${pos} (${n} <= ${teamCaps[pos]})`);
     }
   });
+});
+
+console.log('draftAI — per-manager personality');
+
+test('managerVariation: neutral for null, deterministic + varied across seats', () => {
+  // Null seat (analyst suggestion / unidentified caller) is the neutral baseline.
+  assert.deepEqual(managerVariation(null), { needBonusDelta: 0, leanPos: null });
+  // Deterministic: same seat -> same personality every time.
+  assert.deepEqual(managerVariation(3), managerVariation(3));
+  // Subtle bounds: need-bonus delta stays within -2..+2; lean is a real skill position (never K/DST).
+  const seats = Array.from({ length: 12 }, (_, i) => managerVariation(i));
+  for (const v of seats) {
+    assert.ok(v.needBonusDelta >= -2 && v.needBonusDelta <= 2, `delta in range (${v.needBonusDelta})`);
+    assert.ok(['RB', 'WR', 'QB', 'TE'].includes(v.leanPos), `lean is a skill pos (${v.leanPos})`);
+  }
+  // Managers aren't all identical: a 12-team league shows more than one distinct personality.
+  const distinct = new Set(seats.map((v) => `${v.needBonusDelta}:${v.leanPos}`));
+  assert.ok(distinct.size >= 4, `personalities vary across seats (${distinct.size} distinct)`);
 });
 
 console.log('draftAI — full roto (NBA) snake draft fills lineup slots');
