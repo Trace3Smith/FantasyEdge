@@ -197,7 +197,9 @@ async function analyzePick({ sport, round, scoring, teams, roster, candidates, r
   const listed = candidates.map((c, i) => describe(c, i + 1, teams)).join('\n');
   // Roster necessity (late draft): name the mandatory slots still open so the analyst
   // fills them instead of chasing value when there's no cushion left to wait.
-  const needPos = (board?.needs || []).map((n) => n.pos);
+  // forceNeeds = the slots that force a pick NOW (K/DST excluded until the final pick(s)); fall back to
+  // needs for callers/sports without the field (roto has no kickers, so its needs already all force).
+  const needPos = (board?.forceNeeds || board?.needs || []).map((n) => n.pos);
   let necessity = '';
   if (board?.mustFillNow && needPos.length) {
     necessity = `\n\nROSTER NECESSITY: only ${board.picksLeft} pick(s) left and you still MUST fill these mandatory starting slots: ${needPos.join(', ')}. `
@@ -336,7 +338,7 @@ export default async function handler(req, res) {
 
     // Slim board summary so the embedded Coach can flag the same roster necessity in chat.
     const boardOut = {
-      needs: board.needs, mustFillNow: board.mustFillNow, fillSoon: board.fillSoon, picksLeft: board.picksLeft,
+      needs: board.needs, forceNeeds: board.forceNeeds, mustFillNow: board.mustFillNow, fillSoon: board.fillSoon, picksLeft: board.picksLeft,
       weakCats: board.weakCats || null, // NBA-only: roster's lagging categories for the Coach
     };
     return res.json({ candidates: ordered.slice(0, 8), runs, rationale, reach, round, premium, board: boardOut });

@@ -504,6 +504,14 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
   for (const [pos, m] of Object.entries(minRoster)) mandatoryRemaining += Math.max(0, m - (counts[pos] || 0));
   const picksLeft = Math.max(0, totalRounds - roster.length);
   const slack = picksLeft - mandatoryRemaining;
+  // K/DST carve-out: a replacement-level kicker/defense is ALWAYS there in the final round and they
+  // have no meaningful positional runs to beat, so there's no cost to waiting. Never treat them as a
+  // FORCED/must-fill necessity until the draft's final pick(s), no matter how tight `slack` gets — that
+  // stops the engine (and the Coach's necessity override) from burning a mid-draft pick on a kicker.
+  // `slack` itself still counts K/DST (so the OTHER positions force on schedule and the last picks stay
+  // reserved) — this only defers when K/DST THEMSELVES become mandatory. All other positions unchanged.
+  const KDST_FORCE_AT = 2; // K/DST become mandatory only within the last 2 picks
+  const kdstDeferred = (pos) => (pos === 'K' || pos === 'DST') && picksLeft > KDST_FORCE_AT;
   // Endgame: with almost no picks left there's little/no future value to optimize, so ADP "pounce before
   // others take him" value fades — on your LAST pick, ADP is irrelevant, you just take the best player.
   // adpHorizon decays the ADP bump to ~0 by the final pick; finalPick then ranks strictly by raw blend
@@ -555,7 +563,13 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
       // between comparable players without overriding VORP/need. Absent (offseason/thin) → neutral.
       const consBoost = p.consistency != null ? 1 + clampNum((p.consistency - 60) / 40, -1, 1) * 0.05 : 1;
       const need = gap > 0;
-      const forced = gap > 0 && slack <= 0;
+      const forced = gap > 0 && slack <= 0 && !kdstDeferred(p.pos); // K/DST wait for the final pick(s)
+      // A deferred K/DST carries NO proactive urgency — its open slot must not float it up the board via
+      // desire/scarcity/deadline the way any other need does, or the engine spends a mid-draft pick on a
+      // kicker once the startable skill pool thins (their VORP is already zeroed, so only `factor` lifts
+      // them). Flattened to a backup-tier desire so they sink below all skill until the forced tier (final
+      // pick[s]) lifts them. Every other position's needFactor is untouched.
+      const effFactor = kdstDeferred(p.pos) ? 0.02 : factor;
       const falling = adpDelta >= teams;
       const form = (p.tag === 'hot' || p.tag === 'cold') ? p.tag : null;
 
@@ -570,7 +584,7 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
         // The +0.5 floor keeps the need factor meaningful at/below replacement (vorp≈0): a capped 3rd
         // QB/TE must still sort BELOW uncapped RB/WR depth in the late rounds, instead of everyone
         // collapsing to score 0 and the raw board rank piling a position up.
-        score: Math.round((vorp + 0.5) * factor * adpBoost * consBoost * 10) / 10,
+        score: Math.round((vorp + 0.5) * effFactor * adpBoost * consBoost * 10) / 10,
         need,                           // still owe a starting slot here
         forced,                         // out of spare picks — must take a need now
         adp: adp != null ? Math.round(adp * 10) / 10 : null,
@@ -611,6 +625,11 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
     const gap = Math.max(0, m - (counts[pos] || 0));
     if (gap > 0) needs.push({ pos, gap });
   }
+  // The subset of needs that actually FORCE a pick now — K/DST are excluded until the final pick(s)
+  // (see the carve-out above). The analyst's ROSTER NECESSITY override is built off this list, so it
+  // never orders a mid-draft kicker/defense; `slots.open` below still reports K/DST as open (accurate
+  // roster state) without demanding them.
+  const forceNeeds = needs.filter((n) => !kdstDeferred(n.pos));
 
   // Explicit filled-vs-open mandatory starting slots, so the analyst layer (advise.js) never invents a
   // need at a slot that's already filled — nor misses one. A slot is FILLED once a rostered player at
@@ -654,9 +673,10 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
   // cushion, league size, roster needs, and a VONA scarcity-swing note when one fired.
   // Additive — existing consumers read candidates/runs only.
   const board = {
-    startableLeft, slack, teams, picksLeft, totalRounds, needs, slots, vonaSwing,
-    mustFillNow: slack <= 0 && needs.length > 0,
-    fillSoon: slack === 1 && needs.length > 0,
+    startableLeft, slack, teams, picksLeft, totalRounds, needs, forceNeeds, slots, vonaSwing,
+    // Necessity fires only on needs that force a pick NOW — K/DST are excluded until the final pick(s).
+    mustFillNow: slack <= 0 && forceNeeds.length > 0,
+    fillSoon: slack === 1 && forceNeeds.length > 0,
     picksUntilNext, // picks until the user's next turn (plumbed through; not yet consumed)
   };
   // Pool consistency with the Coach chat: the chat can surface the best-available-by-VALUE player at a
