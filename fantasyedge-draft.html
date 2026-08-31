@@ -118,7 +118,11 @@
   .muted { color: var(--gray); }
   .search-input { width: 100%; background: var(--dark3); color: var(--white); border: 1px solid rgba(255,255,255,0.12);
     border-radius: 6px; padding: 9px 12px; font-family: inherit; margin-bottom: 10px; }
-  .avail-list { max-height: 360px; overflow-y: auto; }
+  /* Taller scan window than the old 360px — during a real draft, users need to scroll deep into
+     the board (e.g. "who's left at RB 20 picks out"), not just glance at the top few. Rendering
+     itself is batched/incremental (see renderAvailable), so this is purely the visible viewport. */
+  .avail-list { max-height: 640px; overflow-y: auto; }
+  .avail-more { text-align: center; padding: 10px 8px 2px; font-size: 11px; color: var(--gray); letter-spacing: 0.3px; }
 
   .clock-you { color: var(--gold); font-weight: 700; }
 
@@ -444,6 +448,17 @@ let levels = {};            // NFL: per-position replacement levels (unused for 
 let suggestedId = null;     // the Coach's currently-recommended player — highlighted + scrolled-to on the board
 let suggestedReason = null; // 'value' | 'need' | 'must-fill' — coarse fallback reason for the board tag
 let suggestedLabel = null;  // the server's rich reasonLabel (e.g. "fills your SB gap") — preferred on the tag
+
+// Available Players list is batch-rendered, not fully rendered in one shot — full innerHTML rebuilds
+// (which every renderAvailable call does) stay cheap, and typing in the search box never re-renders
+// hundreds of rows at once. But the cap is NOT a ceiling on how far a user can see: scrolling near the
+// bottom of the list grows it by another batch until the entire filtered/sorted pool is shown (see the
+// #availList scroll listener below). AVAIL_BATCH matches the old hard-coded slice(0, 60) so the default
+// view is unchanged; only scrolling past it is new.
+const AVAIL_BATCH = 60;
+let availRenderLimit = AVAIL_BATCH; // how many of the (filtered, sorted) available players are rendered
+let availLastFilter = null;         // last search filter renderAvailable ran with — a change resets the limit
+let availFullLength = 0;            // full filtered/sorted pool size from the last render, for the scroll check
 
 // Active sport: from ?sport= (default NFL). NBA/WNBA/MLB/NHL are category leagues; everything
 // else is the NFL points flow. Resolved at load and again when the setup Sport select changes.
@@ -1145,6 +1160,10 @@ function scrollToSuggested() {
 
 function renderAvailable(filter = '') {
   const f = filter.toLowerCase();
+  // A new search term starts the batch over at the top; a re-render for any other reason (a pick
+  // landed, the Coach re-advised, a Sleeper poll ticked) keeps whatever depth the user had scrolled
+  // to, so mid-draft board activity doesn't yank someone back to the top of a list they were scanning.
+  if (filter !== availLastFilter) { availLastFilter = filter; availRenderLimit = AVAIL_BATCH; }
   // Default board order: ADP (average draft position) for NFL — how real drafts actually flow — with
   // no-ADP players (K/DST/depth) sinking to their board rank + ~2 rounds (mirrors bestForAI). Roto
   // sports have no ADP, so they order by category value (the same metric as the rankings tab).
@@ -1153,16 +1172,20 @@ function renderAvailable(filter = '') {
     const v = (p) => { const x = adpFor(p, scoring); return x != null ? x : (p.rank != null ? p.rank + 24 : 999); };
     return v(a) - v(b);
   };
-  const list = players
+  const full = players
     .filter((p) => !state.drafted.has(p.id) && (!f || p.name.toLowerCase().includes(f) || p.pos.toLowerCase() === f))
-    .sort(isRoto() ? boardCmp : byAdp)
-    .slice(0, 60);
+    .sort(isRoto() ? boardCmp : byAdp);
+  availFullLength = full.length;
+  const list = full.slice(0, availRenderLimit);
   // Guarantee the Coach's suggested player is on the board even if a deep need-fill sits past the
-  // top 60, so the highlight + scroll-to always land (skipped when a search filter is active).
+  // current render limit, so the highlight + scroll-to always land (skipped when a search filter is active).
   if (suggestedId != null && !f) {
     const sugP = players.find((p) => p.id === suggestedId && !state.drafted.has(p.id));
     if (sugP && !list.includes(sugP)) list.push(sugP);
   }
+  const more = availFullLength > availRenderLimit
+    ? `<div class="avail-more" id="availMore">Showing ${Math.min(availRenderLimit, availFullLength)} of ${availFullLength} — scroll for more</div>`
+    : '';
   $('availList').innerHTML = list.map((p) => {
     const rk = rankMap.get(p.id) ?? '—';
     let meta, extra = '';
@@ -1183,7 +1206,7 @@ function renderAvailable(filter = '') {
     const sug = p.id === suggestedId;
     return `<div class="cand${selectedId === p.id ? ' selected' : ''}${sug ? ' cand-suggested' : ''}" data-id="${p.id}"><div class="cand-main"><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>${sug ? ` <span class="cand-sug">${sugLabel(suggestedReason, p.pos)}</span>` : ''}
       <span class="meta">${meta}</span>${extra}</div><button class="cand-add" data-add="${p.id}" title="Draft ${p.name.replace(/"/g, '&quot;')}">+</button></div>`;
-  }).join('');
+  }).join('') + more;
   // Row click = inspect (open the detail sidebar); the + button = draft. So browsing stats never
   // risks an accidental pick, while drafting stays one click away.
   $('availList').querySelectorAll('.cand').forEach((el) => el.addEventListener('click', (e) => {
@@ -1194,6 +1217,18 @@ function renderAvailable(filter = '') {
   renderDetail(); // keep the sidebar's drafted-state / highlight in sync after every board re-render
 }
 $('availSearch').addEventListener('input', (e) => renderAvailable(e.target.value));
+// Infinite scroll: grow the rendered batch as the user nears the bottom, up to the full filtered/sorted
+// pool (see AVAIL_BATCH above). Re-render rebuilds innerHTML, which would otherwise reset scrollTop to 0
+// and yank the user back to the top mid-scroll — so the position is captured and restored around it.
+$('availList').addEventListener('scroll', () => {
+  const el = $('availList');
+  if (availRenderLimit >= availFullLength) return; // already showing everything — nothing to grow
+  if (el.scrollTop + el.clientHeight < el.scrollHeight - 150) return; // not near the bottom yet
+  const keepScrollTop = el.scrollTop;
+  availRenderLimit += AVAIL_BATCH;
+  renderAvailable($('availSearch').value || '');
+  el.scrollTop = keepScrollTop;
+});
 
 // The board's value string for the selected player — roto value for category sports, FPTS for NFL.
 function detailValueStr(p) {
