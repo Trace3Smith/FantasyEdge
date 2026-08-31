@@ -982,6 +982,7 @@ function renderUserTurn() {
   $('clock').innerHTML = `Round <b>${round}</b> · Pick <b>${state.pickIndex + 1}</b> — <span class="on-clock-you">You're on the clock</span>`;
   renderRoster();
   renderRecent();
+  $('availSearch').value = ''; // this render drops the filter, so clear the box with it (they must agree)
   renderAvailable();
   analystOpening();
 }
@@ -1178,13 +1179,21 @@ function renderAvailable(filter = '') {
   availFullLength = full.length;
   const list = full.slice(0, availRenderLimit);
   // Guarantee the Coach's suggested player is on the board even if a deep need-fill sits past the
-  // current render limit, so the highlight + scroll-to always land (skipped when a search filter is active).
+  // current render limit, so the highlight + scroll-to always land (skipped when a search filter is
+  // active). He EVICTS the last (lowest-ranked visible) row rather than being appended on top of a
+  // full batch: the list then never exceeds availRenderLimit, so the footer's count below stays true
+  // to what is actually rendered. Dropping the force-append instead would be worse — a deep need-fill
+  // is exactly the case it exists for, and the evicted player is one scroll-batch away regardless.
   if (suggestedId != null && !f) {
     const sugP = players.find((p) => p.id === suggestedId && !state.drafted.has(p.id));
-    if (sugP && !list.includes(sugP)) list.push(sugP);
+    if (sugP && !list.includes(sugP)) {
+      if (list.length >= availRenderLimit) list.pop();
+      list.push(sugP);
+    }
   }
+  // Counts the rendered rows, not the limit, so the two can never disagree.
   const more = availFullLength > availRenderLimit
-    ? `<div class="avail-more" id="availMore">Showing ${Math.min(availRenderLimit, availFullLength)} of ${availFullLength} — scroll for more</div>`
+    ? `<div class="avail-more" id="availMore">Showing ${list.length} of ${availFullLength} — scroll for more</div>`
     : '';
   $('availList').innerHTML = list.map((p) => {
     const rk = rankMap.get(p.id) ?? '—';
