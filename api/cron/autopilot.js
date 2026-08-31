@@ -22,8 +22,9 @@ export const maxDuration = 60;
 const DATASET_BY_SPORT = { mlb: DATASET_KEY, wnba: WNBA_DATASET_KEY };
 
 export default async function handler(req, res) {
+  // Bearer secret only, failing closed when it is unset — same gate as api/cron/refresh.js.
   const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.authorization !== `Bearer ${secret}`) {
+  if (!secret || req.headers.authorization !== `Bearer ${secret}`) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 

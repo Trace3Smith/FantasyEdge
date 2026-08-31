@@ -61,14 +61,20 @@ const SECONDARY = [
 export const maxDuration = 300;
 
 export default async function handler(req, res) {
-  // Auth: the Bearer secret is the primary gate. Also accept Vercel's internal
-  // cron header (set on scheduled invocations) so the dashboard "Run" button works
-  // without the secret. NOTE: x-vercel-cron is a plain header (not cryptographically
-  // verified), so the Bearer secret remains the real protection.
+  // Auth: the Bearer secret is the ONLY gate. Vercel sends `Authorization: Bearer <CRON_SECRET>`
+  // automatically on every scheduled invocation once CRON_SECRET is set, so the scheduler needs
+  // nothing else. Matches api/cron/autopilot.js and Vercel's documented pattern.
+  //
+  // `x-vercel-cron` is deliberately NOT accepted. It is a plain, client-settable header, and this
+  // endpoint used to take it as a fallback so the dashboard "Run" button worked without the secret
+  // — which meant anyone who knew the URL could kick off a 300s, six-sport rebuild at will with a
+  // single header. That convenience is not worth leaving a mutating endpoint open; trigger manually
+  // with the Bearer secret instead.
+  //
+  // Fail CLOSED when CRON_SECRET is unset: an unconfigured secret must not silently open the
+  // endpoint. A 401 is a visible, debuggable misconfiguration; an open rebuild endpoint is not.
   const secret = process.env.CRON_SECRET;
-  const authHeader = req.headers.authorization;
-  const vercelCron = req.headers['x-vercel-cron'];
-  if (secret && authHeader !== `Bearer ${secret}` && !vercelCron) {
+  if (!secret || req.headers.authorization !== `Bearer ${secret}`) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 

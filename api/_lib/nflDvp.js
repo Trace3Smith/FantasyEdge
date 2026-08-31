@@ -91,7 +91,22 @@ async function upcomingMatchups(season, seasontype) {
 export async function buildNflDvp({ season, seasontype = 2, maxWeek = MAX_WEEK, prev = null } = {}) {
   const now = new Date().toISOString();
   // What's on this week (also gives us season/week when not passed explicitly).
-  const up = await upcomingMatchups();
+  //
+  // This was the one unguarded call in an otherwise failure-tolerant builder: every later fetch is
+  // individually try/caught so partial data still ranks, but a single transient failure HERE threw
+  // out of the whole build. That is exactly what happened in production — one Akamai 403 on the
+  // bare scoreboard URL cost the entire day's DvP, even though a perfectly good payload was already
+  // cached. On failure, fall back to the cached payload if we have one; only surface the error when
+  // there is genuinely nothing to serve.
+  let up;
+  try {
+    up = await upcomingMatchups();
+  } catch (err) {
+    if (prev && (prev.counts?.teamsRanked || 0) > 0) {
+      return { ...prev, reusedAt: now, staleReason: `scoreboard unavailable: ${err.message}` };
+    }
+    throw err;
+  }
   const seasonId = season || up.season || new Date().getFullYear();
   const sType = season ? seasontype : (up.seasonType || 2);
 
