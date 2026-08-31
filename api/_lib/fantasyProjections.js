@@ -17,6 +17,10 @@
 import { PROJECTIONS_KEY } from './kv.js';
 
 const API = 'https://api.sleeper.com/projections/nfl';
+// Per-player record (~1KB), the only place Sleeper exposes `espn_id`. Used to id-check veteran seed
+// candidates against the ESPN-built universe; the bulk /players/nfl dump carries the same field but
+// is ~15MB, and we only ever need a handful of rows per run.
+const PLAYER_API = 'https://api.sleeper.com/v1/players/nfl';
 const UA = { 'User-Agent': 'FantasyEdge/1.0 (+https://fantasy-edge-nine.vercel.app)' };
 const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF']; // Sleeper uses DEF; we map it to DST
 
@@ -63,7 +67,7 @@ const CARD = {
   QB: ['PaYd', 'PaTD', 'INT', 'RuYd', 'RuTD'], RB: ['RuYd', 'RuTD', 'Rec', 'ReYd', 'ReTD'],
   WR: ['Rec', 'ReYd', 'ReTD', 'RuYd'], TE: ['Rec', 'ReYd', 'ReTD'], K: ['FGM', 'XPM'], DST: ['Sack', 'INT', 'TD'],
 };
-// Rookie seeding: only skill positions, only above this projected-PPR floor (skip camp bodies).
+// Projection seeding: only skill positions, only above this projected-PPR floor (skip camp bodies).
 const SEED_POS = new Set(['QB', 'RB', 'WR', 'TE']);
 const SEED_FLOOR = 50;
 
@@ -119,6 +123,20 @@ async function fetchPosition(season, sleeperPos) {
   }
 }
 
+// Resolve one Sleeper player's ESPN athlete id. Returns { ok, espnId }: `ok` false means the
+// lookup itself failed (network/parse) and the caller must not treat "no id" as "no collision";
+// `espnId` null means Sleeper genuinely carries none for this player (true of most recent draftees).
+async function fetchEspnId(sleeperId) {
+  try {
+    const res = await fetch(`${PLAYER_API}/${sleeperId}`, { headers: UA, signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return { ok: false, espnId: null };
+    const j = await res.json();
+    return { ok: true, espnId: j?.espn_id != null ? String(j.espn_id) : null };
+  } catch {
+    return { ok: false, espnId: null };
+  }
+}
+
 // Pull every position and return { builtAt, season, scoring, players:[...] }. Positions that
 // fail are simply absent (the whole run only "fails" if nothing came back at all).
 export async function fetchSleeperProjections(season) {
@@ -169,23 +187,63 @@ export async function enrichNflProjections(dataset, redis) {
     matched++;
   }
 
-  // Seed true rookies (years_exp === 0) that Sleeper projects but ESPN's byathlete universe lacks,
-  // so a projection-aware draft board isn't missing the incoming class. Skill positions only, above
-  // a projected-PPR floor, never duplicating an existing key. Synthetic record: no current/prior
-  // stats (games 0), so the blend collapses to the projection. fpPpr/fpStd seed the blend's actual/
-  // recent legs (both = projection in the offseason), yielding blend = projection. See
-  // docs/nfl-rookie-seeding-scoping.md.
-  let seeded = 0;
+  // Seed any projected player ESPN's byathlete universe lacks, so a projection-aware draft board
+  // isn't missing draftable names. This is NOT just the incoming rookie class: ESPN's leaderboard
+  // is a partial roster snapshot (~66% of currently-rostered skill players), and it drops veterans
+  // who missed the prior season on IR (Jonathon Brooks) as well as ones who played and simply
+  // aren't listed (Matthew Golden, 14 GP). Both classes were unreachable while this gate required
+  // years_exp === 0, since ESPN is the only other door into the pool.
+  //
+  // Gates: skill positions only, above a projected-PPR floor (skip camp bodies), never duplicating
+  // an existing key, and ON A TEAM — a teamless (free-agent) projection can't be drafted in a real
+  // league, so it stays out of the pool rather than padding the board. Synthetic record: no
+  // current/prior stats (games 0), so the blend collapses to the projection. fpPpr/fpStd seed the
+  // blend's actual/recent legs (both = projection in the offseason), yielding blend = projection.
+  // See docs/nfl-rookie-seeding-scoping.md.
+  const candidates = [];
   for (const r of pull.players) {
-    if (!SEED_POS.has(r.pos) || r.exp !== 0 || !r.id || r.pts.ppr < SEED_FLOOR) continue;
+    if (!SEED_POS.has(r.pos) || !r.id || !r.team || r.pts.ppr < SEED_FLOOR) continue;
     const k = keyFor(r.pos, r.name);
     if (existing.has(k)) continue;
-    existing.add(k);
+    existing.add(k); // claim the key even if the id check blocks it, so a second row can't seed it
+    candidates.push({ r, k });
+  }
+
+  // ID-LEVEL DUPE CHECK for veterans. Name matching alone is not enough here: ESPN and Sleeper can
+  // list the same person under different names, and the mismatch is invisible to keyFor. The live
+  // case is ESPN's "Hollywood Brown" (athlete 4241372) vs Sleeper's "Marquise Brown" — one player,
+  // two names, and a name-only gate would seed a second copy of a player already on the board.
+  // Sleeper's per-player record carries `espn_id`, which joins straight to the ESPN athlete id the
+  // build uses, so a candidate whose espn_id is already in the dataset is dropped.
+  //
+  // Only veterans are checked: a true rookie cannot appear in a prior-season leaderboard, so it has
+  // nothing to collide with, and skipping them keeps this to a handful of 1KB calls per run.
+  // Sleeper populates espn_id sparsely (measured over rostered skill players: 100% at 6+ years of
+  // experience, ~4% at 1-5, 0% for rookies), but that is the right shape for this guard — a name
+  // that diverges between the two sources is a long-tenured player's nickname, and those are
+  // exactly the rows carrying an id. A recent entrant with no id has no ESPN row to duplicate.
+  // A lookup that FAILS blocks its candidate rather than seeding it blind — a duplicate player is a
+  // worse draft-board bug than a missing deep flyer, and the next cron run retries.
+  const datasetEspnIds = new Set(dataset.players.map((p) => String(p.id)));
+  const vets = candidates.filter((c) => c.r.exp !== 0);
+  const blocked = new Set();
+  let dupeSkipped = 0, unresolved = 0;
+  for (let i = 0; i < vets.length; i += 5) {
+    const batch = await Promise.all(vets.slice(i, i + 5).map(async (c) => [c, await fetchEspnId(c.r.id)]));
+    for (const [c, { ok, espnId }] of batch) {
+      if (!ok) { blocked.add(c.k); unresolved++; continue; }
+      if (espnId && datasetEspnIds.has(espnId)) { blocked.add(c.k); dupeSkipped++; }
+    }
+  }
+
+  let seeded = 0;
+  for (const { r, k } of candidates) {
+    if (blocked.has(k)) continue;
     const cols = COLUMNS[r.pos] || [];
     const s = cols.map(([label]) => (r.stats[label] != null ? String(r.stats[label]) : '—'));
     dataset.players.push({
-      id: `sleeper-${r.id}`, name: r.name, team: r.team || '—', league: null, pos: r.pos,
-      hasStats: true, games: 0, rookie: true, searchOnly: false,
+      id: `sleeper-${r.id}`, name: r.name, team: r.team, league: null, pos: r.pos,
+      hasStats: true, games: 0, rookie: r.exp === 0, searchOnly: false,
       fpPpr: r.pts.ppr, fpStd: r.pts.std, fp: r.pts.ppr,
       s1: s[0] ?? '—', s2: s[1] ?? '—', s3: s[2] ?? '—', s4: s[3] ?? '—', s5: s[4] ?? '—', s6: r.pts.ppr.toFixed(1),
       statLabels: [...cols.map(([label]) => label), 'FPTS'], cats: [],
@@ -196,6 +254,12 @@ export async function enrichNflProjections(dataset, redis) {
 
   dataset.counts = {
     ...dataset.counts,
-    projections: { matched, seeded, pulled: pull.players.length, source: 'sleeper', builtAt: pull.builtAt },
+    projections: {
+      matched, seeded, pulled: pull.players.length, source: 'sleeper', builtAt: pull.builtAt,
+      // Seeding detail: how many seeds were veterans (the widened gate), and how many candidates the
+      // espn_id check dropped as duplicates vs. could not resolve (blocked defensively).
+      seededVets: seeded - candidates.filter((c) => !blocked.has(c.k) && c.r.exp === 0).length,
+      dupeSkipped, unresolved,
+    },
   };
 }

@@ -85,3 +85,77 @@ needed:**
 
 Method: code-trace + direct runtime exercise of the engine (the decisive test for id-safety), not a
 browser click-through.
+
+## Revision — seeding widened beyond rookies (2026-08-30)
+
+**Trigger:** a live offline draft surfaced three players other teams drafted that never appeared in
+Draft Mode's Available Players list — Jonathon Brooks, Matthew Golden, Xavier Restrepo.
+
+**What the investigation found.** The premise above — "anyone with no prior ESPN footprint is a true
+rookie" — is wrong. ESPN's `byathlete` is not a complete universe of players-with-stats; it is a
+partial roster snapshot. Measured against all 32 current 53-man rosters, it covers **450 of 683
+(66%) rostered fantasy-skill players**. Two distinct classes of non-rookie fall out of it:
+
+- **Missed the prior season.** `…/seasons/2025/types/2/athletes/{id}/statistics` returns
+  `{"error":{"message":"No stats found."}}` — Jonathon Brooks, Tank Dell, Deshaun Watson,
+  MarShawn Lloyd.
+- **Played, and simply aren't listed.** ESPN's own core API has a full 2025 line while the
+  leaderboard has no row — Matthew Golden (14 GP, 29/361), Calvin Ridley (7 GP), Jalen McMillan
+  (4 GP), Najee Harris (3 GP), Xavier Restrepo (2 GP). Micah Parsons is absent too, so this is not
+  a fantasy-position or volume threshold. For scale, the same endpoint returns 2,138 rows for 2024
+  vs 1,706 for 2025.
+
+Because the seed gate required `years_exp === 0`, neither class could enter the pool by any route.
+Against Fantasy Football Calculator's consensus ADP (PPR/12-team, 8,234 drafts, week of Aug 23–30),
+**12 of the 220 skill players being drafted in real leagues were missing from the pool** — including
+Brooks at ADP 92 (round 8) and Golden at ADP 108 (round 9).
+
+**Change.** The gate is now: skill position, projected ≥ `SEED_FLOOR`, unmatched by `keyFor`, and
+**on a team**. `years_exp` no longer gates entry (it only sets the `rookie` flag). Teamless
+(free-agent) projections stay out — they can't be drafted in a real league, and seeding them would
+pad the board.
+
+**The duplicate risk this doc flagged is real, and is now handled by id, not by name.** The original
+"do not seed non-rookies — they're usually name-mismatches of existing vets" concern reproduced on
+the first run: ESPN lists athlete `4241372` as **"Hollywood Brown"**, Sleeper calls the same person
+**"Marquise Brown"**, and `keyFor` cannot see through a nickname. Seeding him would have put one
+player on the board twice. Sleeper's per-player record (`/v1/players/nfl/{id}`, ~1KB — not the ~15MB
+bulk dump) carries `espn_id`, which joins directly to the ESPN athlete id the build already uses, so
+a veteran candidate whose `espn_id` is already in the dataset is dropped. Rookies skip the check
+(nothing to collide with), keeping it to a handful of calls per run. A lookup that *fails* blocks its
+candidate rather than seeding blind — a duplicated player is a worse board bug than a missing deep
+flyer, and the next cron run retries. `counts.projections` now reports `seededVets`, `dupeSkipped`,
+and `unresolved`.
+
+`espn_id` is populated sparsely, but in the shape this guard needs — over rostered skill players it
+is **100% at 6+ years of experience, ~4% at 1–5, 0% for rookies**. A name that diverges between the
+two sources is a long-tenured player's nickname, and those rows all carry an id.
+
+**Also fixed (`nflBlend.js`).** `PROMOTE_FLOOR` (promote a `searchOnly` player with a real
+projection onto the board) was compared against `p.fpPpr` — but by that line `p.fpPpr` has already
+been overwritten with the blend, and for exactly the players the rule rescues (no actuals) the blend
+collapses to `0.65 × projection`. The documented floor of 50 was really ~77. It now tests the raw
+projection. Live effect: Jordan James (SF RB, ADP 153, proj 59.7 → blend 38.8) is promoted instead of
+being silently withheld.
+
+**Result** (verified by running the real enrichers against live Sleeper/ESPN/FFC data): pool
+605 → 614; 8 veterans seeded, 1 blocked as a duplicate, 0 unresolved; 37 rookies unchanged; no
+duplicate keys and no player dropped from the pool. The FFC consensus gap goes 12 → 4.
+
+**Knowingly still out.** The 4 remaining consensus gaps are excluded by design, not by accident:
+Dean Connors and Bub Means are teamless free agents; Kaelon Black (proj 42.3) and Najee Harris
+(proj 26.3) are rostered but sit below `SEED_FLOOR`.
+
+**Xavier Restrepo is not a special case** — worth stating plainly, since he was one of the three
+players that triggered this work. He is a normal rostered Titan (ESPN athlete `4431353`, WR #87,
+Active; Sleeper `12520`, TEN, Active, WR6 on the depth chart), and he runs the *same* gate as
+Golden and Brooks with no name-specific handling anywhere in the pipeline. He passes the position,
+id, and on-a-team checks and fails only `pts.ppr >= SEED_FLOOR` — the identical rule that excludes
+Black and Harris.
+
+What separates him from Golden and Brooks is purely the size of the projection, and it is not stale
+or mismatched data: a fresh pull returns exactly one Restrepo row for 2026, projecting 2 receptions
+for 22 yards — **4.8 PPR**, which ranks WR#187 of 1,364 projected WRs. Sleeper's own ADP fields in
+that same row put him at `adp_ppr: 675` (effectively undrafted), and FFC does not rank him in any
+of its three formats (271 / 232 / 221 players). Reaching him means dropping the floor from 50 to
+under 5, which would pull in hundreds of camp bodies. He stays a search-only concern.
