@@ -714,7 +714,7 @@
 <script type="module">
   // Shared NFL scoring — the SAME functions the draft board uses, so rankings and the
   // draft board order players by FPTS in a format identically (one ranking system).
-  import { nflFpts, nflReplacementLevels, nflBoardCmp } from '/nflScoring.js';
+  import { nflFpts, nflReplacementLevels, nflBoardCmp, nflRankValue } from '/nflScoring.js';
   // Shared player-display primitives (stars, category pills, formatStat, tag/trend/tier badges) —
   // the SAME code the Mock Draft detail sidebar renders through, so both views are identical.
   import { getStarCount, getStarLabel, renderStars, renderStarsBlock, formatStat, getTrendHTML, getTagHTML, getTierHTML, renderOpportunity, renderConsistencyHTML } from '/playerDisplay.js';
@@ -807,6 +807,13 @@
   };
   // NFL position filter -> header set (TE shares WR's columns).
   const NFL_HEADER_POS = { QB: 'nfl_qb', RB: 'nfl_rb', WR: 'nfl_wr', TE: 'nfl_wr', K: 'nfl_k', DST: 'nfl_dst' };
+  // The flex-eligible pool. FLEX has no NFL_HEADER_POS entry on purpose: it falls back to the mixed
+  // nfl_all header set, which is what a combined RB/WR/TE table wants. Ranked by raw blended OUTPUT
+  // (nflRankValue), NOT the board's VORP order — the same metric and reasoning as the draft engine's
+  // bestFlexVal (api/_lib/draft.js) since 23557fd: all three positions fill the one flex slot, so the
+  // comparison is points-based, not scarcity-based. Positional VORP over-credits a scarce TE for
+  // scarcity it cannot relieve there. This is display/ordering over an existing, validated number.
+  const FLEX_POS = new Set(['RB', 'WR', 'TE']);
   // Column stat LABEL -> its rolling-window key + whether lower is better (rate stats). Drives both the
   // windowed (L15/L30) value lookup and click-sort direction. A label absent here (e.g. WNBA 3PM, which
   // enrichRolling doesn't carry) has no windowed value — it shows '—' in a window and sinks when sorted.
@@ -1054,6 +1061,7 @@
     // QBs on top. K/DST are buried at the bottom, below bench skill (nflBoardCmp). nflFp()
     // still drives the FPTS column with real format points.
     let nflRank = null;
+    let nflFlexVal = null; // id -> raw blended output, for the FLEX view's ordering
     const isNfl = currentSport === 'nfl';
     const nflFp = (p) => nflFpts(p, currentScoring);
     let nflLevels = {};
@@ -1077,6 +1085,9 @@
           .slice()
           .sort((a, b) => nflBoardCmp(a, b, currentScoring, nflLevels))
           .forEach((p, i) => nflRank.set(p.id, i + 1));
+        // Raw blended output per player, captured HERE so it reflects the active basis toggle
+        // (blend / 2026 proj / last-year actual) — the same swap the VORP ranking above sees.
+        nflFlexVal = new Map(players.map(p => [p.id, nflRankValue(p, currentScoring)]));
       } finally {
         if (nflSaved) for (const [p, a, b] of nflSaved) { p.fpPpr = a; p.fpStd = b; }
       }
@@ -1084,7 +1095,8 @@
     // Type-tab sports split by player type first (Hitters/Pitchers or Skaters/Goalies), then position.
     let filtered = players;
     if (typeCfg) filtered = filtered.filter(p => typeCfg.classify(p) === currentType);
-    if (currentPos !== 'ALL') filtered = filtered.filter(p => (p.pos||'').toUpperCase().split('/').map(x => {
+    if (currentPos === 'FLEX') filtered = filtered.filter(p => FLEX_POS.has((p.pos || '').toUpperCase()));
+    else if (currentPos !== 'ALL') filtered = filtered.filter(p => (p.pos||'').toUpperCase().split('/').map(x => {
       const t = x.trim();
       return (t === 'CF' || t === 'LF' || t === 'RF') ? 'OF' : t;
     }).includes(currentPos));
@@ -1107,7 +1119,9 @@
     // Order by the NFL rank computed above — nflRank already encodes nflBoardCmp on the active basis, so
     // no live fpPpr is needed here (the basis swap is fully contained in the guarded block above).
     // Unranked (searchOnly) rows sink to the bottom.
-    if (isNfl) filtered = filtered.slice().sort((a, b) => (nflRank.get(a.id) ?? Infinity) - (nflRank.get(b.id) ?? Infinity));
+    if (isNfl) filtered = filtered.slice().sort(currentPos === 'FLEX'
+      ? (a, b) => (nflFlexVal.get(b.id) ?? -Infinity) - (nflFlexVal.get(a.id) ?? -Infinity)
+      : (a, b) => (nflRank.get(a.id) ?? Infinity) - (nflRank.get(b.id) ?? Infinity));
     // Ordering precedence: a category COMBINE (2+ checked) re-ranks by the summed season z of the
     // checked cats; a single checked category (or a header-text click) is the normal single-column
     // value sort (window-aware); otherwise the default rank order. Missing values always sink.
@@ -2040,7 +2054,8 @@
   const POS_SETS = {
     nba: ['ALL', 'G', 'F', 'C'],
     wnba: ['ALL', 'G', 'F', 'C'],
-    nfl: ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DST'],
+    // FLEX is a synthetic group (RB+WR+TE), not a p.pos value — see FLEX_POS / the FLEX sort below.
+    nfl: ['ALL', 'QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DST'],
     pga: ['ALL'], // golfers have no position; the single ALL view is the board
   };
   // Roto categories the Stars rating reflects, per sport (drives the banner).

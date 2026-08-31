@@ -425,7 +425,7 @@
 // Shared per-sport scoring — the SAME functions the rankings tab uses, so the draft board
 // ranks players identically (no separate ranking system). NFL is points/VORP; NBA/WNBA/MLB/NHL
 // are category (roto) z-score games. We import all and dispatch on the active sport via a shim.
-import { nflFpts, nflReplacementLevels, nflBoardCmp } from '/nflScoring.js';
+import { nflFpts, nflReplacementLevels, nflBoardCmp, nflRankValue } from '/nflScoring.js';
 import { nbaPlayerValue, nbaBoardCmp, nbaRankMap, DEFAULT_LINEUP as nbaLineup, eligibleSlots as nbaElig } from '/nbaScoring.js';
 import { value as mlbValue, boardCmp as mlbBoardCmp, rankMap as mlbRankMap, DEFAULT_LINEUP as mlbLineup, eligibleSlots as mlbElig } from '/mlbScoring.js';
 import { value as nhlValue, boardCmp as nhlBoardCmp, rankMap as nhlRankMap, DEFAULT_LINEUP as nhlLineup, eligibleSlots as nhlElig } from '/nhlScoring.js';
@@ -476,6 +476,14 @@ const POS_ORDER = {
   nhl: ['C', 'LW', 'RW', 'D', 'G'],
   mlb: ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH', 'SP', 'RP'],
 };
+// FLEX is a SYNTHETIC group, not a p.pos value: the RB/WR/TE pool that competes for the flex slot.
+// It is ranked by raw blended OUTPUT (nflRankValue) rather than the board's usual ADP/VORP order —
+// the same metric and the same reasoning as the engine's bestFlexVal (api/_lib/draft.js) since
+// 23557fd: everyone in this group fills the one flex slot, so who "wins" it is whoever puts up the
+// most points THERE. Positional VORP is the wrong yardstick — it credits a scarce TE (replacement
+// ~153) for scarcity it can't relieve in a flex slot, floating it over a deeper WR (~183) at equal
+// output. Display/ordering only; no new stat is computed here.
+const FLEX_POS = new Set(['RB', 'WR', 'TE']);
 let availPos = 'ALL';  // selected position group; 'ALL' is the unfiltered board (previous behaviour)
 let posTabsSig = null; // signature of the rendered tab set, so we only rebuild when it changes
 
@@ -490,6 +498,8 @@ function syncPosTabs() {
     if (ia !== ib) return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib); // known order first, strays last
     return a.localeCompare(b);
   });
+  // FLEX rides alongside the real positions for NFL, sitting after TE (the last of RB/WR/TE).
+  if (sport === 'nfl' && [...FLEX_POS].every((x) => seen.includes(x))) seen.splice(seen.indexOf('TE') + 1, 0, 'FLEX');
   const sig = seen.join(',');
   if (sig === posTabsSig) return; // same set already on screen — leave the active tab alone
   posTabsSig = sig;
@@ -1219,11 +1229,18 @@ function renderAvailable(filter = '') {
     const v = (p) => { const x = adpFor(p, scoring); return x != null ? x : (p.rank != null ? p.rank + 24 : 999); };
     return v(a) - v(b);
   };
+  // One definition of "is this player in the selected group", so the list and the Coach's
+  // force-append below can never disagree about what FLEX contains.
+  const inPosGroup = (p) => availPos === 'ALL'
+    || (availPos === 'FLEX' ? FLEX_POS.has(p.pos) : p.pos === availPos);
+  // FLEX orders by raw blended output (see FLEX_POS above); every other group keeps the board's
+  // own ordering — ADP for NFL, category value for roto.
+  const byFlexVal = (a, b) => nflRankValue(b, state.settings.scoring || 'ppr') - nflRankValue(a, state.settings.scoring || 'ppr');
   const full = players
     .filter((p) => !state.drafted.has(p.id)
-      && (availPos === 'ALL' || p.pos === availPos)          // position group
+      && inPosGroup(p)                                       // position group
       && (!f || p.name.toLowerCase().includes(f) || p.pos.toLowerCase() === f)) // AND the search box
-    .sort(isRoto() ? boardCmp : byAdp);                      // sort is untouched — whatever is active
+    .sort(availPos === 'FLEX' ? byFlexVal : (isRoto() ? boardCmp : byAdp));
   availFullLength = full.length;
   const list = full.slice(0, availRenderLimit);
   // Guarantee the Coach's suggested player is on the board even if a deep need-fill sits past the
@@ -1237,7 +1254,7 @@ function renderAvailable(filter = '') {
     // Only force him in if he BELONGS to the selected group: a deep QB still gets pulled onto a
     // QB-filtered board, but a suggested RB is never injected into one — that would break the
     // filter's contract and put a row there the user explicitly filtered out.
-    if (sugP && (availPos === 'ALL' || sugP.pos === availPos) && !list.includes(sugP)) {
+    if (sugP && inPosGroup(sugP) && !list.includes(sugP)) {
       if (list.length >= availRenderLimit) list.pop();
       list.push(sugP);
     }
