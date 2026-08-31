@@ -13,11 +13,22 @@ const HEADERS = {
   Accept: 'application/json',
 };
 
+// ESPN sits behind Akamai, which rate-limits by egress IP: after a burst it answers 403 (an
+// "Access Denied" HTML page, not JSON) for a cooldown window. A serverless cron that has already
+// pulled thousands of rows can trip this, and the builders that run LAST are the ones that eat it.
+// A 403/429 therefore gets a much longer backoff than an ordinary error — the default 400/800ms
+// ramp expires long before a rate-limit window does. Still bounded by `tries`, so a genuinely
+// blocked URL costs ~6s of backoff (2s + 4s across the gaps between three attempts) and no more.
+const RATE_LIMIT_STATUS = new Set([403, 429]);
+const backoffMs = (attempt, rateLimited) => (rateLimited ? 2000 : 400) * (attempt + 1);
+
 export async function getJson(url, tries = 3) {
   let lastErr;
+  let rateLimited = false;
   for (let t = 0; t < tries; t++) {
     try {
       const r = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(15000) });
+      rateLimited = RATE_LIMIT_STATUS.has(r.status);
       if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
       const j = await r.json();
       // ESPN answers 200 with an error BODY when its own upstream fails, e.g.
@@ -30,7 +41,8 @@ export async function getJson(url, tries = 3) {
       return j;
     } catch (e) {
       lastErr = e;
-      await new Promise((res) => setTimeout(res, 400 * (t + 1)));
+      // No sleep after the final attempt — we're about to throw, so waiting only burns cron budget.
+      if (t < tries - 1) await new Promise((res) => setTimeout(res, backoffMs(t, rateLimited)));
     }
   }
   throw lastErr;
