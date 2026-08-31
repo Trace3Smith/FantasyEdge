@@ -21,6 +21,9 @@ const SEASON_GAMES = 17;
 // A player with no current-season stats (searchOnly, e.g. a rookie in the offseason) but a real
 // projection at or above this many projected PPR points is promoted onto the ranked board — so a
 // projection-aware draft board isn't missing draftable newcomers. ~50 ≈ a deep-bench flyer.
+// Compared against the RAW projection, not the blended value: by the time the check runs, p.fpPpr
+// has been overwritten with the blend, and for exactly the players this rule rescues (no actuals)
+// the blend collapses to 0.65 x projection — which would silently raise the real bar to ~77.
 const PROMOTE_FLOOR = 50;
 
 const r1 = (v) => Math.round((Number(v) || 0) * 10) / 10;
@@ -82,7 +85,7 @@ export function enrichNflBlend(dataset) {
     };
     blended++;
 
-    if (p.searchOnly && proj && p.fpPpr >= PROMOTE_FLOOR) { p.searchOnly = false; promoted++; }
+    if (p.searchOnly && proj && proj.ppr >= PROMOTE_FLOOR) { p.searchOnly = false; promoted++; }
   }
 
   // Re-rank the NFL board by blended PPR points (the build ranked by raw fp identically). p.rank is
