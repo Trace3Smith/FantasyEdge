@@ -717,7 +717,7 @@
   import { nflFpts, nflReplacementLevels, nflBoardCmp } from '/nflScoring.js';
   // Shared player-display primitives (stars, category pills, formatStat, tag/trend/tier badges) —
   // the SAME code the Mock Draft detail sidebar renders through, so both views are identical.
-  import { getStarCount, getStarLabel, renderStars, renderStarsBlock, formatStat, getTrendHTML, getTagHTML, getTierHTML, renderOpportunity } from '/playerDisplay.js';
+  import { getStarCount, getStarLabel, renderStars, renderStarsBlock, formatStat, getTrendHTML, getTagHTML, getTierHTML, renderOpportunity, renderConsistencyHTML } from '/playerDisplay.js';
 
   let currentSport = 'mlb';
   let currentType = 'H'; // MLB player-type tab: 'H' hitters | 'P' pitchers (other sports ignore it)
@@ -1216,7 +1216,7 @@
         <td class="gp-col" data-label="GP">${formatStat(gpDisplay(p), null)}</td>
         <td data-label="${p.statLabels?.[0]||''}">${formatStat(cellVal(p, 0), showInline ? p.statLabels?.[0] : null)}</td><td data-label="${p.statLabels?.[1]||''}">${formatStat(cellVal(p, 1), showInline ? p.statLabels?.[1] : null)}</td><td data-label="${p.statLabels?.[2]||''}">${formatStat(cellVal(p, 2), showInline ? p.statLabels?.[2] : null)}</td><td data-label="${p.statLabels?.[3]||''}">${formatStat(cellVal(p, 3), showInline ? p.statLabels?.[3] : null)}</td><td data-label="${p.statLabels?.[4]||''}">${formatStat(cellVal(p, 4), showInline ? p.statLabels?.[4] : null)}</td><td data-label="${p.statLabels?.[5]||''}">${formatStat(cellVal(p, 5), showInline ? p.statLabels?.[5] : null)}</td>
         <td class="extra-col" data-label="${currentSport === 'nfl' ? 'Proj' : (p.statLabels?.[6]||'')}">${formatStat(cellVal(p, 6), showInline ? (currentSport === 'nfl' ? 'Proj' : p.statLabels?.[6]) : null)}</td><td class="extra-col" data-label="${currentSport === 'nfl' ? "'25" : (p.statLabels?.[7]||'')}">${formatStat(cellVal(p, 7), showInline ? (currentSport === 'nfl' ? "'25" : p.statLabels?.[7]) : null)}</td>
-        <td class="${(isPga || isNfl) ? 'tier-cell' : 'stars-cell'}" data-label="${isPga ? 'Tier' : isNfl ? 'Consist' : 'Stars'}">${so ? muted : isPga ? getTierHTML(p.tier, p.inField) : isNfl ? (p.consistency != null ? `<span class="consist" title="Consistency — weekly floor vs a typical game (P25/P50); higher = steadier">${p.consistency}</span>${p.ceiling != null ? ` <span class="consist-ceil" title="Ceiling — 90th-percentile game (upside), PPR">⌃${p.ceiling}</span>` : ''}` : muted) : renderStarsBlock(cats)}</td>
+        <td class="${(isPga || isNfl) ? 'tier-cell' : 'stars-cell'}" data-label="${isPga ? 'Tier' : isNfl ? 'Consist' : 'Stars'}">${so ? muted : isPga ? getTierHTML(p.tier, p.inField) : isNfl ? renderConsistencyHTML(p) : renderStarsBlock(cats)}</td>
         <td data-label="Trend">${so ? muted : getTrendHTML(p.trend, p.trendVal)}</td>
         <td class="own-pct" data-label="Own%">${so ? '—' : (p.own!=null?p.own+'%':'—')}</td>
       </tr>`;

@@ -155,6 +155,9 @@
   .pd-sub { font-size: 12px; color: var(--gray); margin-top: 3px; }
   .pd-draft { padding: 7px 15px; font-size: 13px; white-space: nowrap; }
   .pd-stars { margin-bottom: 4px; }
+  /* NFL consistency score (replaces the roto star rating here too — points league, not category). */
+  .consist { display: inline-block; padding: 3px 9px; border-radius: 3px; font-size: 12px; font-weight: 800; letter-spacing: 0.5px; background: rgba(212,160,23,0.12); color: var(--gold-light, #F0C040); border: 1px solid rgba(212,160,23,0.35); }
+  .consist-ceil { font-size: 10px; font-weight: 600; color: var(--gray); white-space: nowrap; }
   .pd-sec-hd { display: flex; align-items: center; justify-content: space-between; font-size: 11px; letter-spacing: 1px;
     text-transform: uppercase; color: var(--gray); margin: 14px 0 8px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; }
   .pd-sort { display: flex; gap: 4px; }
@@ -423,7 +426,7 @@ import { pickNflOpponent, pickRotoOpponent } from '/draftAI.js';
 import { teamOnClock } from '/draftOrder.js';
 // Shared player-display module — the SAME code Player Rankings renders through, so the detail
 // sidebar's stars, category pills, tags/trends, sortable category list, and prior-year line match it.
-import { renderStarsBlock, renderCategoryList, renderPrevYear, renderOpportunity, getTagHTML, getTrendHTML } from '/playerDisplay.js';
+import { renderStarsBlock, renderCategoryList, renderPrevYear, renderOpportunity, getTagHTML, getTrendHTML, renderConsistencyHTML } from '/playerDisplay.js';
 import { positionalRanks, posRankLabel, leagueRanking, draftGrade } from '/draftSummary.js';
 // Coach chat's live-draft context string — extracted so it has one source of truth + pre-push
 // regression coverage (scripts/verify-draft-coach.mjs). Pure; we inject our globals/helpers below.
@@ -1229,7 +1232,7 @@ function renderDetail() {
       </div>
       <button class="btn btn-gold pd-draft" id="pdDraftBtn"${drafted ? ' disabled' : ''}>${drafted ? 'Drafted' : 'Draft'}</button>
     </div>
-    <div class="pd-stars">${renderStarsBlock(p.cats)}</div>
+    <div class="pd-stars">${isRoto() ? renderStarsBlock(p.cats) : renderConsistencyHTML(p)}</div>
     ${renderOpportunity(p, 'block')}
     <div class="pd-sec-hd"><span>Categories</span><span class="pd-sort">${sortBtn('natural', 'Order')}${sortBtn('value', 'Value')}${sortBtn('impact', 'Impact')}</span></div>
     ${renderCategoryList(p, detailSort)}

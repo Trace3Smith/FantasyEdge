@@ -55,6 +55,18 @@ export function getTagHTML(tag, reason) {
   const r = reason ? ` <span class="tag-reason">${reason}</span>` : '';
   return `<span class="tag-badge ${cls}"${reason ? ` title="${reason}"` : ''}>${label}</span>${r}`;
 }
+// NFL consistency score (replaces the star rating / N-Cat pills on the roto sports, which don't
+// map to a points league): weekly floor (P25/P50, higher = steadier) + a separate ceiling
+// (P90 upside), from enrichNflConsistency. Used anywhere a player's "strength rating" is shown
+// for NFL — currently the Rankings stars-cell and the Mock Draft / Draft Mode detail panel.
+export function renderConsistencyHTML(p) {
+  if (p.consistency == null) return '<span class="td-stat muted">—</span>';
+  const ceil = p.ceiling != null
+    ? ` <span class="consist-ceil" title="Ceiling — 90th-percentile game (upside), PPR">⌃${p.ceiling}</span>`
+    : '';
+  return `<span class="consist" title="Consistency — weekly floor vs a typical game (P25/P50); higher = steadier">${p.consistency}</span>${ceil}`;
+}
+
 // PGA DFS value tier (replaces the star rating on the golf board): VALUE (produces
 // above price), CHALK (obvious stud), SOLID (dependable), PUNT (salary saver).
 // A small note flags golfers not in this week's field (their CUT%/FIT are blank).
