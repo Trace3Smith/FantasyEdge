@@ -121,6 +121,10 @@
   /* Taller scan window than the old 360px — during a real draft, users need to scroll deep into
      the board (e.g. "who's left at RB 20 picks out"), not just glance at the top few. Rendering
      itself is batched/incremental (see renderAvailable), so this is purely the visible viewport. */
+  .pos-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+  .pos-tabs button { background: var(--dark3); color: var(--gray); border: 1px solid rgba(255,255,255,0.1); border-radius: 5px;
+    padding: 3px 8px; font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; cursor: pointer; font-family: inherit; }
+  .pos-tabs button.active { color: var(--gold); border-color: var(--gold); background: rgba(212,160,23,0.1); }
   .avail-list { max-height: 640px; overflow-y: auto; }
   .avail-more { text-align: center; padding: 10px 8px 2px; font-size: 11px; color: var(--gray); letter-spacing: 0.3px; }
 
@@ -394,6 +398,7 @@
           <h3>Available Players</h3>
           <div class="adp-stamp" id="adpStamp"></div>
           <input class="search-input" id="availSearch" placeholder="Search players…">
+          <div class="pos-tabs" id="posTabs"></div>
           <div class="avail-list" id="availList"></div>
         </div>
       </div>
@@ -457,8 +462,47 @@ let suggestedLabel = null;  // the server's rich reasonLabel (e.g. "fills your S
 // view is unchanged; only scrolling past it is new.
 const AVAIL_BATCH = 60;
 let availRenderLimit = AVAIL_BATCH; // how many of the (filtered, sorted) available players are rendered
-let availLastFilter = null;         // last search filter renderAvailable ran with — a change resets the limit
+let availLastFilter = null;         // last filter key (position + search) — a change resets the limit
 let availFullLength = 0;            // full filtered/sorted pool size from the last render, for the scroll check
+
+// Position-group filter for the Available board. Canonical display order per sport; the tabs
+// themselves are DERIVED from the pool that actually loaded rather than taken from this table,
+// because position sets differ per sport and real data carries the odd stray (a lone NBA 'PF',
+// MLB's two-way 'TWP'). Anything not listed here still gets a tab, sorted after the known ones.
+const POS_ORDER = {
+  nfl: ['QB', 'RB', 'WR', 'TE', 'K', 'DST'],
+  nba: ['G', 'F', 'C'],
+  wnba: ['G', 'F', 'C'],
+  nhl: ['C', 'LW', 'RW', 'D', 'G'],
+  mlb: ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH', 'SP', 'RP'],
+};
+let availPos = 'ALL';  // selected position group; 'ALL' is the unfiltered board (previous behaviour)
+let posTabsSig = null; // signature of the rendered tab set, so we only rebuild when it changes
+
+// Build/refresh the tab bar. Called from renderAvailable rather than from draft setup: buildRankMap
+// returns early for roto sports so it is not a safe init hook, and every draft flow (mock, offline,
+// linked) already routes through renderAvailable — so there is no per-flow hook to forget.
+function syncPosTabs() {
+  const order = POS_ORDER[sport] || [];
+  const seen = [...new Set(players.map((p) => p.pos).filter(Boolean))];
+  seen.sort((a, b) => {
+    const ia = order.indexOf(a), ib = order.indexOf(b);
+    if (ia !== ib) return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib); // known order first, strays last
+    return a.localeCompare(b);
+  });
+  const sig = seen.join(',');
+  if (sig === posTabsSig) return; // same set already on screen — leave the active tab alone
+  posTabsSig = sig;
+  if (availPos !== 'ALL' && !seen.includes(availPos)) availPos = 'ALL'; // sport changed under the selection
+  const tab = (k, lbl) => `<button data-pos="${k}"${availPos === k ? ' class="active"' : ''}>${lbl}</button>`;
+  $('posTabs').innerHTML = tab('ALL', 'All') + seen.map((x) => tab(x, x)).join('');
+  $('posTabs').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+    availPos = b.dataset.pos;
+    $('posTabs').querySelectorAll('button').forEach((x) => x.classList.toggle('active', x.dataset.pos === availPos));
+    renderAvailable($('availSearch').value || '');
+    $('availList').scrollTop = 0; // a different group is a different list — start it at the top
+  }));
+}
 
 // Active sport: from ?sport= (default NFL). NBA/WNBA/MLB/NHL are category leagues; everything
 // else is the NFL points flow. Resolved at load and again when the setup Sport select changes.
@@ -1161,10 +1205,12 @@ function scrollToSuggested() {
 
 function renderAvailable(filter = '') {
   const f = filter.toLowerCase();
-  // A new search term starts the batch over at the top; a re-render for any other reason (a pick
-  // landed, the Coach re-advised, a Sleeper poll ticked) keeps whatever depth the user had scrolled
-  // to, so mid-draft board activity doesn't yank someone back to the top of a list they were scanning.
-  if (filter !== availLastFilter) { availLastFilter = filter; availRenderLimit = AVAIL_BATCH; }
+  syncPosTabs();
+  // A new search term OR a new position group starts the batch over at the top; a re-render for any
+  // other reason (a pick landed, the Coach re-advised, a Sleeper poll ticked) keeps whatever depth
+  // the user had scrolled to, so mid-draft board activity doesn't yank them back to the top.
+  const filterKey = `${availPos}\u0000${filter}`;
+  if (filterKey !== availLastFilter) { availLastFilter = filterKey; availRenderLimit = AVAIL_BATCH; }
   // Default board order: ADP (average draft position) for NFL — how real drafts actually flow — with
   // no-ADP players (K/DST/depth) sinking to their board rank + ~2 rounds (mirrors bestForAI). Roto
   // sports have no ADP, so they order by category value (the same metric as the rankings tab).
@@ -1174,8 +1220,10 @@ function renderAvailable(filter = '') {
     return v(a) - v(b);
   };
   const full = players
-    .filter((p) => !state.drafted.has(p.id) && (!f || p.name.toLowerCase().includes(f) || p.pos.toLowerCase() === f))
-    .sort(isRoto() ? boardCmp : byAdp);
+    .filter((p) => !state.drafted.has(p.id)
+      && (availPos === 'ALL' || p.pos === availPos)          // position group
+      && (!f || p.name.toLowerCase().includes(f) || p.pos.toLowerCase() === f)) // AND the search box
+    .sort(isRoto() ? boardCmp : byAdp);                      // sort is untouched — whatever is active
   availFullLength = full.length;
   const list = full.slice(0, availRenderLimit);
   // Guarantee the Coach's suggested player is on the board even if a deep need-fill sits past the
@@ -1186,7 +1234,10 @@ function renderAvailable(filter = '') {
   // is exactly the case it exists for, and the evicted player is one scroll-batch away regardless.
   if (suggestedId != null && !f) {
     const sugP = players.find((p) => p.id === suggestedId && !state.drafted.has(p.id));
-    if (sugP && !list.includes(sugP)) {
+    // Only force him in if he BELONGS to the selected group: a deep QB still gets pulled onto a
+    // QB-filtered board, but a suggested RB is never injected into one — that would break the
+    // filter's contract and put a row there the user explicitly filtered out.
+    if (sugP && (availPos === 'ALL' || sugP.pos === availPos) && !list.includes(sugP)) {
       if (list.length >= availRenderLimit) list.pop();
       list.push(sugP);
     }
