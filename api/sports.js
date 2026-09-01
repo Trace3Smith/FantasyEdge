@@ -13,7 +13,7 @@ import { buildCfbBowl } from './_lib/cfbBowl.js';
 import { buildCfbWeek } from './_lib/cfbWeek.js';
 import { buildMarchMadness } from './_lib/marchMadness.js';
 import { requirePremium, sendError } from './_lib/auth.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, DATASET_VERSION } from './_lib/kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NFL_DVP_KEY, DATASET_VERSION } from './_lib/kv.js';
 
 // Per-sport dataset wiring: which KV key holds it and how to (re)build it on a
 // cold-start cache miss. Add a sport here + a frontend tab to light it up. A
@@ -74,6 +74,29 @@ export default async function handler(req, res) {
       return res.json(feed);
     } catch (err) {
       return res.status(500).json({ error: err.message, field: 'none', regions: [] });
+    }
+  }
+
+  // NFL defense-vs-position (DvP), read-only. Free public data like the Pick'em feeds below, but
+  // deliberately NOT built inline the way they are: buildNflDvp is the heaviest builder in the
+  // codebase (~1 scoreboard call per week + ~1 game summary per completed game, ~272 a season,
+  // behind a 45s soft budget), so letting an unauthenticated request trigger a rebuild would turn a
+  // public URL into a rebuild lever. The daily cron owns the build; this only serves what it stored.
+  //
+  // A missing key is a REAL answer (out of season, or never built), so it returns the same empty
+  // shape buildNflDvp itself returns rather than an error.
+  //
+  // Reading this as a health check — `builtAt` is the signal. The cron writes the key only after a
+  // successful build (a throw skips its redis.set and leaves the previous payload in place), so a
+  // builtAt that stops advancing across days means the DvP step is failing even though the rest of
+  // the refresh succeeded. `rated: false` with `counts.games: 0` is the normal preseason state, not
+  // a fault — DvP has nothing to aggregate until real games complete.
+  if (req.query.feed === 'nfl-dvp') {
+    try {
+      const dvp = await redis.get(NFL_DVP_KEY);
+      return res.json(dvp || { season: null, week: null, builtAt: null, rated: false, teams: {}, counts: { games: 0, teams: 0 } });
+    } catch (err) {
+      return res.status(500).json({ error: err.message, rated: false, teams: {} });
     }
   }
 
