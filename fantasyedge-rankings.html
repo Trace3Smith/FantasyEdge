@@ -587,10 +587,10 @@
   </ul>
   <div class="sidebar-sports-label">Sports</div>
   <ul class="sidebar-sports" id="sidebarSports">
-    <li><a data-sport="nfl">🏈 NFL</a></li>
+    <li><a data-sport="nfl" class="active">🏈 NFL</a></li>
     <li><a data-sport="nba">🏀 NBA</a></li>
     <li><a data-sport="wnba">🏀 WNBA</a></li>
-    <li><a data-sport="mlb" class="active">⚾ MLB</a></li>
+    <li><a data-sport="mlb">⚾ MLB</a></li>
     <li><a data-sport="nhl">🏒 NHL</a></li>
     <li><a data-sport="pga">⛳ PGA</a></li>
   </ul>
@@ -605,10 +605,10 @@
     <div class="page-title">PLAYER RANKINGS</div>
     <div class="page-subtitle" id="updateLabel">Updated daily · Loading…</div>
     <div class="sport-tabs" id="sportTabs">
-      <div class="sport-tab" data-sport="nfl"><span class="dot"></span>NFL</div>
+      <div class="sport-tab active" data-sport="nfl"><span class="dot"></span>NFL</div>
       <div class="sport-tab" data-sport="nba"><span class="dot"></span>NBA</div>
       <div class="sport-tab" data-sport="wnba"><span class="dot"></span>WNBA</div>
-      <div class="sport-tab active" data-sport="mlb"><span class="dot"></span>MLB</div>
+      <div class="sport-tab" data-sport="mlb"><span class="dot"></span>MLB</div>
       <div class="sport-tab" data-sport="nhl"><span class="dot"></span>NHL</div>
       <div class="sport-tab" data-sport="pga"><span class="dot"></span>PGA</div>
     </div>
@@ -719,7 +719,7 @@
   // the SAME code the Mock Draft detail sidebar renders through, so both views are identical.
   import { getStarCount, getStarLabel, renderStars, renderStarsBlock, formatStat, getTrendHTML, getTagHTML, getTierHTML, renderOpportunity, renderConsistencyHTML } from '/playerDisplay.js';
 
-  let currentSport = 'mlb';
+  let currentSport = 'nfl'; // default board on load; applySport()/loadAndRender() re-set it on any switch
   let currentType = 'H'; // MLB player-type tab: 'H' hitters | 'P' pitchers (other sports ignore it)
   let currentPos = 'ALL';
   let currentLeague = 'ALL';
@@ -2373,14 +2373,16 @@
   });
 
   // Honor a ?sport= deep link (the sidebar SPORTS nav on other pages points here). Falls back to
-  // mlb for a missing/unknown value. Reflect it in both the sidebar and the sport-tabs' active state.
+  // NFL for a missing/unknown value — the default board on a cold load. Reflect it in both the
+  // sidebar and the sport-tabs' active state; the guard below skips that work for the default,
+  // whose active class is already in the markup, so it must track the same sport as that markup.
   const VALID_SPORTS = new Set(['mlb', 'nba', 'wnba', 'nhl', 'pga', 'nfl']);
   const qParams = new URLSearchParams(location.search);
   const qSport = qParams.get('sport');
   // ?focus=<player id or name> jumps to and expands that player once the board loads (see loadAndRender).
   pendingFocus = qParams.get('focus') || null;
-  const initialSport = qSport && VALID_SPORTS.has(qSport) ? qSport : 'mlb';
-  if (initialSport !== 'mlb') {
+  const initialSport = qSport && VALID_SPORTS.has(qSport) ? qSport : 'nfl';
+  if (initialSport !== 'nfl') {
     document.querySelectorAll('.sport-tab,.sidebar-sports a').forEach(el => el.classList.remove('active'));
     document.querySelector(`#sidebarSports a[data-sport="${initialSport}"]`)?.classList.add('active');
     document.querySelector(`.sport-tab[data-sport="${initialSport}"]`)?.classList.add('active');
