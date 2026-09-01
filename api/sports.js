@@ -86,11 +86,14 @@ export default async function handler(req, res) {
   // A missing key is a REAL answer (out of season, or never built), so it returns the same empty
   // shape buildNflDvp itself returns rather than an error.
   //
-  // Reading this as a health check — `builtAt` is the signal. The cron writes the key only after a
-  // successful build (a throw skips its redis.set and leaves the previous payload in place), so a
-  // builtAt that stops advancing across days means the DvP step is failing even though the rest of
-  // the refresh succeeded. `rated: false` with `counts.games: 0` is the normal preseason state, not
-  // a fault — DvP has nothing to aggregate until real games complete.
+  // Reading this as a health check — the signal is the LATER of `builtAt` and `reusedAt`, not
+  // builtAt alone. buildNflDvp's weekly freshness guard returns `{...prev, reusedAt: now}` on a day
+  // the NFL week hasn't advanced, and the cron stores that, so in season builtAt legitimately sits
+  // still for up to a week while reusedAt moves. The cron writes the key only after a successful
+  // build (a throw skips its redis.set and leaves the previous payload), so NEITHER timestamp
+  // advancing across days means the DvP step is failing even though the rest of the refresh
+  // succeeded. `rated: false` with `counts.games: 0` is the normal preseason state, not a fault —
+  // DvP has nothing to aggregate until real games complete. `npm run check:dvp` applies this rule.
   if (req.query.feed === 'nfl-dvp') {
     try {
       const dvp = await redis.get(NFL_DVP_KEY);
