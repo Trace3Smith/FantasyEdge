@@ -288,20 +288,21 @@
     </div>
   </div>
 
-  <!-- Draft Mode path chooser (offline entry): link a live draft or go offline. -->
+  <!-- Draft Mode path chooser (offline entry): auto-track a Sleeper draft, or mark picks yourself
+       for a draft on any other platform (ESPN, Yahoo, in person). -->
   <div class="panel hidden" id="pathChooser">
     <div class="page-title" style="font-size:22px; margin-bottom:4px;">DRAFT MODE</div>
-    <p class="muted" style="font-size:13px; margin: 0 0 16px;">Link a live draft or go offline? Either path drives the same board — picks update the available list, and the Coach advises you on every pick.</p>
+    <p class="muted" style="font-size:13px; margin: 0 0 16px;">Sleeper drafts auto-track live. Every other platform — ESPN, Yahoo, in person — works too, you just mark each pick yourself as it happens. Either path drives the same board, and the Coach advises you on every pick.</p>
     <div class="league-grid">
-      <div class="league-tile" id="pathLinked"><span class="lt-icon">🔗</span><span class="lt-name">Link a Draft</span><span class="muted" style="font-size:11px">Sleeper — auto-tracks picks live</span></div>
-      <div class="league-tile" id="pathOffline"><span class="lt-icon">📋</span><span class="lt-name">Go Offline</span><span class="muted" style="font-size:11px">Mark each pick yourself</span></div>
+      <div class="league-tile" id="pathLinked"><span class="lt-icon">🔗</span><span class="lt-name">Link a Draft</span><span class="muted" style="font-size:11px">Sleeper (NFL/NBA only) — auto-tracks picks live</span></div>
+      <div class="league-tile" id="pathOffline"><span class="lt-icon">📋</span><span class="lt-name">Track Any Draft</span><span class="muted" style="font-size:11px">ESPN, Yahoo, in person — mark each pick yourself</span></div>
     </div>
   </div>
 
   <!-- Linked (Sleeper) setup: paste a draft link/ID; we poll the public feed client-side. -->
   <div class="panel hidden" id="linkedSetup">
     <div class="page-title" style="font-size:22px; margin-bottom:4px;">LINK A SLEEPER DRAFT</div>
-    <p class="muted" style="font-size:13px; margin: 0 0 14px;">Paste your Sleeper draft link or ID. We poll Sleeper's public draft feed every few seconds and auto-update the board as picks land — no Sleeper login needed.</p>
+    <p class="muted" style="font-size:13px; margin: 0 0 14px;">Paste your Sleeper draft link or ID — NFL and NBA drafts only for now. We poll Sleeper's public draft feed every few seconds and auto-update the board as picks land — no Sleeper login needed.</p>
     <div class="start-row">
       <input class="search-input" id="sleeperInput" placeholder="sleeper.com/draft/nfl/1234567890 or draft ID" style="min-width:340px">
       <button class="btn btn-gold" id="sleeperConnect" type="button">Connect draft</button>
@@ -1517,7 +1518,10 @@ $('undoBtn').addEventListener('click', offlineUndo);
 // offline = the user clicks each pick; linked = we poll Sleeper's public draft feed and
 // apply picks automatically. No auth (Sleeper reads are public) and no serverless proxy
 // (Sleeper sends Access-Control-Allow-Origin: *), so everything below is client-side.
-const SLEEPER_SPORT = { nfl: 'nfl', nba: 'nba' };        // Sleeper runs NFL + NBA drafts
+// OUR supported set, not Sleeper's. Sleeper also runs MLB/NHL/WNBA drafts (its /v1/state/<sport>
+// reports a live MLB regular season and WNBA week 20); we simply don't map those pools yet, which
+// is why sleeperConnect fails them with "aren't supported yet" rather than "Sleeper doesn't have".
+const SLEEPER_SPORT = { nfl: 'nfl', nba: 'nba' };
 const SLEEPER_SCORING = { ppr: 'ppr', half_ppr: 'half', std: 'standard', standard: 'standard' };
 let sleeperDraft = null;   // fetched draft meta awaiting Start
 let sleeperNameIdx = null; // norm(name) -> board player, for matching Sleeper picks
