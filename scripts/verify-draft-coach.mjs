@@ -532,7 +532,52 @@ console.log('PART 15 — K/DST force only in the final pick(s)');
 }
 
 // ============================================================================
+// PART 16 — QB anti-hoard (regression for the recommended 4th QB).
+// The mirror of PART 4. QB had only the SOFT half of the TE fix: needFactor tails a 4th QB's desire
+// to 0.03, but its VORP stayed intact, and score is (vorp + 0.5) * factor * boosts — so a falling QB
+// still out-scored replacement-level RB/WR depth ((0.5) * 0.45) and led the board. A 4th QB in a
+// single-QB league now has its VORP zeroed like K/DST and a dead TE. The 2nd/3rd QB and superflex
+// must be untouched.
+// ============================================================================
+console.log('\nPART 16 — QB anti-hoard (3-QB roster must never take a 4th)');
+{
+  const qbPool = (qbTop) => {
+    const ps = []; let id = 0;
+    const mk = (pos,fp) => ps.push({ id:`q${++id}`, name:`${pos}-${fp}`, team:'X', pos, rank:id, fpPpr:fp });
+    for (let i=0;i<40;i++) mk('RB',10); for (let i=0;i<40;i++) mk('WR',10); for (let i=0;i<20;i++) mk('TE',10);
+    mk('QB',qbTop); for (let i=0;i<19;i++) mk('QB',10);
+    for (let i=0;i<15;i++) mk('K',10); for (let i=0;i<15;i++) mk('DST',10);
+    return ps;
+  };
+  const base = [{pos:'RB'},{pos:'RB'},{pos:'WR'},{pos:'WR'},{pos:'TE'}];
+  const withQBs = (n) => [...base, ...Array.from({length:n},()=>({pos:'QB'}))];
+  const top = (nQB, qbTop, starters) => recommend(
+    qbPool(qbTop), new Set(), withQBs(nQB),
+    { ...settings, ...(starters ? { starters } : {}) }, 9, []).candidates[0]?.pos;
+
+  const mid4 = top(3, 35);    // 4th QB, mid-tier (+25 VORP) — the reported Darnold case
+  const ext4 = top(3, 120);   // 4th QB, absurd faller (+110 VORP) — must STILL not be taken
+  console.log('   3-QB roster, mid-tier QB available (+25 VORP)  -> pick', mid4);
+  console.log('   3-QB roster, extreme QB available  (+110 VORP) -> pick', ext4);
+  check('a 4th QB is NOT taken over usable RB/WR depth (mid-tier)', mid4 !== 'QB');
+  check('a 4th QB is NEVER taken regardless of raw value (extreme faller)', ext4 !== 'QB');
+
+  // Not over-corrected: the starter, the backup and the outlier-only 3rd still behave as shipped.
+  console.log('   0/1/2 QBs rostered -> pick', top(0,35), top(1,35), top(2,35));
+  check('an empty-QB roster still takes the QB', top(0,35) === 'QB');
+  check('a 2nd QB (backup) is still reachable', top(1,35) === 'QB');
+  check('a 3rd QB still clears on value (outlier-only tier, not a hard gate)', top(2,120) === 'QB');
+
+  // Superflex starts two QBs, so the dead tier shifts out by one: the 5th is dead, not the 4th.
+  const SF = { QB:2, RB:2, WR:2, TE:1, FLEX:1, K:1, DST:1 };
+  console.log('   superflex 3/4/5th QB -> pick', top(2,35,SF), top(3,35,SF), top(4,120,SF));
+  check('superflex: a 3rd QB is unaffected', top(2,35,SF) === 'QB');
+  check('superflex: a 4th QB is unaffected (still only surplus 1)', top(3,35,SF) === 'QB');
+  check('superflex: a 5th QB IS dead', top(4,120,SF) !== 'QB');
+}
+
+// ============================================================================
 console.log('\n' + (results.every(r=>r.ok)
-  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty + K/DST scarcity exclusion + K/DST last-pick timing + ADP-fit magnitude honesty behave as shipped.`
+  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty + K/DST scarcity exclusion + K/DST last-pick timing + ADP-fit magnitude honesty + QB anti-hoard behave as shipped.`
   : `FAILURES: ${results.filter(r=>!r.ok).map(r=>r.name).join('; ')}`));
 process.exit(results.every(r=>r.ok) ? 0 : 1);

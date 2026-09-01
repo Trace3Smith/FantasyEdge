@@ -211,6 +211,8 @@ function needFactor(pos, counts, board) {
       // so the surplus-1 tier is tightened to ~0.05 — it only clears the shortlist on a real value
       // outlier. Superflex/2-QB (min ≥ 2) keeps the looser 0.10, where a 3rd QB is a legit
       // flex-startable body. The 2nd-QB backup (surplus 0) and 4th+ tail are unchanged.
+      // surplus >= 2 (a 4th QB in a single-QB league) is additionally VORP-zeroed in the scored map
+      // below, exactly like a dead TE — this 0.03 tail is the soft half of the cap, not the ceiling.
       const singleQB = min === 1;
       desire = surplus === 0 ? 0.45 : surplus === 1 ? (singleQB ? 0.05 : 0.1) : 0.03;
     } else if (pos === 'TE') {
@@ -539,7 +541,15 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
       // it impossible to draft a 4th TE over any usable RB/WR/flex body regardless of the TE's raw value
       // (the desire floor alone still scales with VORP, so an extreme faller could otherwise sneak in).
       const deadTE = p.pos === 'TE' && ((counts.TE || 0) - (minRoster.TE || 0)) >= 2;
-      const vorp = (isKD || deadTE) ? 0 : Math.max(0, v - (levels[p.pos] ?? 0));
+      // Same treatment for a QB two past its starter slots — a 4th QB in a single-QB league (or a 5th
+      // in superflex). It can never reach a startable slot, so like K/DST and a dead TE its raw VORP is
+      // zeroed. needFactor already tails QB desire to 0.03 there, but desire alone was NOT enough: the
+      // score is (vorp + 0.5) * factor * boosts, so an intact VORP still carried a falling QB over
+      // replacement-level RB/WR depth ((0.5) * 0.45). That is exactly the hole the 5-TE regression
+      // exposed, and QB never got the hard half of that fix — a 3-QB roster was still being shown a 4th
+      // as the TOP pick at every value level, mid-tier included.
+      const deadQB = p.pos === 'QB' && ((counts.QB || 0) - (minRoster.QB || 0)) >= 2;
+      const vorp = (isKD || deadTE || deadQB) ? 0 : Math.max(0, v - (levels[p.pos] ?? 0));
       const gap = Math.max(0, (minRoster[p.pos] || 0) - (counts[p.pos] || 0));
       const factor = needFactor(p.pos, counts, { startableLeft, teams, slack, run: runSet.has(p.pos), minRoster, demand, vonaCliff, bestFlexVal });
       // Flex-worthiness of a beyond-starter TE (single-TE league), mirroring needFactor's gate: the 2nd
