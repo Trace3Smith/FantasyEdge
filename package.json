@@ -6,7 +6,8 @@
   "scripts": {
     "verify:coach": "node scripts/verify-draft-coach.mjs",
     "test:draft": "node scripts/test-draft-ai.mjs",
-    "prepare": "git config core.hooksPath .githooks || true"
+    "prepare": "git config core.hooksPath .githooks || true",
+    "check:dvp": "node scripts/check-dvp.mjs"
   },
   "dependencies": {
     "@clerk/backend": "^1.21.0",
