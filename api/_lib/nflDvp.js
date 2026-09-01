@@ -15,8 +15,9 @@
 
 import { getJson } from './espn.js';
 
-const SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
-const SUMMARY = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary';
+// HOST: site.web.api, NOT site.api — the latter is blocked from Vercel's egress (see espn.js).
+const SCOREBOARD = 'https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
+const SUMMARY = 'https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/summary';
 const MAX_WEEK = 18;
 const MIN_GP = 4;                 // below this many games, ranks are too noisy for a favorable/tough lean
 const CONC = 8, SOFT_MS = 45000;  // soft budget so DvP can't dominate the shared cron

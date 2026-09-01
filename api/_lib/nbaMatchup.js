@@ -16,8 +16,9 @@
 
 import { getJson } from './espn.js';
 
+// HOST: site.web.api, NOT site.api — the latter is blocked from Vercel's egress (see espn.js).
 const BYTEAM = (sport) => `https://site.web.api.espn.com/apis/common/v3/sports/basketball/${sport}/statistics/byteam`;
-const SCOREBOARD = (sport) => `https://site.api.espn.com/apis/site/v2/sports/basketball/${sport}/scoreboard`;
+const SCOREBOARD = (sport) => `https://site.web.api.espn.com/apis/site/v2/sports/basketball/${sport}/scoreboard`;
 const MIN_GP = 5; // below this many games, team ranks are too noisy for a favorable/tough lean
 
 const iso = (d) => d.toISOString().slice(0, 10);

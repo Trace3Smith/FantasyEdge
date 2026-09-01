@@ -19,7 +19,8 @@
 import { getJson } from './espn.js';
 import { seedWinProb, SEED_REACH_RATE } from './mmSeedHistory.js';
 
-const SB = 'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard';
+// HOST: site.web.api, NOT site.api — the latter is blocked from Vercel's egress (see espn.js).
+const SB = 'https://site.web.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard';
 const BPI = 'https://site.web.api.espn.com/apis/fitt/v3/sports/basketball/mens-college-basketball/powerindex';
 
 // Standard seed order of the 16 slots in a region, top to bottom. Adjacent pairs are the R64
