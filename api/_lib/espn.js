@@ -7,6 +7,22 @@
 // with a `names` array indexing the per-athlete `totals` array. Read BY NAME via
 // makeReader so differing column orders across leagues are handled transparently.
 
+// HOST CHOICE — always site.web.api.espn.com, never site.api.espn.com.
+//
+// The two hostnames serve the same `/apis/site/v2/...` endpoints with byte-identical payloads
+// (verified across scoreboard, dated scoreboard, summary and injuries for nfl/nba/pga/cfb/mcbb),
+// but site.api is fronted by an Akamai policy that answers 403 "Access Denied" to Vercel's egress
+// IPs. It is not our request volume and not a UA problem: a browser can reach site.api fine while
+// production cannot, and the block is total rather than intermittent.
+//
+// This cost a month of silent degradation (2026-08-04 onward). Every builder on site.api failed on
+// EVERY daily cron — PGA, NFL Pick'em, CFB Bowl, CFB Week, March Madness, the NBA/WNBA day-of
+// matchup and NFL DvP — while everything on site.web.api kept working, so the datasets looked
+// healthy and only those feeds went stale. Each failure was individually caught and recorded as an
+// `...Error` in the cron's response body, which nothing surfaced.
+//
+// If a new endpoint is added, use site.web.api. sports.core.api.espn.com is also fine.
+
 const HEADERS = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',

@@ -13,7 +13,8 @@ const OWGR_API = 'https://apiweb.owgr.com/api/owgr/rankings/getRankings';
 // ESPN exposes a scoreboard per golf tour (pga = PGA Tour, eur = DP World Tour,
 // liv = LIV Golf), which we use both for the PGA board and to tell which tour a
 // player competes on (see tourMembers).
-const ESPN_SB = (league = 'pga') => `https://site.api.espn.com/apis/site/v2/sports/golf/${league}/scoreboard`;
+// HOST: site.web.api, NOT site.api — the latter is blocked from Vercel's egress (see espn.js).
+const ESPN_SB = (league = 'pga') => `https://site.web.api.espn.com/apis/site/v2/sports/golf/${league}/scoreboard`;
 
 // Normalize a player name for cross-source matching: lowercase, strip accents,
 // drop punctuation and common suffixes, collapse whitespace.

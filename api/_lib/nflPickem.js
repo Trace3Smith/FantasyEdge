@@ -6,8 +6,9 @@ import { buildPickem, winProbFromSpread } from './pickem.js';
 
 export { winProbFromSpread };
 
-const SB = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
-const INJ = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries';
+// HOST: site.web.api, NOT site.api — the latter is blocked from Vercel's egress (see espn.js).
+const SB = 'https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
+const INJ = 'https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/injuries';
 
 // Static stadium coordinates + dome flag for weather, keyed by home team abbrev (stable).
 // The ESPN venue indoor flag is the authoritative dome override at build time.

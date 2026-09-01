@@ -15,8 +15,9 @@ import { buildPickem, winProbFromSpread } from './pickem.js';
 
 export { winProbFromSpread };
 
-const SB = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard';
-const INJ = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/injuries';
+// HOST: site.web.api, NOT site.api — the latter is blocked from Vercel's egress (see espn.js).
+const SB = 'https://site.web.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard';
+const INJ = 'https://site.web.api.espn.com/apis/site/v2/sports/football/college-football/injuries';
 
 // Keep a game only if at least one team is AP/CFP Top-25. ESPN marks unranked teams as rank 99.
 function hasRankedTeam(comp) {
