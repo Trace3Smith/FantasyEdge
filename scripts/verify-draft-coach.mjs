@@ -624,7 +624,47 @@ console.log('\nPART 17 — flex depth keeps decaying past a real surplus (no fla
 }
 
 // ============================================================================
+// PART 18 — deferred mandatory slots are SURFACED, not silent (regression for the "6th WR with K/DST
+// empty" report). K/DST are correctly kept out of forceNeeds until the endgame — taking a
+// replacement-level kicker early is a real mistake — but that left them invisible: with only K/DST
+// open, forceNeeds is empty so mustFillNow and fillSoon are both false and the analyst was told
+// nothing about two unfilled starting slots. board.deferredNeeds exposes them WITHOUT changing what
+// the engine ranks first.
+// ============================================================================
+console.log('\nPART 18 — unfilled-but-deferred slots are visible to the analyst');
+{
+  const dPool = () => {
+    const ps = []; let id = 0;
+    const mk = (pos,fp) => ps.push({ id:`p${++id}`, name:`${pos}-${fp}`, team:'X', pos, rank:id, fpPpr:fp });
+    mk('WR',70); for (let i=0;i<40;i++) mk('WR',10);
+    for (let i=0;i<40;i++) mk('RB',30);
+    for (let i=0;i<20;i++) mk('QB',10); for (let i=0;i<20;i++) mk('TE',10);
+    for (let i=0;i<15;i++) mk('K',10); for (let i=0;i<15;i++) mk('DST',10);
+    return ps;
+  };
+  const held = [{pos:'QB'},{pos:'TE'},{pos:'RB'},{pos:'RB'},
+    {pos:'WR'},{pos:'WR'},{pos:'WR'},{pos:'WR'},{pos:'WR'}]; // 5 WR, K+DST empty
+  const at = (rounds) => recommend(dPool(), new Set(), held, { ...settings, rounds }, 11, []);
+
+  const mid = at(15);   // picksLeft 6 — K/DST correctly deferred
+  const end = at(11);   // picksLeft 2 — K/DST now force
+  console.log(`   picksLeft ${mid.board.picksLeft}: top=${mid.candidates[0].pos} forceNeeds=${JSON.stringify((mid.board.forceNeeds||[]).map(n=>n.pos))} deferredNeeds=${JSON.stringify((mid.board.deferredNeeds||[]).map(n=>n.pos))}`);
+  console.log(`   picksLeft ${end.board.picksLeft}: top=${end.candidates[0].pos} forceNeeds=${JSON.stringify((end.board.forceNeeds||[]).map(n=>n.pos))} deferredNeeds=${JSON.stringify((end.board.deferredNeeds||[]).map(n=>n.pos))}`);
+
+  const midDef = (mid.board.deferredNeeds || []).map(n=>n.pos).sort().join();
+  check('empty K/DST are exposed mid-draft instead of being invisible', midDef === 'DST,K');
+  check('...while the ranking is unchanged (a kicker is still NOT the pick)', mid.candidates[0].pos !== 'K' && mid.candidates[0].pos !== 'DST');
+  check('the old signals really were silent there (nothing to say without it)',
+    mid.board.mustFillNow === false && mid.board.fillSoon === false && (mid.board.forceNeeds||[]).length === 0);
+  check('at the endgame they move to forceNeeds and force the pick', (end.board.forceNeeds||[]).length === 2 && end.board.mustFillNow === true);
+  check('...and deferredNeeds empties, so the analyst is never told both at once', (end.board.deferredNeeds||[]).length === 0);
+  // A filled roster must report nothing at all.
+  const full = recommend(dPool(), new Set(), [...held, {pos:'K'}, {pos:'DST'}], { ...settings, rounds: 15 }, 11, []);
+  check('a legal roster reports no deferred needs', (full.board.deferredNeeds||[]).length === 0);
+}
+
+// ============================================================================
 console.log('\n' + (results.every(r=>r.ok)
-  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty + K/DST scarcity exclusion + K/DST last-pick timing + ADP-fit magnitude honesty + QB anti-hoard + flex-depth decay behave as shipped.`
+  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty + K/DST scarcity exclusion + K/DST last-pick timing + ADP-fit magnitude honesty + QB anti-hoard + flex-depth decay + deferred-need visibility behave as shipped.`
   : `FAILURES: ${results.filter(r=>!r.ok).map(r=>r.name).join('; ')}`));
 process.exit(results.every(r=>r.ok) ? 0 : 1);
