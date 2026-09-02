@@ -652,6 +652,14 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
   // never orders a mid-draft kicker/defense; `slots.open` below still reports K/DST as open (accurate
   // roster state) without demanding them.
   const forceNeeds = needs.filter((n) => !kdstDeferred(n.pos));
+  // The mandatory slots that are unfilled but NOT yet forcing — in practice K/DST before the endgame.
+  // Deliberately excluded from forceNeeds (a replacement-level kicker is always there in the last
+  // round, so taking one early is a real strategic mistake), but that left them completely invisible:
+  // with only K/DST open, forceNeeds is empty, so mustFillNow and fillSoon are both false and the
+  // analyst was told NOTHING about two empty starting slots. The user then sees a 6th WR recommended
+  // with no acknowledgement the roster is still illegal. Surfaced separately so the advice can say so
+  // WITHOUT changing what it ranks first.
+  const deferredNeeds = needs.filter((n) => kdstDeferred(n.pos));
 
   // Explicit filled-vs-open mandatory starting slots, so the analyst layer (advise.js) never invents a
   // need at a slot that's already filled — nor misses one. A slot is FILLED once a rostered player at
@@ -695,7 +703,7 @@ function recommendNfl(players, drafted, roster = [], settings = DEFAULT_SETTINGS
   // cushion, league size, roster needs, and a VONA scarcity-swing note when one fired.
   // Additive — existing consumers read candidates/runs only.
   const board = {
-    startableLeft, slack, teams, picksLeft, totalRounds, needs, forceNeeds, slots, vonaSwing,
+    startableLeft, slack, teams, picksLeft, totalRounds, needs, forceNeeds, deferredNeeds, slots, vonaSwing,
     // Necessity fires only on needs that force a pick NOW — K/DST are excluded until the final pick(s).
     mustFillNow: slack <= 0 && forceNeeds.length > 0,
     fillSoon: slack === 1 && forceNeeds.length > 0,

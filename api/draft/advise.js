@@ -207,6 +207,16 @@ async function analyzePick({ sport, round, scoring, teams, roster, candidates, r
   } else if (board?.fillSoon && needPos.length) {
     necessity = `\n\nROSTER HEADS-UP: only ${board.picksLeft} picks left with mandatory slots still open (${needPos.join(', ')}). `
       + `Room for one more value pick, but plan to lock in ${needPos.join('/')} within your next pick or two so you don't get squeezed.`;
+  } else if (board?.deferredNeeds?.length) {
+    // Unfilled mandatory slots that are correctly being deferred (K/DST before the endgame). Say so
+    // rather than staying silent: the roster is not yet legal, and a recommendation for more depth at
+    // an already-full position reads as an oversight if nothing acknowledges the empty slots. This
+    // does NOT change the ranking — taking a kicker early is still the wrong pick.
+    const dp = board.deferredNeeds.map((n) => n.pos);
+    necessity = `\n\nSTILL TO FILL: ${dp.join(' and ')} ${dp.length > 1 ? 'are' : 'is'} unfilled, but correctly left for the last `
+      + `${Math.max(1, board.deferredNeeds.length)} pick(s) — they're replacement-level and always available, so spending an earlier pick `
+      + `there costs real value. Keep taking the best board value now; acknowledge the open ${dp.join('/')} in one short clause so the user `
+      + `knows it's deliberate and planned, not overlooked.`;
   }
   // Roto leagues run on categories, not a points format; surface the roster's weak categories
   // so the analyst steers toward balance instead of stacking a strength.
