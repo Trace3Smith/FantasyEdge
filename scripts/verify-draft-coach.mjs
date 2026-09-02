@@ -577,7 +577,54 @@ console.log('\nPART 16 — QB anti-hoard (3-QB roster must never take a 4th)');
 }
 
 // ============================================================================
+// PART 17 — flex-depth decay keeps steepening (regression for the 6th-WR recommendation).
+// RB/WR deliberately have no hard cap (bench depth is real), but the curve used to FLATTEN at 0.45
+// from surplus 4 on — identical at 6, 8 or 10 held. That made the discount a fixed bar: the value a
+// WR needed to lead stopped rising past 6 held, so any big enough outlier cleared it no matter how
+// deep the surplus. The tail now keeps decaying to a 0.2 floor. Shallow rosters are untouched.
+// ============================================================================
+console.log('\nPART 17 — flex depth keeps decaying past a real surplus (no flat bar)');
+{
+  const depthPool = (wrTop, rbTop) => {
+    const ps = []; let id = 0;
+    const mk = (pos,fp) => ps.push({ id:`d${++id}`, name:`${pos}-${fp}`, team:'X', pos, rank:id, fpPpr:fp });
+    mk('WR',wrTop); for (let i=0;i<40;i++) mk('WR',10);
+    mk('RB',rbTop); for (let i=0;i<40;i++) mk('RB',10);
+    for (let i=0;i<20;i++) mk('QB',10); for (let i=0;i<20;i++) mk('TE',10);
+    for (let i=0;i<15;i++) mk('K',10); for (let i=0;i<15;i++) mk('DST',10);
+    return ps;
+  };
+  const held = (nWR) => [{pos:'QB'},{pos:'TE'},{pos:'RB'},{pos:'RB'},
+    ...Array.from({length:nWR},()=>({pos:'WR'}))];
+  const topAt = (nWR, wrVorp) =>
+    recommend(depthPool(10+wrVorp, 70), new Set(), held(nWR), settings, 11, []).candidates[0]?.pos;
+  // Smallest WR edge that still leads over a +60 RB, at each depth.
+  const barAt = (nWR) => { for (let v=60; v<=900; v+=5) if (topAt(nWR,v)==='WR') return v; return null; };
+  const bars = [2,3,4,5,6,7,8].map(barAt);
+  console.log('   WR VORP needed to lead a +60 RB, by WRs held [2..8]:', JSON.stringify(bars));
+
+  check('shallow rosters unchanged (2/3/4 held still 60/75/90)', bars[0]===60 && bars[1]===75 && bars[2]===90);
+  check('the bar keeps RISING past 5 held (was flat from 6 on)',
+    bars[3] < bars[4] && bars[4] < bars[5] && bars[5] < bars[6]);
+  check('a 6th WR needs a clearly exceptional edge (>= 2x the RB)', bars[4] >= 120);
+  check('an equal-value 6th WR does NOT lead', topAt(5,60) !== 'WR');
+  check('a merely-good 6th WR does NOT lead', topAt(5,100) !== 'WR');
+  // Still not a cap: bench WR value is real, so a genuine outlier must still surface.
+  check('NOT a hard cap — an exceptional WR still surfaces at 6 held', topAt(6,600) === 'WR');
+  check('NOT a hard cap — an exceptional WR still surfaces at 8 held', topAt(8,600) === 'WR');
+  // A real starter need must outrank depth across the whole REACHABLE value range. Bounded at +300
+  // deliberately: the best VORP in the live NFL pool is ~+178 (Jahmyr Gibbs), so +300 is already far
+  // beyond anything that can occur. Depth does eventually win somewhere past +400, which is fine —
+  // that is a player 3x better than any who has existed here, and the curve is a priority weight, not
+  // a cap. Asserting at an unreachable magnitude would be testing a fantasy, not the product.
+  const emptyRB = [{pos:'QB'},{pos:'WR'},{pos:'WR'},{pos:'WR'},{pos:'WR'},{pos:'WR'}];
+  const needBeatsDepth = [60, 120, 180, 240, 300].every((v) =>
+    recommend(depthPool(10+v, 70), new Set(), emptyRB, settings, 11, []).candidates[0]?.pos === 'RB');
+  check('unfilled RB starters outrank a surplus WR at every reachable value (<= +300)', needBeatsDepth);
+}
+
+// ============================================================================
 console.log('\n' + (results.every(r=>r.ok)
-  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty + K/DST scarcity exclusion + K/DST last-pick timing + ADP-fit magnitude honesty + QB anti-hoard behave as shipped.`
+  ? `ALL ${results.length} CHECKS PASSED — VONA + TE flex-cap + round-1 gate + anti-hoard + context ownership + flex-worthy TE2 + flex-by-output + slot summary + endgame ADP decay + pool consistency + reach-headline honesty + reach-tag honesty + K/DST scarcity exclusion + K/DST last-pick timing + ADP-fit magnitude honesty + QB anti-hoard + flex-depth decay behave as shipped.`
   : `FAILURES: ${results.filter(r=>!r.ok).map(r=>r.name).join('; ')}`));
 process.exit(results.every(r=>r.ok) ? 0 : 1);

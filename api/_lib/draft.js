@@ -201,9 +201,21 @@ function needFactor(pos, counts, board) {
     desire = gap >= 2 ? 1.5 : 1.2;
   } else {
     const surplus = have - min; // extra bodies beyond the mandatory starters at this position
-    // RB/WR bench/flex depth: rewards real depth (FLEX, byes, injuries), decays slowly, floor ~0.45.
-    // A flex-winning TE (below) is valued on this SAME curve — it's competing for the same flex spot.
-    const flexDepthDesire = surplus === 0 ? 0.9 : surplus === 1 ? 0.75 : surplus === 2 ? 0.62 : surplus === 3 ? 0.52 : 0.45;
+    // RB/WR bench/flex depth: rewards real depth (FLEX, byes, injuries), so it decays gradually rather
+    // than capping the way QB/TE do — a 6th WR is not worthless the way a 4th QB is.
+    //
+    // But it must KEEP decaying. It used to flatten at 0.45 from surplus 4 on, identical at 6, 8 or 10
+    // held, which made the discount a fixed bar: past that depth, any big enough VORP or ADP-faller
+    // outlier cleared it no matter how many were already rostered, and the board would lead with a 6th
+    // WR while shallower positions sat behind. The tail now keeps shrinking (~0.78x per extra body)
+    // down to a 0.2 floor, so surfacing another one takes a genuinely exceptional player, not merely a
+    // good one. The floor stays well clear of the QB 3rd tier (0.05) and the K/DST tail (0.02) —
+    // this is a steepening priority curve, never a cap.
+    //
+    // Unchanged through surplus 2 (a 4th RB/WR in a 2-starter league), so ordinary drafts are exactly
+    // as before; only genuine hoarding depth is affected.
+    const FLEX_DEPTH = [0.9, 0.75, 0.62, 0.44, 0.34, 0.26];
+    const flexDepthDesire = surplus < FLEX_DEPTH.length ? FLEX_DEPTH[surplus] : 0.2;
     if (pos === 'RB' || pos === 'WR') {
       desire = flexDepthDesire;
     } else if (pos === 'QB') {
