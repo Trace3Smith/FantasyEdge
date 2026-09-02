@@ -121,6 +121,24 @@
   /* Taller scan window than the old 360px — during a real draft, users need to scroll deep into
      the board (e.g. "who's left at RB 20 picks out"), not just glance at the top few. Rendering
      itself is batched/incremental (see renderAvailable), so this is purely the visible viewport. */
+  /* Keepers (dynasty/keeper leagues) — setup step. */
+  .kp-wrap { margin-top: 14px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px; }
+  .kp-toggle { background: none; border: 0; color: var(--gold); font-family: inherit; font-size: 13px; cursor: pointer; padding: 0; }
+  .kp-body { margin-top: 10px; }
+  .kp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+  .kp-team { background: var(--dark3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 8px; }
+  .kp-team h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: .5px; text-transform: uppercase; color: var(--gray); font-weight: 700; }
+  .kp-team.kp-you h4 { color: var(--gold); }
+  .kp-team textarea { width: 100%; min-height: 62px; resize: vertical; background: var(--dark2, #161616); color: var(--white);
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 4px; padding: 6px; font-family: inherit; font-size: 12px; }
+  .kp-report { margin-top: 10px; font-size: 12px; }
+  .kp-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; flex-wrap: wrap; }
+  .kp-ok { color: var(--green, #57c785); }
+  .kp-amb { color: #E8B84B; }
+  .kp-no { color: #f3a1a1; }
+  .kp-row select, .kp-row input { background: var(--dark3); color: var(--white); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 4px; padding: 3px 6px; font-family: inherit; font-size: 12px; }
+  .kp-sum { margin: 8px 0; font-size: 12px; color: var(--gray); }
   .pos-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
   .pos-tabs button { background: var(--dark3); color: var(--gray); border: 1px solid rgba(255,255,255,0.1); border-radius: 5px;
     padding: 3px 8px; font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; cursor: pointer; font-family: inherit; }
@@ -356,6 +374,23 @@
         <label class="rs-lbl">Bench<input type="number" id="rsBench" min="0" max="10" value="6"></label>
       </span>
       <span class="muted" id="usageNote"></span>
+    </div>
+    <!-- Keepers (dynasty/keeper leagues). Optional; collapsed by default so a redraft setup is
+         unchanged. Every team's keepers leave the pool; the user's also hydrate their roster. -->
+    <div class="kp-wrap premium-only" id="keepersWrap">
+      <button type="button" class="kp-toggle" id="kpToggle">▸ Keepers (dynasty / keeper league) — optional</button>
+      <div class="kp-body hidden" id="kpBody">
+        <p class="muted" style="font-size:12px; margin:0 0 10px;">Paste each team's keepers — one name per line, or comma-separated.
+          Every keeper is removed from the board; yours also count as already on your roster from pick 1, so the Coach's
+          roster needs and position caps are right from the first pick. Anything ambiguous or unmatched is listed for you to fix — nothing is guessed.</p>
+        <div class="kp-grid" id="kpGrid"></div>
+        <div class="start-row" style="margin-top:10px">
+          <button type="button" class="btn" id="kpParse">Match keepers</button>
+          <button type="button" class="btn" id="kpClear">Clear</button>
+          <span class="muted" id="kpSummary" style="font-size:12px"></span>
+        </div>
+        <div class="kp-report" id="kpReport"></div>
+      </div>
     </div>
   </div>
 
@@ -902,11 +937,13 @@ async function startMock() {
     premium: data.premium,
     freeMaxRound: data.freeMaxRound,
     pickIndex: 0,
-    totalPicks: data.settings.teams * data.settings.rounds,
+    // Shortened by the deepest team's keeper count — see the note in startOffline.
+    totalPicks: data.settings.teams * Math.max(1, data.settings.rounds - keepersPerTeam()),
     drafted: new Set(),
     picks: [],                 // { id, name, pos, team, teamIndex, round }
     roster: [],                // user's [{id,pos}]
   };
+  hydrateKeepers();
 
   $('setup').classList.add('hidden');
   $('draftArea').classList.remove('hidden');
@@ -1308,6 +1345,185 @@ $('availList').addEventListener('scroll', () => {
   el.scrollTop = keepScrollTop;
 });
 
+// ---- Keepers (dynasty / keeper leagues) ------------------------------------------------------
+// Every team's keepers leave the pool exactly the way a drafted player does (state.drafted), and the
+// USER's keepers are also pushed into state.roster — so recommend() sees them through the identical
+// path a live pick takes. No parallel roster model, and no server change: the advise body already
+// sends { drafted, roster }.
+//
+// MATCHING IS DELIBERATELY NOT FIRST-WINS. buildSleeperIndex maps norm(name) -> the first player and
+// silently drops the rest, which is fine there (Sleeper sends an exact pick) but wrong for typed
+// input: a paste is exactly where a collision must be SHOWN, not guessed. Measured over the live
+// pools, exact-name collisions are rare but real — NFL/NBA/NHL/WNBA have none, MLB has two: Shohei
+// Ohtani (his two-way TWP record and his SP record) and José Fermín / José Fermin, genuinely two
+// different players separated only by an accent that normalization folds away. Both surface as
+// ambiguous for the user to resolve rather than being silently assigned.
+const keeperTeams = new Map();   // teamIndex -> Map(playerId -> player) of RESOLVED keepers
+let keeperIdx = null;            // norm(name) -> [players]  (an array, so collisions stay visible)
+let keeperPending = [];          // unresolved lines: { team, raw, candidates[] }
+
+function buildKeeperIndex() {
+  keeperIdx = new Map();
+  for (const p of players) {
+    const k = normName(p.name);
+    if (!k) continue;
+    if (!keeperIdx.has(k)) keeperIdx.set(k, []);
+    keeperIdx.get(k).push(p);
+  }
+}
+// Split a paste into candidate names: one per line AND/OR comma-separated, blanks dropped.
+function parseKeeperLines(text) {
+  return String(text || '').split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
+}
+// Resolve one typed name. Returns { status, player, candidates }.
+//   'matched'   — exactly one player for this name (after alias + suffix normalization)
+//   'ambiguous' — several plausible players; the user picks (never guessed)
+//   'none'      — nothing plausible; the user searches manually
+function matchKeeper(raw) {
+  const n0 = normName(raw);
+  if (!n0) return { status: 'none', candidates: [] };
+  const n = NAME_ALIASES[n0] || n0;                       // reuse the hand-kept nickname list
+  const exact = keeperIdx.get(n) || [];
+  if (exact.length === 1) return { status: 'matched', player: exact[0], candidates: exact };
+  if (exact.length > 1) return { status: 'ambiguous', candidates: exact };
+  // No exact hit: offer plausible partials (a last name, a shortened first name, a DST city).
+  const parts = n.split(' ');
+  const last = parts[parts.length - 1];
+  const cands = players.filter((p) => {
+    const pn = normName(p.name);
+    return pn.includes(n) || n.includes(pn) || (last.length >= 4 && pn.split(' ').includes(last));
+  }).slice(0, 8);
+  return { status: cands.length ? 'ambiguous' : 'none', candidates: cands };
+}
+const kpEsc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const kpLabel = (p) => `${p.name} (${p.pos}${p.team && p.team !== '—' ? ' ' + p.team : ''})`;
+
+// One textarea per team; the user's own slot is marked. Rebuilt whenever league size / draft slot change.
+function renderKeeperTeams() {
+  const grid = $('kpGrid'); if (!grid) return;
+  const teams = Number($('teamsSel').value) || 10;
+  const you = Math.min(Math.max(1, Number($('posSel').value) || 1), teams);
+  const prev = {};
+  grid.querySelectorAll('textarea').forEach((t) => { prev[t.dataset.team] = t.value; });
+  grid.innerHTML = Array.from({ length: teams }, (_, i) => {
+    const n = i + 1;
+    return `<div class="kp-team${n === you ? ' kp-you' : ''}"><h4>Team ${n}${n === you ? ' (you)' : ''}</h4>`
+      + `<textarea data-team="${i}" placeholder="One name per line">${kpEsc(prev[i] || '')}</textarea></div>`;
+  }).join('');
+}
+
+// Match every team's paste, commit the confident hits, and list the rest for manual resolution.
+function parseKeepers() {
+  buildKeeperIndex();
+  keeperTeams.clear();
+  keeperPending = [];
+  let matched = 0;
+  for (const ta of $('kpGrid').querySelectorAll('textarea')) {
+    const team = Number(ta.dataset.team);
+    for (const raw of parseKeeperLines(ta.value)) {
+      const r = matchKeeper(raw);
+      if (r.status === 'matched') { assignKeeper(team, r.player); matched++; }
+      else keeperPending.push({ team, raw, candidates: r.candidates });
+    }
+  }
+  renderKeeperReport(matched);
+}
+function assignKeeper(team, p) {
+  if (!keeperTeams.has(team)) keeperTeams.set(team, new Map());
+  // A player can only be kept by ONE team — a duplicate paste would otherwise double-count the pool.
+  for (const [, m] of keeperTeams) m.delete(p.id);
+  keeperTeams.get(team).set(p.id, p);
+}
+function unassignKeeper(team, id) { keeperTeams.get(team)?.delete(id); }
+
+function renderKeeperReport(matchedCount) {
+  const rep = $('kpReport');
+  const total = [...keeperTeams.values()].reduce((a, m) => a + m.size, 0);
+  const rows = [];
+  for (const [team, m] of [...keeperTeams].sort((a, b) => a[0] - b[0])) {
+    for (const [id, p] of m) {
+      rows.push(`<div class="kp-row"><span class="kp-ok">✓</span> <b>Team ${team + 1}</b> ${kpEsc(kpLabel(p))}`
+        + `<button type="button" class="kp-toggle" data-drop-team="${team}" data-drop-id="${kpEsc(id)}" style="font-size:11px">remove</button></div>`);
+    }
+  }
+  const pend = keeperPending.map((u, i) => {
+    const cls = u.candidates.length ? 'kp-amb' : 'kp-no';
+    const mark = u.candidates.length ? '?' : '✕';
+    const note = u.candidates.length ? 'ambiguous — pick one' : 'no match — search';
+    const opts = u.candidates.map((c) => `<option value="${kpEsc(c.id)}">${kpEsc(kpLabel(c))}</option>`).join('');
+    return `<div class="kp-row"><span class="${cls}">${mark}</span> <b>Team ${u.team + 1}</b> "${kpEsc(u.raw)}" <span class="muted">${note}</span>`
+      + (u.candidates.length ? `<select data-fix="${i}">${opts}</select>` : `<input data-search="${i}" placeholder="search a player" size="18"><select data-fix="${i}" class="hidden"></select>`)
+      + `<button type="button" class="kp-toggle" data-assign="${i}" style="font-size:11px">assign</button></div>`;
+  }).join('');
+  rep.innerHTML = (rows.join('') || '') + (pend || '');
+  $('kpSummary').textContent = total || keeperPending.length
+    ? `${total} keeper${total === 1 ? '' : 's'} set · ${keeperPending.length} need${keeperPending.length === 1 ? 's' : ''} attention`
+    : 'No keepers entered.';
+  rep.querySelectorAll('[data-drop-id]').forEach((b) => b.addEventListener('click', () => {
+    unassignKeeper(Number(b.dataset.dropTeam), b.dataset.dropId); renderKeeperReport(matchedCount);
+  }));
+  // Free-text search for a line that matched nothing — populates its picker live.
+  rep.querySelectorAll('[data-search]').forEach((inp) => inp.addEventListener('input', () => {
+    const sel = rep.querySelector(`select[data-fix="${inp.dataset.search}"]`);
+    const q = normName(inp.value);
+    const hits = q.length < 2 ? [] : players.filter((p) => normName(p.name).includes(q)).slice(0, 10);
+    sel.innerHTML = hits.map((c) => `<option value="${kpEsc(c.id)}">${kpEsc(kpLabel(c))}</option>`).join('');
+    sel.classList.toggle('hidden', !hits.length);
+  }));
+  rep.querySelectorAll('[data-assign]').forEach((b) => b.addEventListener('click', () => {
+    const i = Number(b.dataset.assign);
+    const sel = rep.querySelector(`select[data-fix="${i}"]`);
+    const id = sel && sel.value;
+    if (!id) return;
+    const p = players.find((x) => String(x.id) === String(id));
+    if (!p) return;
+    assignKeeper(keeperPending[i].team, p);
+    keeperPending.splice(i, 1);
+    renderKeeperReport(matchedCount);
+  }));
+}
+
+// How many keepers the deepest team holds. A keeper league drafts FEWER rounds — keepers already
+// occupy roster spots — and this matters beyond cosmetics: recommend() derives
+// picksLeft = totalRounds - roster.length, so hydrating keepers into the roster without shortening
+// the draft would drive picksLeft to 0 early and force K/DST far too soon.
+const keepersPerTeam = () => Math.max(0, ...[...keeperTeams.values()].map((m) => m.size));
+
+// Fold resolved keepers into a freshly built state: out of the pool for everyone, onto the roster
+// for the user. Called right after state is created, before the first render.
+function hydrateKeepers() {
+  if (!state || !keeperTeams.size) return 0;
+  let n = 0;
+  for (const [team, m] of keeperTeams) {
+    for (const [id, p] of m) {
+      state.drafted.add(id);                                  // same exclusion a drafted player gets
+      if (team === state.userTeam) state.roster.push({ id, pos: p.pos }); // same shape a live pick pushes
+      n++;
+    }
+  }
+  return n;
+}
+
+if ($('kpToggle')) {
+  $('kpToggle').addEventListener('click', () => {
+    const b = $('kpBody'); const open = b.classList.toggle('hidden') === false;
+    $('kpToggle').textContent = `${open ? '▾' : '▸'} Keepers (dynasty / keeper league) — optional`;
+    if (open) renderKeeperTeams();
+  });
+  $('teamsSel').addEventListener('change', renderKeeperTeams);
+  $('posSel').addEventListener('change', renderKeeperTeams);
+  $('kpParse').addEventListener('click', async () => {
+    $('kpSummary').textContent = 'Loading player pool…';
+    await loadPool();                       // idempotent; matching needs the pool
+    parseKeepers();
+  });
+  $('kpClear').addEventListener('click', () => {
+    keeperTeams.clear(); keeperPending = [];
+    $('kpGrid').querySelectorAll('textarea').forEach((t) => { t.value = ''; });
+    renderKeeperReport(0);
+  });
+}
+
 // The board's value string for the selected player — roto value for category sports, FPTS for NFL.
 function detailValueStr(p) {
   if (isRoto()) return typeof p.zTotal === 'number' ? `${rotoMod().val(p).toFixed(1)} ${rotoMod().label}` : '';
@@ -1430,6 +1646,11 @@ async function startOffline() {
   const format = $('formatSel').value === 'linear' ? 'linear' : 'snake';
 
   await loadPool();
+  // Keeper leagues draft fewer rounds — keepers already hold roster spots. settings.rounds stays the
+  // FULL roster size (recommend() reads picksLeft = rounds - roster.length, and keepers are in that
+  // roster), while the board runs the shortened draft. Redraft leagues have 0 keepers and are unchanged.
+  const kept = keepersPerTeam();
+  const draftRounds = Math.max(1, settings.rounds - kept);
   state = {
     mode: 'offline',
     settings,
@@ -1437,11 +1658,12 @@ async function startOffline() {
     userTeam: position - 1,
     premium: true,
     pickIndex: 0,
-    totalPicks: teams * settings.rounds,
+    totalPicks: teams * draftRounds,
     drafted: new Set(),
     picks: [],
     roster: [],
   };
+  hydrateKeepers();
   $('setup').classList.add('hidden');
   $('draftArea').classList.remove('hidden');
   $('freeBanner').classList.add('hidden');
