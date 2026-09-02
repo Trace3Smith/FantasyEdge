@@ -7,7 +7,8 @@
     "verify:coach": "node scripts/verify-draft-coach.mjs",
     "test:draft": "node scripts/test-draft-ai.mjs",
     "prepare": "git config core.hooksPath .githooks || true",
-    "check:dvp": "node scripts/check-dvp.mjs"
+    "check:dvp": "node scripts/check-dvp.mjs",
+    "check:teams": "node scripts/check-teams.mjs"
   },
   "dependencies": {
     "@clerk/backend": "^1.21.0",

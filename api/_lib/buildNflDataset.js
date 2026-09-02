@@ -258,6 +258,63 @@ async function fetchPrevYearNfl(priorSeasonParam) {
   return out;
 }
 
+// ---- Current team affiliation -----------------------------------------------------------------
+// The byathlete leaderboard reports each athlete alongside the team they played for in the STAT
+// season, not the team they are on now. That is correct for the stats and wrong for everything else:
+// after an offseason of trades and signings ~20% of the pool showed a stale team (A.J. Brown as PHI,
+// Kenneth Walker as SEA, Wan'Dale Robinson as NYG). It was never a caching or refresh problem — the
+// cron re-reads this feed daily, the field just means "2025 team". ESPN has the current answer on the
+// per-team roster endpoint, so we overwrite from there, joined on the ESPN athlete id (exact — no
+// name matching, so none of the collision risk that carries).
+const TEAMS_URL = 'https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/teams?limit=40';
+const ROSTER_URL = (id) => `https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/teams/${id}/roster`;
+
+// athleteId -> { abbr, teamId } across all 32 current rosters. Failure-tolerant: a team whose roster
+// fails is simply absent, which costs corrections but never invents them. Returns { index, teams }.
+async function fetchCurrentTeams() {
+  const index = new Map();
+  let teams = 0;
+  try {
+    const list = await getJson(TEAMS_URL);
+    const ids = (list?.sports?.[0]?.leagues?.[0]?.teams || []).map((t) => t?.team?.id).filter(Boolean);
+    const results = await Promise.all(ids.map(async (id) => {
+      try {
+        const j = await getJson(ROSTER_URL(id));
+        const abbr = j?.team?.abbreviation;
+        const teamId = j?.team?.id != null ? String(j.team.id) : null;
+        const rows = [];
+        for (const grp of (j?.athletes || [])) for (const a of (grp?.items || [])) {
+          if (a?.id != null) rows.push([String(a.id), { abbr, teamId }]);
+        }
+        return rows;
+      } catch { return null; }
+    }));
+    for (const rows of results) {
+      if (!rows) continue;
+      teams++;
+      for (const [k, v] of rows) index.set(k, v);
+    }
+  } catch { /* no index — every team stays as the stat feed reported it */ }
+  return { index, teams };
+}
+
+// Pure merge, exported for the checker. Overwrites team/teamId ONLY where the roster index has the
+// athlete. A player who is absent is LEFT ALONE and never marked a free agent: absence is ambiguous
+// (one failed roster fetch drops a whole team — a real run lost all of Arizona, including a top-30
+// TE), so inferring "no team" from it would confidently publish a falsehood. DST rows ARE a team and
+// are skipped; Sleeper-seeded rows already carry current teams from that feed.
+export function applyCurrentTeams(players, index) {
+  let corrected = 0, confirmed = 0, unmatched = 0;
+  for (const r of players || []) {
+    if (r.pos === 'DST' || String(r.id).startsWith('sleeper-')) continue;
+    const cur = index.get(String(r.id));
+    if (!cur || !cur.abbr) { unmatched++; continue; }
+    if (r.team !== cur.abbr) { r.team = cur.abbr; corrected++; } else confirmed++;
+    if (cur.teamId) r.teamId = cur.teamId;
+  }
+  return { corrected, confirmed, unmatched };
+}
+
 export async function buildNflDataset() {
   const { athletes, categories, season, skipped } = await fetchByAthlete({
     sportPath: 'football/nfl',
@@ -397,6 +454,11 @@ export async function buildNflDataset() {
 
   const maxGames = skill.reduce((m, r) => Math.max(m, r._games || 0), 0); // for enrichForm
   const players = [...ranked, ...subThreshold];
+
+  // Replace stat-season teams with current ones (see fetchCurrentTeams). After `players` is
+  // assembled so both ranked and search-only rows are corrected in one pass.
+  const { index: teamIndex, teams: rostersOk } = await fetchCurrentTeams();
+  const teamFix = applyCurrentTeams(players, teamIndex);
   for (const r of players) {
     const pv = prevMap.get(String(r.id));
     if (pv) r.prevYear = pv; // prior full-season line for the Mock Draft sidebar (DSTs have no athlete id)
@@ -415,6 +477,9 @@ export async function buildNflDataset() {
       unfetchable: skipped, // rows ESPN could not serialize; see fetchByAthlete
       ranked: ranked.length,
       dsts: dsts.length,
+      // Team reconciliation: how many stale stat-season teams were corrected, how many already
+      // agreed, and how many athletes no current roster listed (left untouched, never marked FA).
+      teams: { rostersOk, indexed: teamIndex.size, ...teamFix },
       subThreshold: subThreshold.length,
       total: players.length,
     },
