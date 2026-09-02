@@ -937,8 +937,8 @@ async function startMock() {
     premium: data.premium,
     freeMaxRound: data.freeMaxRound,
     pickIndex: 0,
-    // Shortened by the deepest team's keeper count — see the note in startOffline.
-    totalPicks: data.settings.teams * Math.max(1, data.settings.rounds - keepersPerTeam()),
+    // Shortened by the USER's keeper count — see keeperCountFor's note.
+    totalPicks: data.settings.teams * Math.max(1, data.settings.rounds - keeperCountFor(data.userSlot - 1)),
     drafted: new Set(),
     picks: [],                 // { id, name, pos, team, teamIndex, round }
     roster: [],                // user's [{id,pos}]
@@ -1456,8 +1456,13 @@ function renderKeeperReport(matchedCount) {
       + `<button type="button" class="kp-toggle" data-assign="${i}" style="font-size:11px">assign</button></div>`;
   }).join('');
   rep.innerHTML = (rows.join('') || '') + (pend || '');
+  const you = Math.min(Math.max(1, Number($('posSel').value) || 1), Number($('teamsSel').value) || 10) - 1;
+  const mine = keeperCountFor(you);
+  const r = collectRoster();
+  const fullRounds = r ? r.rounds : (Number($('roundsSel').value) || (isRoto() ? 13 : 15));
+  const lenNote = mine ? ` · you keep ${mine}, so you draft ${Math.max(1, fullRounds - mine)} rounds` : '';
   $('kpSummary').textContent = total || keeperPending.length
-    ? `${total} keeper${total === 1 ? '' : 's'} set · ${keeperPending.length} need${keeperPending.length === 1 ? 's' : ''} attention`
+    ? `${total} keeper${total === 1 ? '' : 's'} set · ${keeperPending.length} need${keeperPending.length === 1 ? 's' : ''} attention${lenNote}`
     : 'No keepers entered.';
   rep.querySelectorAll('[data-drop-id]').forEach((b) => b.addEventListener('click', () => {
     unassignKeeper(Number(b.dataset.dropTeam), b.dataset.dropId); renderKeeperReport(matchedCount);
@@ -1483,11 +1488,22 @@ function renderKeeperReport(matchedCount) {
   }));
 }
 
-// How many keepers the deepest team holds. A keeper league drafts FEWER rounds — keepers already
-// occupy roster spots — and this matters beyond cosmetics: recommend() derives
-// picksLeft = totalRounds - roster.length, so hydrating keepers into the roster without shortening
-// the draft would drive picksLeft to 0 early and force K/DST far too soon.
-const keepersPerTeam = () => Math.max(0, ...[...keeperTeams.values()].map((m) => m.size));
+// How many keepers a given team holds. The draft is shortened by the USER's own count, not the
+// deepest team's: a keeper league drafts fewer rounds because keepers already occupy roster spots,
+// and the quantity that has to come out exactly right is the user's, because recommend() derives
+//     picksLeft = totalRounds - roster.length
+// from the roster we send. With their own count, keepers + picks == rounds exactly, so the roster
+// finishes full and picksLeft is right on every pick — which is what drives K/DST forcing, slack and
+// endgame urgency. Keying off the deepest team instead shortchanged anyone who kept fewer than the
+// maximum: they ran out of picks with an under-full roster and got K/DST forced early.
+//
+// Teams keeping UNEQUAL numbers still share one draft length, so an opponent's pick count can be off
+// by the difference. That is deliberate and second-order: every team's keepers are already out of the
+// pool, so the board is correct either way — only how many of the REMAINING players an opponent takes
+// can drift. Making it exact needs per-team pick budgets with skipped slots, which would have to be
+// honoured at every pickIndex advance (including undo and the Sleeper poll) and inside teamOnClock,
+// which is shared with the server. Not worth that regression surface for opponent bookkeeping.
+const keeperCountFor = (teamIdx) => keeperTeams.get(teamIdx)?.size || 0;
 
 // Fold resolved keepers into a freshly built state: out of the pool for everyone, onto the roster
 // for the user. Called right after state is created, before the first render.
@@ -1649,8 +1665,7 @@ async function startOffline() {
   // Keeper leagues draft fewer rounds — keepers already hold roster spots. settings.rounds stays the
   // FULL roster size (recommend() reads picksLeft = rounds - roster.length, and keepers are in that
   // roster), while the board runs the shortened draft. Redraft leagues have 0 keepers and are unchanged.
-  const kept = keepersPerTeam();
-  const draftRounds = Math.max(1, settings.rounds - kept);
+  const draftRounds = Math.max(1, settings.rounds - keeperCountFor(position - 1));
   state = {
     mode: 'offline',
     settings,
