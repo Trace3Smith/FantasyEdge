@@ -214,7 +214,13 @@ function needFactor(pos, counts, board) {
     //
     // Unchanged through surplus 2 (a 4th RB/WR in a 2-starter league), so ordinary drafts are exactly
     // as before; only genuine hoarding depth is affected.
-    const FLEX_DEPTH = [0.9, 0.75, 0.62, 0.44, 0.34, 0.26];
+    // Index = surplus. In a 2-WR-starter league surplus 3 means five already held, so the entry is the
+    // weight applied to a SIXTH. The mid tiers (a 6th/7th body) are back near their original values:
+    // five or six receivers is a normal, defensible build, and taxing it was the wrong lever — the
+    // defect was never that depth existed, only that the curve stopped decaying. The deep tail keeps
+    // the fix: from a 7th on it falls away steeply to the 0.2 floor, so hoarding still has to clear a
+    // bar that keeps rising instead of a fixed one.
+    const FLEX_DEPTH = [0.9, 0.75, 0.62, 0.52, 0.42, 0.29];
     const flexDepthDesire = surplus < FLEX_DEPTH.length ? FLEX_DEPTH[surplus] : 0.2;
     if (pos === 'RB' || pos === 'WR') {
       desire = flexDepthDesire;

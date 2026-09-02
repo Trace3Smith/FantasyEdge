@@ -607,6 +607,12 @@ console.log('\nPART 17 — flex depth keeps decaying past a real surplus (no fla
   check('the bar keeps RISING past 5 held (was flat from 6 on)',
     bars[3] < bars[4] && bars[4] < bars[5] && bars[5] < bars[6]);
   check('a 6th WR needs a clearly exceptional edge (>= 2x the RB)', bars[4] >= 120);
+  // Guard the OTHER direction too. Five or six receivers is a normal, defensible build, and the first
+  // attempt at this over-taxed exactly that range while fixing the flat tail. The mid tiers must stay
+  // close to where they were before any steepening (a 6th WR at ~1.8x, not 2x+), so the curve can
+  // never quietly turn into a penalty on a legitimate WR-heavy roster.
+  check('mid depth is NOT over-taxed — a 6th WR at 5 held stays near its original bar', bars[3] <= 120);
+  check('...and the 7th/8th tail is what carries the anti-hoard weight', bars[5] >= 170 && bars[6] >= 250);
   check('an equal-value 6th WR does NOT lead', topAt(5,60) !== 'WR');
   check('a merely-good 6th WR does NOT lead', topAt(5,100) !== 'WR');
   // Still not a cap: bench WR value is real, so a genuine outlier must still surface.
