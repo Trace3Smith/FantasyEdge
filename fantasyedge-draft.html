@@ -139,6 +139,14 @@
   .kp-row select, .kp-row input { background: var(--dark3); color: var(--white); border: 1px solid rgba(255,255,255,0.12);
     border-radius: 4px; padding: 3px 6px; font-family: inherit; font-size: 12px; }
   .kp-sum { margin: 8px 0; font-size: 12px; color: var(--gray); }
+  /* Injury designations (ESPN structured feed). Colour tracks severity, not commentary. */
+  .inj { display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 9px; font-weight: 800;
+    letter-spacing: .4px; vertical-align: middle; border: 1px solid; }
+  .inj-q     { color: #E8B84B; border-color: rgba(232,184,75,0.45);  background: rgba(232,184,75,0.12); }
+  .inj-doubt { color: #E89B4B; border-color: rgba(232,155,75,0.45);  background: rgba(232,155,75,0.12); }
+  .inj-out   { color: #f3a1a1; border-color: rgba(243,161,161,0.45); background: rgba(243,161,161,0.12); }
+  .inj-susp  { color: #b9a1f3; border-color: rgba(185,161,243,0.45); background: rgba(185,161,243,0.12); }
+  .inj-line  { font-size: 12px; color: var(--gray); margin-top: 6px; }
   .pos-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
   .pos-tabs button { background: var(--dark3); color: var(--gray); border: 1px solid rgba(255,255,255,0.1); border-radius: 5px;
     padding: 3px 8px; font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; cursor: pointer; font-family: inherit; }
@@ -471,7 +479,7 @@ import { pickNflOpponent, pickRotoOpponent } from '/draftAI.js';
 import { teamOnClock } from '/draftOrder.js';
 // Shared player-display module — the SAME code Player Rankings renders through, so the detail
 // sidebar's stars, category pills, tags/trends, sortable category list, and prior-year line match it.
-import { renderStarsBlock, renderCategoryList, renderPrevYear, renderOpportunity, getTagHTML, getTrendHTML, renderConsistencyHTML } from '/playerDisplay.js';
+import { renderStarsBlock, renderCategoryList, renderPrevYear, renderOpportunity, getTagHTML, getTrendHTML, renderConsistencyHTML, injuryBadgeHTML, injuryLineHTML } from '/playerDisplay.js';
 import { positionalRanks, posRankLabel, leagueRanking, draftGrade } from '/draftSummary.js';
 // Coach chat's live-draft context string — extracted so it has one source of truth + pre-push
 // regression coverage (scripts/verify-draft-coach.mjs). Pure; we inject our globals/helpers below.
@@ -1319,7 +1327,7 @@ function renderAvailable(filter = '') {
       extra = projLine(p) + renderOpportunity(p, 'compact');
     }
     const sug = p.id === suggestedId;
-    return `<div class="cand${selectedId === p.id ? ' selected' : ''}${sug ? ' cand-suggested' : ''}" data-id="${p.id}"><div class="cand-main"><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>${sug ? ` <span class="cand-sug">${sugLabel(suggestedReason, p.pos)}</span>` : ''}
+    return `<div class="cand${selectedId === p.id ? ' selected' : ''}${sug ? ' cand-suggested' : ''}" data-id="${p.id}"><div class="cand-main"><span class="pos ${posClass(p.pos)}">${p.pos}</span><span class="nm">${p.name}</span>${injuryBadgeHTML(p)}${sug ? ` <span class="cand-sug">${sugLabel(suggestedReason, p.pos)}</span>` : ''}
       <span class="meta">${meta}</span>${extra}</div><button class="cand-add" data-add="${p.id}" title="Draft ${p.name.replace(/"/g, '&quot;')}">+</button></div>`;
   }).join('') + more;
   // Row click = inspect (open the detail sidebar); the + button = draft. So browsing stats never
@@ -1574,6 +1582,7 @@ function renderDetail() {
       <div>
         <div class="pd-name">${p.name}${getTagHTML(p.tag, p.formReason)}</div>
         <div class="pd-sub">${p.pos} · ${p.team} · #${rk}${val ? ' · ' + val : ''} ${getTrendHTML(p.trend, p.trendVal)}</div>
+        ${injuryLineHTML(p)}
       </div>
       <button class="btn btn-gold pd-draft" id="pdDraftBtn"${drafted ? ' disabled' : ''}>${drafted ? 'Drafted' : 'Draft'}</button>
     </div>

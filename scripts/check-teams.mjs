@@ -42,6 +42,34 @@ console.log('offline — applyCurrentTeams merge rules');
   check('an empty index changes nothing', empty.corrected === 0);
 }
 
+// ---- 1b. offline injury merge rules -------------------------------------------------------------
+const { applyInjuries } = await import('../api/_lib/buildNflDataset.js');
+console.log('\noffline — applyInjuries merge rules');
+{
+  const ps = [
+    { id: '1', pos: 'RB', name: 'Questionable' },
+    { id: '2', pos: 'WR', name: 'Healthy' },
+    { id: '3', pos: 'WR', name: 'Recovered', injury: { status: 'Out' } },
+    { id: '4', pos: 'QB', name: 'Suspended' },
+    { id: 'dst-1', pos: 'DST', name: 'Falcons D/ST' },
+  ];
+  const idx = new Map([
+    ['1', { status: 'Questionable', abbr: 'Q', detail: 'Ankle Sprain', returnDate: '2026-09-13' }],
+    ['3', { status: 'Active' }],                       // recovered — must NOT stay flagged
+    ['4', { status: 'Suspension', abbr: 'SUSP' }],
+    ['dst-1', { status: 'Out' }],
+  ]);
+  const r = applyInjuries(ps, idx);
+  check('an availability-affecting status is attached', ps[0].injury?.status === 'Questionable');
+  check('a healthy player carries nothing', !ps[1].injury);
+  // "Active" in this feed means a listed player who has RECOVERED. Attaching it would badge healthy
+  // players, and leaving a previous record would keep a returned player flagged as Out.
+  check('a recovered player is cleared, not left flagged', !ps[2].injury && r.cleared === 1);
+  check('a suspension is carried (it affects availability)', ps[3].injury?.status === 'Suspension');
+  check('DST rows are skipped', !ps[4].injury);
+  check('counts are reported', r.flagged === 2 && r.cleared === 1);
+}
+
 // ---- 2. live drift check ------------------------------------------------------------------------
 console.log('\nlive — served board vs ESPN current rosters');
 let board, index = new Map(), rosters = 0;
@@ -66,6 +94,13 @@ console.log(`   board built ${board.builtAt} · ${rosters}/32 rosters read · ${
 check(`no pool player disagrees with the current roster feed`, drift.length === 0,
   drift.length ? `${drift.length} stale: ` + drift.sort((a,b)=>a.rank-b.rank).slice(0,6).map((p) => `${p.name} ${p.team}->${index.get(String(p.id))}`).join(', ') : '');
 check('rosters were substantially readable (>= 28/32)', rosters >= 28, `${rosters}/32`);
+
+// Injury coverage on the served board. Absent entirely = the enrichment did not run.
+const flagged = board.players.filter((p) => p.injury && p.injury.status);
+console.log(`   ${flagged.length} players carry an injury designation`);
+check('the board carries injury designations at all', flagged.length > 0,
+  flagged.length ? '' : 'no p.injury anywhere — enrichment missing or not yet deployed');
+check('no player is flagged with a non-availability status', !flagged.some((p) => p.injury.status === 'Active'));
 
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nall checks passed');
 process.exit(failed ? 1 : 0);

@@ -67,6 +67,40 @@ export function renderConsistencyHTML(p) {
   return `<span class="consist" title="Consistency — weekly floor vs a typical game (P25/P50); higher = steadier">${p.consistency}</span>${ceil}`;
 }
 
+// NFL injury designation, from ESPN's structured injuries feed (p.injury, set in buildNflDataset).
+// Only availability-affecting statuses are ever attached, so the presence of p.injury is itself the
+// signal — a healthy or recovered player carries nothing.
+//
+// Everything rendered here is an OFFICIAL designation (status, body part, expected return), never a
+// characterisation. The feed's sourced beat-writer comment is deliberately not carried into the
+// dataset at all: some entries cover personal or off-field matters, where restating a sentence about
+// a real person is a different order of risk from a stale stat.
+const INJ_CLASS = {
+  'Injured Reserve': 'inj-out', Out: 'inj-out', Doubtful: 'inj-doubt',
+  Questionable: 'inj-q', Suspension: 'inj-susp',
+};
+const INJ_ABBR = { 'Injured Reserve': 'IR', Out: 'O', Doubtful: 'D', Questionable: 'Q', Suspension: 'SUSP' };
+
+// Compact badge for a list row. Title carries the detail so the row stays narrow.
+export function injuryBadgeHTML(p) {
+  const i = p && p.injury;
+  if (!i || !i.status) return '';
+  const cls = INJ_CLASS[i.status] || 'inj-q';
+  const abbr = i.abbr || INJ_ABBR[i.status] || '?';
+  const tip = [i.status, i.detail, i.returnDate ? `expected back ${i.returnDate}` : null].filter(Boolean).join(' — ');
+  return ` <span class="inj ${cls}" title="${String(tip).replace(/"/g, '&quot;')}">${abbr}</span>`;
+}
+
+// Fuller line for a detail panel: the designation spelled out, plus body part and expected return.
+export function injuryLineHTML(p) {
+  const i = p && p.injury;
+  if (!i || !i.status) return '';
+  const cls = INJ_CLASS[i.status] || 'inj-q';
+  const bits = [i.detail, i.returnDate ? `expected back ${i.returnDate}` : null].filter(Boolean).join(' · ');
+  return `<div class="inj-line"><span class="inj ${cls}">${i.abbr || INJ_ABBR[i.status] || '?'}</span> `
+    + `<b>${i.status}</b>${bits ? ` — ${bits}` : ''}</div>`;
+}
+
 // PGA DFS value tier (replaces the star rating on the golf board): VALUE (produces
 // above price), CHALK (obvious stud), SOLID (dependable), PUNT (salary saver).
 // A small note flags golfers not in this week's field (their CUT%/FIT are blank).
