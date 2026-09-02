@@ -268,34 +268,105 @@ async function fetchPrevYearNfl(priorSeasonParam) {
 // name matching, so none of the collision risk that carries).
 const TEAMS_URL = 'https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/teams?limit=40';
 const ROSTER_URL = (id) => `https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/teams/${id}/roster`;
+// Fallback roster source. The site roster endpoint is not uniformly available: Arizona (team 22)
+// returns an empty 216-byte body every time, on both hosts and for both the numeric id and the `ari`
+// abbreviation — an upstream gap, not a transient error. Left alone that silently excludes a whole
+// team from team correction AND from injury coverage. The core API lists the same squad (79 athletes
+// for ARI) as $ref URLs with the athlete id in the path, which is all we need for an id join.
+const CORE_ROSTER_URL = (season, id) =>
+  `https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/${season}/teams/${id}/athletes?limit=200`;
+const REF_ID = /\/athletes\/(\d+)/;
+
+// ESPN's structured injury designations. Same shape of gap as the stale-team bug: the data exists and
+// we were not reading it. 800 entries league-wide (Injured Reserve, Questionable, Out, Suspension,
+// plus Active for players who have recovered), each with the body part, a return date where known,
+// and a sourced beat-writer comment. NOTE the entries carry NO athlete.id field — the id is only in
+// athlete.links (…/nfl/player/_/id/<id>/…), so we parse it rather than fall back to name matching.
+const INJURIES_URL = 'https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/injuries';
+const LINK_ID = /\/id\/(\d+)/;
 
 // athleteId -> { abbr, teamId } across all 32 current rosters. Failure-tolerant: a team whose roster
 // fails is simply absent, which costs corrections but never invents them. Returns { index, teams }.
-async function fetchCurrentTeams() {
+async function fetchCurrentTeams(season) {
   const index = new Map();
-  let teams = 0;
+  let teams = 0, fellBack = 0;
   try {
     const list = await getJson(TEAMS_URL);
-    const ids = (list?.sports?.[0]?.leagues?.[0]?.teams || []).map((t) => t?.team?.id).filter(Boolean);
-    const results = await Promise.all(ids.map(async (id) => {
+    const meta = (list?.sports?.[0]?.leagues?.[0]?.teams || []).map((t) => t?.team).filter((t) => t?.id);
+    const results = await Promise.all(meta.map(async (t) => {
+      const teamId = String(t.id), abbr = t.abbreviation;
+      let rows = [];
       try {
-        const j = await getJson(ROSTER_URL(id));
-        const abbr = j?.team?.abbreviation;
-        const teamId = j?.team?.id != null ? String(j.team.id) : null;
-        const rows = [];
+        const j = await getJson(ROSTER_URL(teamId));
         for (const grp of (j?.athletes || [])) for (const a of (grp?.items || [])) {
           if (a?.id != null) rows.push([String(a.id), { abbr, teamId }]);
         }
-        return rows;
-      } catch { return null; }
+      } catch { rows = []; }
+      if (rows.length) return { rows, fallback: false };
+      // Empty is the Arizona signature, so try the core API before giving up on the whole squad.
+      try {
+        const c = await getJson(CORE_ROSTER_URL(season, teamId));
+        for (const it of (c?.items || [])) {
+          const m = REF_ID.exec(it?.$ref || '');
+          if (m) rows.push([m[1], { abbr, teamId }]);
+        }
+      } catch { /* both sources failed for this team */ }
+      return { rows, fallback: rows.length > 0 };
     }));
-    for (const rows of results) {
-      if (!rows) continue;
+    for (const r of results) {
+      if (!r?.rows?.length) continue;
       teams++;
-      for (const [k, v] of rows) index.set(k, v);
+      if (r.fallback) fellBack++;
+      for (const [k, v] of r.rows) index.set(k, v);
     }
   } catch { /* no index — every team stays as the stat feed reported it */ }
-  return { index, teams };
+  return { index, teams, fellBack };
+}
+
+// athleteId -> injury record, from the league injuries feed. Failure-tolerant: an empty map simply
+// means no player carries an injury this build.
+async function fetchInjuries() {
+  const index = new Map();
+  try {
+    const j = await getJson(INJURIES_URL);
+    for (const t of (j?.injuries || [])) {
+      for (const e of (t?.injuries || [])) {
+        const href = (e?.athlete?.links || []).map((l) => l?.href).find((h) => LINK_ID.test(h || ''));
+        const m = href && LINK_ID.exec(href);
+        if (!m) continue;
+        index.set(m[1], {
+          status: e.status || null,                                   // Questionable | Out | Injured Reserve | Suspension | Active
+          abbr: e.type?.abbreviation || null,                         // Q | O | IR | SUSP …
+          // "Ankle Sprain". ESPN fills unknown sub-fields with the literal "Not Specified", which reads
+          // as noise next to a real body part ("Head Not Specified"), so those are dropped.
+          detail: [e.details?.type, e.details?.detail]
+            .filter((x) => x && x !== 'Not Specified' && x !== 'Undisclosed').join(' ') || null,
+          returnDate: e.details?.returnDate || null,
+          date: e.date || null,
+          // shortComment (a sourced beat-writer line) is deliberately NOT carried. The structured
+          // status/body-part/return-date are official designations and safe to state; a quoted report
+          // is journalism, and some entries are personal or off-field matters where restating a
+          // sentence about a real person is a different order of risk. Link out, never paraphrase.
+        });
+      }
+    }
+  } catch { /* no injuries this build */ }
+  return index;
+}
+
+// Pure merge, exported for the checker. Attaches p.injury ONLY for designations that actually affect
+// availability. "Active" in this feed means a listed player who has recovered — attaching it would
+// badge healthy players, so it is skipped (and clears any stale record).
+const INJURY_SHOW = new Set(['Injured Reserve', 'Out', 'Doubtful', 'Questionable', 'Suspension']);
+export function applyInjuries(players, index) {
+  let flagged = 0, cleared = 0;
+  for (const r of players || []) {
+    if (r.pos === 'DST') continue;
+    const e = index.get(String(r.id));
+    if (e && INJURY_SHOW.has(e.status)) { r.injury = e; flagged++; }
+    else if (r.injury) { delete r.injury; cleared++; }
+  }
+  return { flagged, cleared };
 }
 
 // Pure merge, exported for the checker. Overwrites team/teamId ONLY where the roster index has the
@@ -457,8 +528,9 @@ export async function buildNflDataset() {
 
   // Replace stat-season teams with current ones (see fetchCurrentTeams). After `players` is
   // assembled so both ranked and search-only rows are corrected in one pass.
-  const { index: teamIndex, teams: rostersOk } = await fetchCurrentTeams();
+  const { index: teamIndex, teams: rostersOk, fellBack } = await fetchCurrentTeams(seasonYear);
   const teamFix = applyCurrentTeams(players, teamIndex);
+  const injFix = applyInjuries(players, await fetchInjuries());
   for (const r of players) {
     const pv = prevMap.get(String(r.id));
     if (pv) r.prevYear = pv; // prior full-season line for the Mock Draft sidebar (DSTs have no athlete id)
@@ -479,7 +551,8 @@ export async function buildNflDataset() {
       dsts: dsts.length,
       // Team reconciliation: how many stale stat-season teams were corrected, how many already
       // agreed, and how many athletes no current roster listed (left untouched, never marked FA).
-      teams: { rostersOk, indexed: teamIndex.size, ...teamFix },
+      teams: { rostersOk, fellBack, indexed: teamIndex.size, ...teamFix },
+      injuries: injFix,
       subThreshold: subThreshold.length,
       total: players.length,
     },
