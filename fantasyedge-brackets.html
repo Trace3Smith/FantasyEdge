@@ -195,6 +195,18 @@
   .gc-inj .inj-out{color:#f3a1a1;} .gc-inj .inj-q{color:#fdba74;}
   .gc-wx{font-size:11.5px;color:var(--blue);display:flex;align-items:center;gap:6px;}
   .nfl-loading,.nfl-error{padding:40px 20px;text-align:center;color:var(--gray);font-size:13px;}
+
+  .results-sec{margin-top:26px;}
+  .results-hd{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gray);margin-bottom:10px;}
+  .results-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;}
+  .rcard{background:var(--dark2);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:12px 14px;}
+  .rcard .rc-top{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;}
+  .rcard .rc-final{font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;background:rgba(136,136,136,0.16);color:var(--gray-light);padding:2px 8px;border-radius:4px;}
+  .rc-row{display:flex;align-items:center;gap:9px;padding:3px 0;color:var(--gray-light);}
+  .rc-row img{width:20px;height:20px;flex-shrink:0;}
+  .rc-row .rc-name{flex:1;font-size:13.5px;}
+  .rc-row .rc-score{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:17px;}
+  .rc-row.won{color:var(--white);} .rc-row.won .rc-name{font-weight:700;} .rc-row.won .rc-score{color:var(--green);}
 </style>
 <link rel="stylesheet" href="assets/mobile.css">
 </head>
@@ -370,9 +382,23 @@ async function loadFeed(cfg) {
     if (!r.ok) throw new Error('HTTP '+r.status);
     const data = await r.json();
     cfg.header(data);
-    if (!data.games || !data.games.length) { document.getElementById(cfg.railsId).innerHTML=''; wrap.innerHTML = `<div class="nfl-error">${cfg.empty}</div>`; return; }
-    renderRails(data, cfg.railsId);
-    wrap.innerHTML = '<div class="games-grid">'+data.games.map(gameCard).join('')+'</div>';
+    // A scoreboard week is a date range, so a completed game can arrive in `games`. The feed
+    // now splits those into `results`, but a KV payload cached by an earlier build won't have —
+    // so re-split client-side too and the page is correct the moment it deploys, not a cron later.
+    const upcoming = (data.games||[]).filter(g => g.state !== 'post');
+    const results = (data.results||[]).concat((data.games||[]).filter(g => g.state === 'post'))
+      .sort((a,b) => Date.parse(b.date) - Date.parse(a.date));
+    const resultsHtml = results.length
+      ? `<div class="results-sec"><div class="results-hd">Final — already played this week</div>`+
+        `<div class="results-grid">${results.map(resultCard).join('')}</div></div>`
+      : '';
+    if (!upcoming.length) {
+      document.getElementById(cfg.railsId).innerHTML='';
+      wrap.innerHTML = `<div class="nfl-error">${results.length ? 'Every game in this window has been played — the next slate posts shortly.' : cfg.empty}</div>` + resultsHtml;
+      return;
+    }
+    renderRails({...data, games: upcoming}, cfg.railsId);
+    wrap.innerHTML = '<div class="games-grid">'+upcoming.map(gameCard).join('')+'</div>' + resultsHtml;
   } catch (e) {
     cfg._loaded = false; // allow a retry on next tab switch
     wrap.innerHTML = '<div class="nfl-error">Couldn\'t load this slate. Try again shortly.</div>';
@@ -406,10 +432,11 @@ function loadCfbWeek(){ loadFeed(CFB_WEEK_FEED); }
 function stampText(d){ const w = d.builtAt ? new Date(d.builtAt) : null; return w ? 'Updated '+w.toLocaleDateString([], {month:'short',day:'numeric'}) : ''; }
 
 function renderRails(d, railsId) {
-  const best = (d.bestPicks||[]).map(p =>
+  const live = new Set((d.games||[]).map(g => g.id));
+  const best = (d.bestPicks||[]).filter(p => live.has(p.id)).map(p =>
     `<div class="rail-row"><span class="rr-team">${esc(p.team)} <span class="rr-meta">vs ${esc(p.opp)}</span></span><span class="rr-pct">${p.winProb}%</span></div>`
   ).join('') || '<div class="rail-empty">Picks post once lines are set.</div>';
-  const ups = (d.upsetAlerts||[]).map(u =>
+  const ups = (d.upsetAlerts||[]).filter(u => live.has(u.id)).map(u =>
     `<div class="rail-row"><span class="rr-team">${esc(u.underdog)} <span class="rr-meta">+dog vs ${esc(u.favorite)}</span></span><span class="rr-pct">${u.favWinProb}%</span></div>`
   ).join('') || '<div class="rail-empty">No coin-flip games flagged.</div>';
   document.getElementById(railsId).innerHTML =
@@ -435,6 +462,24 @@ function injLine(label, rows) {
     return `<span class="${cls}">${esc(x.name)}${x.pos?' ('+esc(x.pos)+')':''} — ${esc(x.status)}</span>`;
   }).join(', ');
   return `<div class="gc-inj"><span class="inj-team">${esc(label)}:</span> ${items}</div>`;
+}
+
+// A finished game: score only. No pick, no line, no forecast — those are pre-game reads, and
+// showing them after the fact is what made a played game look like an unset line.
+function resultCard(g) {
+  const d = g.date ? new Date(g.date) : null;
+  const when = d ? d.toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'}) : '';
+  const row = (t) => {
+    const logo = t.logo ? `<img src="${esc(t.logo)}" alt="">` : '';
+    return `<div class="rc-row${t.winner?' won':''}">${logo}<span class="rc-name">${esc(t.name)}</span>`+
+           `<span class="rc-score">${t.score!=null?t.score:'—'}</span></div>`;
+  };
+  const bowl = g.bowlName ? `<div class="gc-bowl">${esc(g.bowlName)}</div>` : '';
+  return `<div class="rcard">
+    <div class="rc-top"><span class="gc-when">${esc(when)}</span><span class="rc-final">Final</span></div>
+    ${bowl}
+    ${row(g.away)}${row(g.home)}
+  </div>`;
 }
 
 function gameCard(g) {

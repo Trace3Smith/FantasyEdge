@@ -106,8 +106,10 @@ async function fetchWeather(coords, indoor, kickoffIso) {
 //   coordsFor(comp, home, away) — returns { lat, lon, dome } | null for the venue (weather)
 //   includeEvent(comp, ev)      — optional filter (e.g. CFB: drop FCS games); default keep all
 //   nameOf(comp)                — optional extra label (e.g. CFB bowl/playoff name); default null
-// Returns { season, seasonType, week, games, bestPicks, upsetAlerts, builtAt }. Failure-
-// tolerant per game so one bad event can't drop the slate.
+// Returns { season, seasonType, week, games, results, bestPicks, upsetAlerts, builtAt }, where
+// `games` is the still-to-play slate and `results` holds any game in the same window that's
+// already final (see the split below). Failure-tolerant per game so one bad event can't drop
+// the slate.
 export async function buildPickem(cfg) {
   const r = await fetch(cfg.scoreboardUrl, { headers: { 'User-Agent': UA } });
   if (!r.ok) throw new Error(`ESPN scoreboard HTTP ${r.status}`);
@@ -123,7 +125,15 @@ export async function buildPickem(cfg) {
       const home = c.competitors.find((t) => t.homeAway === 'home');
       const away = c.competitors.find((t) => t.homeAway === 'away');
       if (!home || !away) continue;
-      const teamOf = (t) => ({ abbr: t.team.abbreviation, name: t.team.displayName, logo: t.team.logo || null, record: t.records?.[0]?.summary || null });
+      const teamOf = (t) => ({
+        abbr: t.team.abbreviation,
+        name: t.team.displayName,
+        logo: t.team.logo || null,
+        record: t.records?.[0]?.summary || null,
+        // Final score + winner, present only once a game is over — what the results section renders.
+        score: t.score != null && t.score !== '' ? Number(t.score) : null,
+        winner: t.winner === true,
+      });
 
       // Odds → market-implied pick + win%. Absent odds (rare, or way out) → no pick yet.
       const o = (c.odds || [])[0];
@@ -152,16 +162,18 @@ export async function buildPickem(cfg) {
         if (homePct != null) { const h = Math.round(homePct); market = { home: h, away: 100 - h }; }
       }
 
+      const state = ev.status?.type?.state || 'pre';
       const indoor = c.venue?.indoor === true;
       const coords = cfg.coordsFor ? cfg.coordsFor(c, home, away) : null;
-      const weather = await fetchWeather(coords, indoor, ev.date);
+      // A finished game gets no forecast — the weather already happened, and it saves the NWS calls.
+      const weather = state === 'post' ? null : await fetchWeather(coords, indoor, ev.date);
       const bowlName = cfg.nameOf ? cfg.nameOf(c) : null;
 
       games.push({
         id: ev.id,
         date: ev.date,
         shortName: ev.shortName,
-        state: ev.status?.type?.state || 'pre',
+        state,
         ...(bowlName ? { bowlName } : {}),
         neutralSite: c.neutralSite === true,
         home: teamOf(home),
@@ -180,8 +192,18 @@ export async function buildPickem(cfg) {
     } catch { /* skip a single malformed event; keep the slate */ }
   }
 
+  // A scoreboard "week" is a DATE RANGE, not a set of unplayed games: ESPN's CFB Week 1 spans
+  // the Week-0 Saturday through the following Monday, so games already played sit in the same
+  // payload as the upcoming slate. Their betting lines are pulled once they're final, which made
+  // them render as "Line not set yet" alongside real picks. Split them out: `games` is what's
+  // still ahead (pre + in-progress), `results` is what already happened, newest first.
+  const upcoming = games.filter((g) => g.state !== 'post');
+  const results = games.filter((g) => g.state === 'post')
+    .sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+
   // Highest-confidence picks (safest) and the upset watchlist — the page's two headline rails.
-  const picked = games.filter((g) => g.pick);
+  // Built from the upcoming slate only: a rail entry for a finished game is noise.
+  const picked = upcoming.filter((g) => g.pick);
   const bestPicks = picked.slice().sort((a, b) => b.pick.winProb - a.pick.winProb).slice(0, 5)
     .map((g) => ({ id: g.id, team: g.pick.team, winProb: g.pick.winProb, opp: g.pick.team === g.home.abbr ? g.away.abbr : g.home.abbr }));
   const upsetAlerts = picked.filter((g) => g.upsetAlert)
@@ -191,7 +213,8 @@ export async function buildPickem(cfg) {
     season: sb.season?.year ?? null,
     seasonType: sb.season?.type ?? null,
     week: sb.week?.number ?? null,
-    games,
+    games: upcoming,
+    results,
     bestPicks,
     upsetAlerts,
     builtAt: new Date().toISOString(),
