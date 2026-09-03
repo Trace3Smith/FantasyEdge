@@ -11,7 +11,7 @@
 import { redis, DATASET_KEY, WNBA_DATASET_KEY, NBA_DATASET_KEY } from '../_lib/kv.js';
 import {
   getCreds, getAutopilot, listAutopilotUsers, setAutopilotLeague,
-  fetchLeagueRoster, setLineup, autopilotSportOf, EspnAuthError,
+  fetchLeagueRoster, setLineup, autopilotSportOf, EspnAuthError, fetchNflByes,
 } from '../_lib/espnFantasy.js';
 import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
 import { parseScoringSettings } from '../_lib/espnScoring.js';
@@ -67,6 +67,7 @@ export default async function handler(req, res) {
     // Lazily load + cache each sport's dataset players (a dataset may be missing
     // off-season or unbuilt). Cached across users so we hit Redis once per sport per run.
     const playersCache = {};
+    let nflByes;   // proTeamId -> bye week; loaded lazily on the first NFL league
     async function playersFor(sport) {
       if (sport in playersCache) return playersCache[sport];
       const key = DATASET_BY_SPORT[sport];
@@ -115,7 +116,10 @@ export default async function handler(req, res) {
           if (sport === 'mlb') mlbLeagues.push(league);
           // Value players under this league's own ESPN scoring (auto-detected).
           const scoring = parseScoringSettings(league.scoringRaw, sport);
-          const sugg = suggestLineup(league, indexFor(sport, players, scoring?.weights || null), sport);
+          // NFL bye weeks, fetched once per run and shared across leagues (public, no cookies).
+          if (sport === 'nfl' && nflByes === undefined) nflByes = await fetchNflByes(Number(season)).catch(() => null);
+          const sugg = suggestLineup(league, indexFor(sport, players, scoring?.weights || null), sport,
+            sport === 'nfl' && nflByes ? { byeWeeks: nflByes } : {});
           if (!sugg.plan.length) { summary.optimal++; continue; }
           const applyRes = await setLineup(creds, {
             leagueId, seasonId: Number(season), teamId: Number(teamId), scoringPeriodId: league.scoringPeriodId,

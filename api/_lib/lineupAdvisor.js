@@ -13,6 +13,7 @@
 // for churn's sake).
 import { normName } from './golf.js';
 import { slotLabel, isActiveSlot } from './espnFantasy.js';
+import { nflRankValue } from '../../nflScoring.js';
 
 // --- per-sport tuning ------------------------------------------------------------
 // Because the two valuations live on different scales, every threshold (injury
@@ -57,6 +58,31 @@ const SPORT_CFG = {
     waiverGain: 6,   // ~6 fp/g to justify a waiver churn
     floor: 12,       // replacement-level output for an unranked body (pool p90 ≈ 10.2)
     deferIl: false,  // NBA sets daily; IR moves can go anytime before lock
+  },
+  // NFL — per-game projected points, but on a MUCH tighter scale than hoops. Measured over the
+  // rosterable universe (top 180 in a 12-team league, PPR): max 21.3 fp/g, median 10.6, replacement
+  // 6.9 — a ~14-point spread where the NBA's is ~48. Thresholds are set to the same PROPORTION of the
+  // maximum the other sports use (~9% for a start/sit delta) rather than copied as raw numbers.
+  nfl: {
+    il: { slotId: 21, benchId: 20, label: 'IR' },
+    // ESPN's NFL feed emits only ACTIVE / QUESTIONABLE / OUT / INJURY_RESERVE / SUSPENSION /
+    // DAY_TO_DAY — verified live over 6,565 players. It does NOT distinguish PUP or
+    // designated-to-return; both arrive as INJURY_RESERVE, which maps to 'IL' and is IR-eligible
+    // anyway, so no extra designations are needed here.
+    ilEligible: new Set(['O', 'IL', '60-IL']),
+    // An OUT player must never out-rank a healthy starter, so the OUT/IR penalties clear the 21.3
+    // maximum outright.
+    injuryPenalty: { '': 0, Q: 1.5, DTD: 2, D: 4, O: 25, IL: 30, '60-IL': 30, SUSP: 30 },
+    outPenalty: 25,
+    minDelta: 2,     // ~2 fp/g is a meaningful start/sit upgrade at this scale
+    waiverGain: 2.5, // a slightly higher bar to justify churn
+    floor: 6,        // replacement-level output for an unranked body (rosterable floor ~6.9)
+    // PROVISIONAL, pending the per-player lock model (step 2). NFL locks per player across
+    // Thursday/Sunday/Monday, so MLB's single noon-ET league-wide cutoff is simply wrong here —
+    // applying it would suppress every IL move all week. Set false so nothing is deferred wholesale;
+    // an individual locked player is still refused by ESPN with a 409, which setLineup drops and
+    // reports as skippedLocked, so those moves are visibly retried on a later run rather than lost.
+    deferIl: false,
   },
 };
 const cfgFor = (sport) => SPORT_CFG[sport] || SPORT_CFG.mlb;
@@ -206,11 +232,33 @@ export function buildHoopsValueIndex(players = [], weights = null) {
   return idx;
 }
 
+// NFL per-game projected points. A THIRD value model was unavoidable: NFL dataset rows carry no
+// per-game stat object (0 of 613 have `n`), so the hoops model cannot be reused the way it was for
+// the NBA. What they do carry is nflRankValue — the blended season projection the draft board already
+// ranks on — which divided by the season length gives a per-game number on the same footing as the
+// hoops index, and respects the league's own PPR/half/standard setting.
+const NFL_SEASON_GAMES = 17;
+export function buildNflValueIndex(players = [], scoring = 'ppr') {
+  const idx = new Map();
+  for (const p of players) {
+    const v = nflRankValue(p, scoring);
+    if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+    const key = normName(p.name);
+    if (!key) continue;
+    const per = v / NFL_SEASON_GAMES;
+    const prev = idx.get(key);
+    if (!prev || per > prev.z) idx.set(key, { z: per, pos: p.pos, tag: p.tag || null, rank: p.rank ?? null });
+  }
+  return idx;
+}
+
 // Build the right value index for a sport from that sport's cached dataset players,
 // optionally under the user's custom scoring weights (per-league; null = defaults).
 export function buildValueIndex(players, sport = 'mlb', weights = null) {
   // NBA and WNBA share one hoops points model: both datasets carry the same per-game shape
   // (n.pts/reb/ast/stl/blk/tpm/to), so the index is identical — only the SPORT_CFG thresholds differ.
+  // NFL needs its own (no per-game stats); `weights` there is the league's scoring string.
+  if (sport === 'nfl') return buildNflValueIndex(players, typeof weights === 'string' ? weights : 'ppr');
   return (sport === 'wnba' || sport === 'nba') ? buildHoopsValueIndex(players, weights) : buildMlbValueIndex(players, weights);
 }
 
@@ -222,7 +270,11 @@ export const buildWnbaValueIndex = buildHoopsValueIndex;
 function valueOf(rp, idx, cfg) {
   const rec = idx.get(normName(rp.name));
   const z = rec ? rec.z : cfg.floor;
-  const penalty = cfg.injuryPenalty[rp.injury] ?? 0;
+  // A bye is scored like an OUT week — the player genuinely produces nothing — so he sinks below any
+  // healthy alternative. He is NOT marked injured: rp.injury is untouched, so ilEligible never sees
+  // him and he cannot be sent to IR for being on bye.
+  const byePenalty = rp.onBye ? (cfg.outPenalty ?? 0) : 0;
+  const penalty = (cfg.injuryPenalty[rp.injury] ?? 0) + byePenalty;
   return { z, adjZ: z - penalty, known: !!rec, tag: rec?.tag || null, rank: rec?.rank ?? null, penalty, zc: rec?.zc || null };
 }
 
@@ -294,9 +346,16 @@ const meta = (rp) => `${rp.pos}${rp.proTeam ? ' · ' + rp.proTeam : ''}${rp.inju
 // scale + IL/IR slot config; `freeAgents` (optional) enables waiver-wire suggestions.
 // Returns { moves, plan, summary }. NOTE: waiver/drop suggestions are display-only —
 // never in `plan` (drops are irreversible; the user executes them on ESPN).
-export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilWindowClosed, cats = null, ranks = null } = {}) {
+export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilWindowClosed, cats = null, ranks = null, byeWeeks = null } = {}) {
   const cfg = cfgFor(sport);
-  const roster = (league.roster || []).map((rp) => ({ ...rp }));
+  // A player whose pro team is on bye THIS scoring period scores nothing, so he must not start — but
+  // he is perfectly healthy, so he must never be sent to IR either. Those are two different things
+  // and conflating them is the trap: `onBye` drives the lineup valuation only, and is deliberately
+  // kept out of ilEligible. Keyed on proTeamId, so no name matching is involved. An empty/absent bye
+  // map means UNKNOWN, never "not on bye" — nobody is flagged.
+  const week = Number(league?.scoringPeriodId) || null;
+  const byeOf = (rp) => (byeWeeks && week && rp?.proTeamId != null && byeWeeks.get(Number(rp.proTeamId)) === week);
+  const roster = (league.roster || []).map((rp) => ({ ...rp, onBye: byeOf(rp) }));
   const empty = { moves: [], plan: [], summary: { count: 0, ilMoves: 0, injuredStarters: 0, totalGain: 0, optimal: true } };
   if (!roster.length) return empty;
   for (const rp of roster) rp._v = valueOf(rp, idx, cfg);
