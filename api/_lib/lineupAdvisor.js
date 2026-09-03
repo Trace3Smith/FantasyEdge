@@ -43,6 +43,21 @@ const SPORT_CFG = {
     floor: 10,       // replacement-level fantasy output for an unranked body
     deferIl: false,  // WNBA sets daily; IR moves can go anytime before lock
   },
+  // NBA — same hoops points scale as the WNBA, thresholds scaled to its distribution rather than
+  // copied. Measured over the live pools: NBA runs ~15-25% richer (max 58.0 vs 45.5 fp/g, median
+  // 19.4 vs 16.3, p90 10.2 vs 8.3), so the deltas and the replacement floor move up proportionally.
+  nba: {
+    il: { slotId: 13, benchId: 12, label: 'IR' },
+    ilEligible: new Set(['O', 'IL', '60-IL']),
+    // Same rule the WNBA block states: an OUT player must never out-rank a healthy starter, so the
+    // OUT/IR penalties have to exceed the largest realistic value — NBA's best is 58.0 fp/g, hence 60.
+    injuryPenalty: { '': 0, Q: 4, DTD: 6, D: 10, O: 60, IL: 70, '60-IL': 80, SUSP: 70 },
+    outPenalty: 60,
+    minDelta: 5,     // ~5 fp/g is a meaningful start/sit upgrade at this scale
+    waiverGain: 6,   // ~6 fp/g to justify a waiver churn
+    floor: 12,       // replacement-level output for an unranked body (pool p90 ≈ 10.2)
+    deferIl: false,  // NBA sets daily; IR moves can go anytime before lock
+  },
 };
 const cfgFor = (sport) => SPORT_CFG[sport] || SPORT_CFG.mlb;
 
@@ -148,7 +163,7 @@ export function buildMlbValueIndex(players = [], weights = null) {
 // H2H Points default scoring (ESPN Points spirit). A player's total points already
 // fold in their FG/FT/3PT makes, so we score the box-score AGGREGATES (not shot makes)
 // to avoid double-counting. `dd` (double-double) is estimated, not counted — see below.
-export const WNBA_POINTS_DEFAULTS = { pts: 1, reb: 1, ast: 1, stl: 1.5, blk: 1.5, tpm: 1, dd: 2 };
+export const HOOPS_POINTS_DEFAULTS = { pts: 1, reb: 1, ast: 1, stl: 1.5, blk: 1.5, tpm: 1, dd: 2 };
 
 // Estimated double-doubles per game from a season-average line. We only have averages
 // (not game logs), so this APPROXIMATES the rate: a DD needs the top two categories to
@@ -164,9 +179,9 @@ export function estimateDoubleDoubles(n) {
 // Projected fantasy points per game from a per-game stat line (rec.n), under the given
 // H2H Points weights (defaults if omitted). Supports an optional `to` (turnover) weight
 // and a `dd` (estimated double-double) weight.
-export function wnbaFantasyPoints(n, weights = WNBA_POINTS_DEFAULTS) {
+export function hoopsFantasyPoints(n, weights = HOOPS_POINTS_DEFAULTS) {
   if (!n || typeof n !== 'object') return null;
-  const w = weights || WNBA_POINTS_DEFAULTS;
+  const w = weights || HOOPS_POINTS_DEFAULTS;
   let v = (n.pts || 0) * (w.pts ?? 0) + (n.reb || 0) * (w.reb ?? 0) + (n.ast || 0) * (w.ast ?? 0)
     + (n.stl || 0) * (w.stl ?? 0) + (n.blk || 0) * (w.blk ?? 0) + (n.tpm || 0) * (w.tpm ?? 0);
   if (w.to) v += (n.to || 0) * w.to;                 // turnovers (typically negative)
@@ -177,11 +192,11 @@ export function wnbaFantasyPoints(n, weights = WNBA_POINTS_DEFAULTS) {
 // Index the WNBA dataset by normalized name → { z, pos, tag, rank }, where `z` is the
 // H2H Points value (fantasy pts/game) under `weights`. Mirrors buildMlbValueIndex's
 // shape so suggestLineup treats both sports identically. No stat line → skipped.
-export function buildWnbaValueIndex(players = [], weights = null) {
-  const w = { ...WNBA_POINTS_DEFAULTS, ...(weights || {}) };
+export function buildHoopsValueIndex(players = [], weights = null) {
+  const w = { ...HOOPS_POINTS_DEFAULTS, ...(weights || {}) };
   const idx = new Map();
   for (const p of players) {
-    const fp = wnbaFantasyPoints(p.n, w);
+    const fp = hoopsFantasyPoints(p.n, w);
     if (typeof fp !== 'number') continue;
     const key = normName(p.name);
     if (!key) continue;
@@ -194,8 +209,15 @@ export function buildWnbaValueIndex(players = [], weights = null) {
 // Build the right value index for a sport from that sport's cached dataset players,
 // optionally under the user's custom scoring weights (per-league; null = defaults).
 export function buildValueIndex(players, sport = 'mlb', weights = null) {
-  return sport === 'wnba' ? buildWnbaValueIndex(players, weights) : buildMlbValueIndex(players, weights);
+  // NBA and WNBA share one hoops points model: both datasets carry the same per-game shape
+  // (n.pts/reb/ast/stl/blk/tpm/to), so the index is identical — only the SPORT_CFG thresholds differ.
+  return (sport === 'wnba' || sport === 'nba') ? buildHoopsValueIndex(players, weights) : buildMlbValueIndex(players, weights);
 }
+
+// Back-compat aliases for the pre-NBA names (the model was always hoops-generic, not WNBA-specific).
+export const WNBA_POINTS_DEFAULTS = HOOPS_POINTS_DEFAULTS;
+export const wnbaFantasyPoints = hoopsFantasyPoints;
+export const buildWnbaValueIndex = buildHoopsValueIndex;
 
 function valueOf(rp, idx, cfg) {
   const rec = idx.get(normName(rp.name));
@@ -291,11 +313,16 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
   const slotIds = new Set(Object.keys(league.slotCounts || {}).map(Number));
   let ilSlotId = IL.slotId;
   if (!slotIds.has(ilSlotId) && slotIds.size) {
-    ilSlotId = Math.max(...slotIds);
+    // The highest slot id is the reserve slot ONLY in a compressed scheme that actually has one. A
+    // league with no IL/IR at all tops out at the BENCH, and taking it would silently treat the bench
+    // as injured reserve — parking healthy players there and "activating" bench players as if they
+    // had recovered. So the fallback is rejected when it lands on the bench.
+    const maxId = Math.max(...slotIds);
+    if (maxId !== IL.benchId) ilSlotId = maxId;
   }
   // Whether the league actually has this IL/IR slot. If not, we never generate IL moves
   // (no capacity, nothing added to the executable plan) so Apply can't 409 on it.
-  const ilSlotExists = slotIds.has(ilSlotId);
+  const ilSlotExists = slotIds.has(ilSlotId) && ilSlotId !== IL.benchId;
   const onIL = (rp) => rp.slotId === ilSlotId;
 
   // --- IL/IR management ---------------------------------------------------------
