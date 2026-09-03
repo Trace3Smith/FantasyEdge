@@ -15,6 +15,7 @@
 // renders both. Output: { builtAt, sport, players, counts }.
 
 import { fetchByAthlete, buildIndex, makeReader, priorSeasonParam } from './espn.js';
+import { fetchInjuries, applyInjuries } from './espnInjuries.js';
 
 // Manual display-name overrides, keyed by ESPN athlete id (globally unique across
 // NBA + WNBA). ESPN occasionally changes a player's displayName to a new legal name
@@ -230,6 +231,8 @@ async function buildBasketballDataset(sport) {
   // players were never scored, so they carry stats but no z. Rounded to keep the payload small.
   const r3 = (v) => Math.round(v * 1000) / 1000;
   const players = [...ranked, ...subThreshold];
+  // ESPN injury designations (shared with the NFL/NHL boards). Additive and failure-tolerant.
+  const injFix = applyInjuries(players, await fetchInjuries(sport === 'wnba' ? 'basketball/wnba' : 'basketball/nba'));
   for (const r of players) {
     r.n = r._n; // per-game category stats { pts, reb, ast, stl, blk, tpm, to, fgPct, ftPct, ... }
     const pv = prevMap.get(String(r.id));
@@ -260,6 +263,7 @@ async function buildBasketballDataset(sport) {
       gamesGate,
       maxGames: maxG,
       total: players.length,
+      injuries: injFix,
     },
   };
 }

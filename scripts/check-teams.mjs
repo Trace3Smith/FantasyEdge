@@ -43,7 +43,7 @@ console.log('offline — applyCurrentTeams merge rules');
 }
 
 // ---- 1b. offline injury merge rules -------------------------------------------------------------
-const { applyInjuries } = await import('../api/_lib/buildNflDataset.js');
+const { applyInjuries } = await import('../api/_lib/espnInjuries.js');
 console.log('\noffline — applyInjuries merge rules');
 {
   const ps = [
@@ -54,20 +54,26 @@ console.log('\noffline — applyInjuries merge rules');
     { id: 'dst-1', pos: 'DST', name: 'Falcons D/ST' },
   ];
   const idx = new Map([
-    ['1', { status: 'Questionable', abbr: 'Q', detail: 'Ankle Sprain', returnDate: '2026-09-13' }],
-    ['3', { status: 'Active' }],                       // recovered — must NOT stay flagged
-    ['4', { status: 'Suspension', abbr: 'SUSP' }],
-    ['dst-1', { status: 'Out' }],
+    ['1', { code: 'INJURY_STATUS_QUESTIONABLE', status: 'Questionable', abbr: 'Q', detail: 'Ankle Sprain', returnDate: '2026-09-13' }],
+    ['3', { code: 'INJURY_STATUS_ACTIVE', status: 'Active' }],        // recovered — must NOT stay flagged
+    ['4', { code: 'INJURY_STATUS_SUSPENSION', status: 'suspension', abbr: 'SUSP' }], // MLB spells it lowercase
+    ['dst-1', { code: 'INJURY_STATUS_OUT', status: 'Out' }],
   ]);
   const r = applyInjuries(ps, idx);
   check('an availability-affecting status is attached', ps[0].injury?.status === 'Questionable');
   check('a healthy player carries nothing', !ps[1].injury);
-  // "Active" in this feed means a listed player who has RECOVERED. Attaching it would badge healthy
-  // players, and leaving a previous record would keep a returned player flagged as Out.
+  // "Active" here means a listed player who has RECOVERED. Attaching it would badge healthy players,
+  // and leaving a previous record would keep a returned player flagged as Out.
   check('a recovered player is cleared, not left flagged', !ps[2].injury && r.cleared === 1);
-  check('a suspension is carried (it affects availability)', ps[3].injury?.status === 'Suspension');
+  // Keyed on type.name, so MLB's lowercase "suspension" is the same state as the NFL's "Suspension".
+  check('a suspension is carried regardless of status casing', ps[3].injury?.code === 'INJURY_STATUS_SUSPENSION');
   check('DST rows are skipped', !ps[4].injury);
   check('counts are reported', r.flagged === 2 && r.cleared === 1);
+  // The regression that motivated the re-key: an allowlist over the free-text status dropped every
+  // MLB entry and 67 of 76 NBA ones. A code we have never seen must SURFACE, not vanish.
+  const exotic = [{ id: 'x', pos: 'RB', name: 'Novel' }];
+  applyInjuries(exotic, new Map([['x', { code: 'INJURY_STATUS_60DAYIL', status: '60-Day-IL', abbr: 'IL60' }]]));
+  check('an unfamiliar designation still surfaces (denylist, not allowlist)', exotic[0].injury?.abbr === 'IL60');
 }
 
 // ---- 2. live drift check ------------------------------------------------------------------------
