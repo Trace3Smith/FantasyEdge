@@ -8,7 +8,7 @@
 // Defensive by design: a single league failing never aborts the run, and if a
 // user's cookies have died we disable their autopilot (so we stop hammering a
 // broken account) until they reconnect. Protected by CRON_SECRET like the refresh cron.
-import { redis, DATASET_KEY, WNBA_DATASET_KEY } from '../_lib/kv.js';
+import { redis, DATASET_KEY, WNBA_DATASET_KEY, NBA_DATASET_KEY } from '../_lib/kv.js';
 import {
   getCreds, getAutopilot, listAutopilotUsers, setAutopilotLeague,
   fetchLeagueRoster, setLineup, autopilotSportOf, EspnAuthError,
@@ -19,7 +19,7 @@ import { getWatch, setWatch, prospectIndex, reconcileWatch } from '../_lib/prosp
 
 export const maxDuration = 60;
 
-const DATASET_BY_SPORT = { mlb: DATASET_KEY, wnba: WNBA_DATASET_KEY };
+const DATASET_BY_SPORT = { mlb: DATASET_KEY, wnba: WNBA_DATASET_KEY, nba: NBA_DATASET_KEY };
 
 export default async function handler(req, res) {
   // Bearer secret only, failing closed when it is unset — same gate as api/cron/refresh.js.

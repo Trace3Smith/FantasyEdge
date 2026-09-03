@@ -128,8 +128,12 @@ const SPORTS = {
   // WNBA fantasy on ESPN uses the basketball schema. Team-id map is left empty (WNBA
   // proTeam ids aren't pinned down) — team just shows blank, which is harmless.
   wnba: { game: 'wfba', abbrev: 'WFBA', slots: HOOPS_SLOTS, positions: HOOPS_POS, bench: new Set([12, 13]), slotOrder: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], teams: {} },
+  // NBA shares the basketball schema with the WNBA — same slot ids, same IR slot (13), same bench
+  // (12). Team-id map is intentionally left empty, exactly as the WNBA's is: the roster falls back to
+  // a blank team label, which is harmless, whereas a guessed proTeam→abbrev table would print wrong
+  // teams on every row. Fill it only from a verified source.
+  nba: { game: 'fba', abbrev: 'FBA', slots: HOOPS_SLOTS, positions: HOOPS_POS, bench: new Set([12, 13]), slotOrder: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], teams: {} },
   // Off-season sports — game codes for future use; no rosters fetched while off-season.
-  nba: { game: 'fba', abbrev: 'FBA', slots: HOOPS_SLOTS, positions: HOOPS_POS, bench: new Set([12, 13]), slotOrder: [], teams: {} },
   nfl: { game: 'ffl', abbrev: 'FFL', slots: {}, positions: {}, bench: new Set([20, 21]), slotOrder: [], teams: {} },
   nhl: { game: 'fhl', abbrev: 'FHL', slots: {}, positions: {}, bench: new Set([], []), slotOrder: [], teams: {} },
 };
