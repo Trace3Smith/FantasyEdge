@@ -22,6 +22,7 @@
 // statLabels drive the inline column labels in the mixed ALL view (like NHL).
 
 import { fetchByAthlete, buildIndex, makeReader } from './espn.js';
+import { fetchInjuries, applyInjuries } from './espnInjuries.js';
 import { getJson } from './espn.js';
 
 // Standard PPR scoring weights.
@@ -277,16 +278,6 @@ const CORE_ROSTER_URL = (season, id) =>
   `https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/${season}/teams/${id}/athletes?limit=200`;
 const REF_ID = /\/athletes\/(\d+)/;
 
-// ESPN's structured injury designations. Same shape of gap as the stale-team bug: the data exists and
-// we were not reading it. 800 entries league-wide (Injured Reserve, Questionable, Out, Suspension,
-// plus Active for players who have recovered), each with the body part, a return date where known,
-// and a sourced beat-writer comment. NOTE the entries carry NO athlete.id field — the id is only in
-// athlete.links (…/nfl/player/_/id/<id>/…), so we parse it rather than fall back to name matching.
-const INJURIES_URL = 'https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/injuries';
-const LINK_ID = /\/id\/(\d+)/;
-
-// athleteId -> { abbr, teamId } across all 32 current rosters. Failure-tolerant: a team whose roster
-// fails is simply absent, which costs corrections but never invents them. Returns { index, teams }.
 async function fetchCurrentTeams(season) {
   const index = new Map();
   let teams = 0, fellBack = 0;
@@ -323,57 +314,6 @@ async function fetchCurrentTeams(season) {
   return { index, teams, fellBack };
 }
 
-// athleteId -> injury record, from the league injuries feed. Failure-tolerant: an empty map simply
-// means no player carries an injury this build.
-async function fetchInjuries() {
-  const index = new Map();
-  try {
-    const j = await getJson(INJURIES_URL);
-    for (const t of (j?.injuries || [])) {
-      for (const e of (t?.injuries || [])) {
-        const href = (e?.athlete?.links || []).map((l) => l?.href).find((h) => LINK_ID.test(h || ''));
-        const m = href && LINK_ID.exec(href);
-        if (!m) continue;
-        index.set(m[1], {
-          status: e.status || null,                                   // Questionable | Out | Injured Reserve | Suspension | Active
-          abbr: e.type?.abbreviation || null,                         // Q | O | IR | SUSP …
-          // "Ankle Sprain". ESPN fills unknown sub-fields with the literal "Not Specified", which reads
-          // as noise next to a real body part ("Head Not Specified"), so those are dropped.
-          detail: [e.details?.type, e.details?.detail]
-            .filter((x) => x && x !== 'Not Specified' && x !== 'Undisclosed').join(' ') || null,
-          returnDate: e.details?.returnDate || null,
-          date: e.date || null,
-          // shortComment (a sourced beat-writer line) is deliberately NOT carried. The structured
-          // status/body-part/return-date are official designations and safe to state; a quoted report
-          // is journalism, and some entries are personal or off-field matters where restating a
-          // sentence about a real person is a different order of risk. Link out, never paraphrase.
-        });
-      }
-    }
-  } catch { /* no injuries this build */ }
-  return index;
-}
-
-// Pure merge, exported for the checker. Attaches p.injury ONLY for designations that actually affect
-// availability. "Active" in this feed means a listed player who has recovered — attaching it would
-// badge healthy players, so it is skipped (and clears any stale record).
-const INJURY_SHOW = new Set(['Injured Reserve', 'Out', 'Doubtful', 'Questionable', 'Suspension']);
-export function applyInjuries(players, index) {
-  let flagged = 0, cleared = 0;
-  for (const r of players || []) {
-    if (r.pos === 'DST') continue;
-    const e = index.get(String(r.id));
-    if (e && INJURY_SHOW.has(e.status)) { r.injury = e; flagged++; }
-    else if (r.injury) { delete r.injury; cleared++; }
-  }
-  return { flagged, cleared };
-}
-
-// Pure merge, exported for the checker. Overwrites team/teamId ONLY where the roster index has the
-// athlete. A player who is absent is LEFT ALONE and never marked a free agent: absence is ambiguous
-// (one failed roster fetch drops a whole team — a real run lost all of Arizona, including a top-30
-// TE), so inferring "no team" from it would confidently publish a falsehood. DST rows ARE a team and
-// are skipped; Sleeper-seeded rows already carry current teams from that feed.
 export function applyCurrentTeams(players, index) {
   let corrected = 0, confirmed = 0, unmatched = 0;
   for (const r of players || []) {
@@ -530,7 +470,7 @@ export async function buildNflDataset() {
   // assembled so both ranked and search-only rows are corrected in one pass.
   const { index: teamIndex, teams: rostersOk, fellBack } = await fetchCurrentTeams(seasonYear);
   const teamFix = applyCurrentTeams(players, teamIndex);
-  const injFix = applyInjuries(players, await fetchInjuries());
+  const injFix = applyInjuries(players, await fetchInjuries('football/nfl'));
   for (const r of players) {
     const pv = prevMap.get(String(r.id));
     if (pv) r.prevYear = pv; // prior full-season line for the Mock Draft sidebar (DSTs have no athlete id)

@@ -11,6 +11,7 @@
 // (volume-weighted), shutouts, and saves.
 
 import { fetchByAthlete, buildIndex, makeReader, priorSeasonParam } from './espn.js';
+import { fetchInjuries, applyInjuries } from './espnInjuries.js';
 
 // Adaptive games gates (fraction of the group leader's games played), like the
 // MLB PA gate — correct early- and full-season. Goalies play fewer games.
@@ -262,6 +263,8 @@ export async function buildNhlDataset() {
   }
 
   const players = [...rankedSk, ...rankedG, ...subThreshold];
+  // ESPN injury designations (shared with the NFL/NBA boards). Additive and failure-tolerant.
+  const injFix = applyInjuries(players, await fetchInjuries('hockey/nhl'));
   for (const r of players) {
     const pv = prevMap.get(String(r.id));
     if (pv) r.prevYear = pv; // prior full-season line for the Mock Draft sidebar
@@ -283,6 +286,7 @@ export async function buildNhlDataset() {
       goalieGate: gGate,
       maxGames: Math.max(maxSk, maxG), // drives enrichForm's in-season check
       total: players.length,
+      injuries: injFix,
     },
   };
 }

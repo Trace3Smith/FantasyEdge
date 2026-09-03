@@ -75,18 +75,21 @@ export function renderConsistencyHTML(p) {
 // characterisation. The feed's sourced beat-writer comment is deliberately not carried into the
 // dataset at all: some entries cover personal or off-field matters, where restating a sentence about
 // a real person is a different order of risk from a stale stat.
+// Severity is keyed on the STABLE abbreviation (type.abbreviation), not the free-text status, which
+// differs per sport for the same underlying state: the NFL says "Injured Reserve", MLB "60-Day-IL",
+// the NBA "Day-To-Day". The abbreviations are consistent league to league, so one table serves every
+// board. An unrecognised code still renders — in the neutral tier — rather than vanishing.
 const INJ_CLASS = {
-  'Injured Reserve': 'inj-out', Out: 'inj-out', Doubtful: 'inj-doubt',
-  Questionable: 'inj-q', Suspension: 'inj-susp',
+  IR: 'inj-out', O: 'inj-out', IL60: 'inj-out', IL15: 'inj-out', IL10: 'inj-out', IL7: 'inj-out',
+  D: 'inj-doubt', Q: 'inj-q', DD: 'inj-dd', SUSP: 'inj-susp',
 };
-const INJ_ABBR = { 'Injured Reserve': 'IR', Out: 'O', Doubtful: 'D', Questionable: 'Q', Suspension: 'SUSP' };
 
 // Compact badge for a list row. Title carries the detail so the row stays narrow.
 export function injuryBadgeHTML(p) {
   const i = p && p.injury;
   if (!i || !i.status) return '';
-  const cls = INJ_CLASS[i.status] || 'inj-q';
-  const abbr = i.abbr || INJ_ABBR[i.status] || '?';
+  const abbr = i.abbr || '?';
+  const cls = INJ_CLASS[abbr] || 'inj-q';
   const tip = [i.status, i.detail, i.returnDate ? `expected back ${i.returnDate}` : null].filter(Boolean).join(' — ');
   return ` <span class="inj ${cls}" title="${String(tip).replace(/"/g, '&quot;')}">${abbr}</span>`;
 }
@@ -95,9 +98,10 @@ export function injuryBadgeHTML(p) {
 export function injuryLineHTML(p) {
   const i = p && p.injury;
   if (!i || !i.status) return '';
-  const cls = INJ_CLASS[i.status] || 'inj-q';
+  const abbr = i.abbr || '?';
+  const cls = INJ_CLASS[abbr] || 'inj-q';
   const bits = [i.detail, i.returnDate ? `expected back ${i.returnDate}` : null].filter(Boolean).join(' · ');
-  return `<div class="inj-line"><span class="inj ${cls}">${i.abbr || INJ_ABBR[i.status] || '?'}</span> `
+  return `<div class="inj-line"><span class="inj ${cls}">${abbr}</span> `
     + `<b>${i.status}</b>${bits ? ` — ${bits}` : ''}</div>`;
 }
 
