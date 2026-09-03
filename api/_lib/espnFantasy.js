@@ -112,6 +112,33 @@ const HOOPS_SLOTS = {
 };
 const HOOPS_POS = { 1: 'PG', 2: 'SG', 3: 'SF', 4: 'PF', 5: 'C' };
 
+// ESPN football (ffl) slot + position ids. Derived from real data rather than assumed: every id
+// below was reconstructed by cross-referencing `eligibleSlots` against `defaultPositionId` over the
+// 11,617-player public kona_player_info feed, so each slot's label follows from which positions ESPN
+// actually allows in it (slot 23 accepts exactly RB/WR/TE → FLEX; slot 7 adds QB → superflex/OP).
+//
+// Slots 20 (BE) and 21 (IR) are the two universal slots — 11,196 players eligible for each, an
+// identical position set — which matches the bench Set already configured here. They cannot be told
+// apart from eligibleSlots alone; the 20=BE / 21=IR assignment is ESPN's long-standing convention.
+//
+// SLOT 25 IS DELIBERATELY OMITTED. It is real and NFL-only (absent from fba/flb/fhl), but it is not
+// a reserve slot: only 668 players are eligible, every one of them also bench-eligible, and it is not
+// injury-linked (622 of the 668 have injured=false). It correlates almost perfectly with rookies —
+// 546 of 563 name-matched players have years_exp 0 (97%), against 1% of everyone else — which points
+// to a rookie/taxi slot in dynasty leagues. That is strong evidence of WHO it holds but not a
+// confirmed name, and ESPN publishes no slot constants, so rather than write a guessed label it is
+// left out. An unmapped id renders as its number via slotOf's String(id) fallback.
+const NFL_SLOTS = {
+  0: 'QB', 1: 'TQB', 2: 'RB', 3: 'RB/WR', 4: 'WR', 5: 'WR/TE', 6: 'TE', 7: 'OP',
+  8: 'DT', 9: 'DE', 10: 'LB', 11: 'DL', 12: 'CB', 13: 'S', 14: 'DB', 15: 'D',
+  16: 'D/ST', 17: 'K', 18: 'P', 19: 'HC', 20: 'BE', 21: 'IR', 23: 'FLEX', 24: 'EDGE',
+};
+// A player's own position id (a different id space from the lineup slots above).
+const NFL_POS = {
+  1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 7: 'P', 9: 'DT', 10: 'DE',
+  11: 'LB', 12: 'CB', 13: 'S', 14: 'HC', 15: 'TQB', 16: 'D/ST', 17: 'EDGE',
+};
+
 const SPORTS = {
   mlb: {
     game: 'flb', abbrev: 'FLB',
@@ -134,7 +161,12 @@ const SPORTS = {
   // teams on every row. Fill it only from a verified source.
   nba: { game: 'fba', abbrev: 'FBA', slots: HOOPS_SLOTS, positions: HOOPS_POS, bench: new Set([12, 13]), slotOrder: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], teams: {} },
   // Off-season sports — game codes for future use; no rosters fetched while off-season.
-  nfl: { game: 'ffl', abbrev: 'FFL', slots: {}, positions: {}, bench: new Set([20, 21]), slotOrder: [], teams: {} },
+  // Team-id map intentionally empty, as for the NBA/WNBA. Deriving proTeamId -> abbrev by matching
+  // ESPN's feed against our own pool was attempted and REJECTED: only 8 of 33 ids resolved at >=90%
+  // confidence, because our pool's team field is itself the stale stat-season value the current-team
+  // fix addresses. A blank team label is harmless; a 70%-confident map prints wrong teams. Revisit
+  // once the corrected teams have shipped, when the same derivation should come out clean.
+  nfl: { game: 'ffl', abbrev: 'FFL', slots: NFL_SLOTS, positions: NFL_POS, bench: new Set([20, 21]), slotOrder: [0, 1, 7, 2, 3, 4, 5, 6, 23, 16, 17, 18, 19, 8, 9, 10, 11, 12, 13, 14, 15, 24], teams: {} },
   nhl: { game: 'fhl', abbrev: 'FHL', slots: {}, positions: {}, bench: new Set([], []), slotOrder: [], teams: {} },
 };
 const sportCfg = (sport) => SPORTS[sport] || SPORTS.mlb;
@@ -500,9 +532,21 @@ async function postLineupTxn(creds, { leagueId, seasonId, teamId, scoringPeriodI
 // Pull player names out of a 409 body for a given reason phrase, e.g.
 //   "Spencer Horwitz is locked"            (reason /is\s+locked/)
 //   "Spencer Horwitz is already in the BE"  (reason /is\s+already\s+in/)
-function parse409Names(body, reasonRe) {
+//
+// The character class includes '/' because ESPN names NFL team defenses "Bills D/ST" (confirmed in
+// its own player feed). Without it the match stopped at the slash and captured "ST", which matches no
+// roster entry — so dropIds stayed empty, the retry loop could not drop the locked defense, and the
+// WHOLE lineup write aborted rather than degrading to a partial apply. Verified directly:
+//   "Bills D/ST is locked"          -> ["ST"]              before
+//   "Bills D/ST is locked"          -> ["Bills D/ST"]      after
+// Skill-player and generational-suffix names are unaffected either way.
+//
+// Still unverified against a real NFL 409: whether ESPN ever uses a PLURAL phrasing ("... are
+// locked"), which this would miss entirely. The body logging in setLineup exists to surface exactly
+// that, rather than guessing at it here.
+export function parse409Names(body, reasonRe) {
   const out = [];
-  const re = new RegExp(`([A-Za-z][A-Za-z.'\\- ]*?)\\s+${reasonRe}`, 'gi');
+  const re = new RegExp(`([A-Za-z][A-Za-z.'/\\- ]*?)\\s+${reasonRe}`, 'gi');
   let m;
   while ((m = re.exec(String(body || '')))) {
     // Strip a leading conjunction the greedy match may have grabbed ("and Mike Trout").
@@ -534,11 +578,12 @@ export async function setLineup(creds, ids, items = [], { roster = [], sport = '
   const game = sportCfg(sport).game;
   const skippedLocked = [];
   let alreadySet = 0;
+  let lockedBody = null; // raw 409 text from the first recovered lock, for diagnosing the wording
   let attempt = items.slice();
 
   for (let tries = 0; tries < 6 && attempt.length; tries++) {
     const r = await postLineupTxn(creds, { ...ids, game }, attempt);
-    if (r.ok) return { applied: attempt.length, skippedLocked, alreadySet };
+    if (r.ok) return { applied: attempt.length, skippedLocked, alreadySet, lockedBody };
     if (r.status === 401 || r.status === 403) throw new EspnAuthError();
 
     if (r.status === 409) {
@@ -549,16 +594,29 @@ export async function setLineup(creds, ids, items = [], { roster = [], sport = '
       const dropIds = new Set([...lockedIds, ...alreadyIds]);
       const next = attempt.filter((it) => !dropIds.has(it.playerId));
       if (dropIds.size && next.length < attempt.length) {
+        // Keep the raw body from the FIRST recovered 409. It is the only place ESPN states its exact
+        // rejection wording, and parse409Names is built on that wording — currently on MLB-shaped
+        // evidence only ("Spencer Horwitz is locked"). NFL is unverified and has a likely break: its
+        // D/ST entries are named "Bills D/ST", and the parser's character class excludes '/', so such
+        // a name would capture as "ST" and never match a roster entry. Logging it here means the next
+        // genuine locked rejection in production supplies the evidence, with no need to provoke a
+        // failing write against a real team.
+        if (!lockedBody && lockedNames.length) lockedBody = String(r.body || '').slice(0, 400);
+        if (lockedNames.length) console.warn(`[setLineup] ${game} 409 locked-player body: ${String(r.body || '').slice(0, 400)}`);
         skippedLocked.push(...lockedNames);
         alreadySet += alreadyIds.size;
         attempt = next;
         continue; // retry without the locked / already-correct player(s)
       }
+      // A 409 we could NOT attribute to a named player — the phrasing did not match. Log it verbatim:
+      // this is exactly how an unhandled rejection class (a sport's different wording, or the
+      // IR-designated-to-return timing rule) would first show up.
+      console.warn(`[setLineup] ${game} unparsed 409 body: ${String(r.body || '').slice(0, 400)}`);
     }
     throw new Error(`ESPN lineup write HTTP ${r.status}${r.body ? ': ' + r.body.slice(0, 180) : ''}`);
   }
   // Everything left was redundant (already correct) — a successful no-op.
-  return { applied: attempt.length, skippedLocked, alreadySet };
+  return { applied: attempt.length, skippedLocked, alreadySet, lockedBody };
 }
 
 // --- manually-added leagues (Redis, per Clerk user) ------------------------------------------
