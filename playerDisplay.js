@@ -81,7 +81,10 @@ export function renderConsistencyHTML(p) {
 // board. An unrecognised code still renders — in the neutral tier — rather than vanishing.
 const INJ_CLASS = {
   IR: 'inj-out', O: 'inj-out', IL60: 'inj-out', IL15: 'inj-out', IL10: 'inj-out', IL7: 'inj-out',
-  D: 'inj-doubt', Q: 'inj-q', DD: 'inj-dd', SUSP: 'inj-susp',
+  ILF: 'inj-out',                       // MLB, out for the season
+  D: 'inj-doubt', Q: 'inj-q',
+  DD: 'inj-dd', RA: 'inj-dd',           // day-to-day / rehab assignment — mild, returning
+  SUSP: 'inj-susp',
 };
 
 // Compact badge for a list row. Title carries the detail so the row stays narrow.

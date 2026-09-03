@@ -76,6 +76,28 @@ console.log('\noffline — applyInjuries merge rules');
   check('an unfamiliar designation still surfaces (denylist, not allowlist)', exotic[0].injury?.abbr === 'IL60');
 }
 
+// ---- 1c. offline MLB status mapping -------------------------------------------------------------
+const { mlbStatusToInjury } = await import('../api/_lib/mlbInjuries.js');
+console.log('\noffline — MLB statsapi status mapping');
+{
+  const inj = ['D60', 'D15', 'D10', 'D7', 'ILF', 'RA', 'SU'];
+  check('every injury/suspension code maps', inj.every((c) => mlbStatusToInjury(c, 'x')));
+  check('IL codes carry the shared cross-sport shape',
+    mlbStatusToInjury('D15', 'Injured 15-Day')?.code === 'INJURY_STATUS_15DAYIL'
+    && mlbStatusToInjury('D15', 'Injured 15-Day')?.abbr === 'IL15');
+  check('MLB wording is preserved verbatim', mlbStatusToInjury('D60', 'Injured 60-Day')?.status === 'Injured 60-Day');
+  check('statsapi has no body part or return date, and we do not invent one',
+    mlbStatusToInjury('D10', 'x')?.detail === null && mlbStatusToInjury('D10', 'x')?.returnDate === null);
+  // Roster mechanics are not injuries — a demoted player must not wear an injury badge.
+  check('roster-mechanic codes are excluded',
+    ['RM', 'DEV', 'RES', 'TAX', 'NYR', 'DES', 'TI', 'A'].every((c) => mlbStatusToInjury(c, 'x') === null));
+  // Off-field designations are deliberately out of scope. None currently land on a pool player, and
+  // surfacing an off-field status about a real person is a decision to take deliberately, not inherit.
+  check('off-field designations are excluded',
+    ['RST', 'ADM', 'IN', 'RET', 'MIL'].every((c) => mlbStatusToInjury(c, 'x') === null));
+  check('an unknown code is ignored rather than guessed', mlbStatusToInjury('ZZZ', 'x') === null);
+}
+
 // ---- 2. live drift check ------------------------------------------------------------------------
 console.log('\nlive — served board vs ESPN current rosters');
 let board, index = new Map(), rosters = 0;
