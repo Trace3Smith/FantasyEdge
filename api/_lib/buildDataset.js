@@ -12,6 +12,8 @@
 //   records here.
 
 import { enrichBlendedValue } from './blendValuation.js';
+import { fetchMlbInjuries } from './mlbInjuries.js';
+import { applyInjuries } from './espnInjuries.js';
 
 const API = 'https://statsapi.mlb.com/api/v1';
 const HEADERS = { 'User-Agent': 'Mozilla/5.0' };
@@ -399,6 +401,9 @@ export async function buildDataset({ season = new Date().getFullYear() } = {}) {
   const prevYearMlb = await fetchPrevYearMlb(season - 1);
 
   const players = [...qualHitters, ...pitchers, ...searchOnly];
+  // Injury designations from MLB's own Stats API — the ESPN feed cannot be joined here (our ids are
+  // MLBAM, not ESPN). Shares applyInjuries with the ESPN sports so the merge rules stay identical.
+  const injFix = applyInjuries(players, await fetchMlbInjuries(season));
   // Clean internal-only fields off the wire (z / zTotal are kept for the draft board).
   for (const r of players) {
     const pv = (r.group === 'pitching' ? prevYearMlb.pit : prevYearMlb.hit).get(String(r.id));
@@ -428,6 +433,7 @@ export async function buildDataset({ season = new Date().getFullYear() } = {}) {
       searchOnly: searchOnly.length,
       total: players.length,
       blend: blendInfo,
+      injuries: injFix,
     },
   };
 }
