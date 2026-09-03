@@ -20,9 +20,19 @@
 // position of surfacing an off-field status about a real person. If that ever changes the decision
 // should be made deliberately, not inherited from this scoping.
 //
-// One honest gap versus the ESPN sports: statsapi's roster carries no body part and no return date
-// (hydrate=person(injuries) does not populate them either), so MLB records are status-only. The
-// renderers already degrade to just the badge when detail is absent.
+// BODY PART comes from a SECOND endpoint — the transactions feed — not the roster. The roster carries
+// only the IL tier, which is why the first version of this was status-only. The condition is stated
+// in the placement transaction's description ("… placed 3B Blaze Jordan on the 10-day injured list.
+// Left ankle sprain."), joined on the same MLBAM person id, so there is still no name matching.
+// Measured against the live pool: 111 of 113 injured players resolve a condition (98%).
+//
+// RETURN DATE genuinely is not available and is not faked. Transaction objects expose date,
+// effectiveDate, resolutionDate, typeCode, typeDesc and description — no expected-return field of any
+// kind; /api/v1/injuries does not exist; no hydrate adds one. ESPN publishes returnDate for MLB, but
+// its athlete alternateIds are ESPN-internal ("sdr"), not MLBAM — Matthew Boyd is ESPN 34401 / sdr
+// 2560632 / MLBAM 571510 — so there is no exact join, and name matching is exactly what this module
+// exists to avoid. MLB badges therefore read "IL15 · Left oblique strain" with no return date, where
+// the ESPN sports add one. The renderers already omit what is absent.
 const API = 'https://statsapi.mlb.com/api/v1';
 
 // MLB status code -> the same record shape the ESPN sports produce, so applyInjuries is shared.
@@ -45,6 +55,44 @@ export function mlbStatusToInjury(code, description) {
   return { code: m.code, abbr: m.abbr, status: description || null, detail: null, returnDate: null, date: null };
 }
 
+// The condition is the sentence AFTER the "injured list[ retroactive to <date>]." clause. Anchored
+// deliberately: team names contain periods ("St. Louis Cardinals placed …"), so splitting on '.'
+// returns the middle of the sentence instead of the injury.
+const CONDITION = /injured list(?:\s+retroactive to [^.]*)?\.\s*(.+)$/i;
+const PLACEMENT = /placed .* on the .*injured list/i;
+
+// Exported so the parsing trap is pinned by a test rather than rediscovered. Returns null when the
+// transaction states no condition — an activation, or a bare placement.
+export function conditionFromDescription(description) {
+  if (!description || !PLACEMENT.test(description)) return null;
+  const m = CONDITION.exec(description);
+  const text = m && m[1].trim().replace(/\.$/, '');
+  return text || null;
+}
+
+// mlbamId -> condition text, from this season's IL placements. Only the MOST RECENT placement per
+// player is used: a player placed in April, activated in May and re-placed in August must describe
+// the August injury, and reaching back to an older stint would report a healed one.
+async function fetchConditions(season) {
+  const out = new Map();
+  try {
+    const j = await getJson(`${API}/transactions?startDate=${season}-02-01&endDate=${new Date().toISOString().slice(0, 10)}`);
+    const latest = new Map();
+    for (const t of (j?.transactions || [])) {
+      if (!PLACEMENT.test(t?.description || '')) continue;
+      const id = t?.person?.id != null ? String(t.person.id) : null;
+      if (!id) continue;
+      const prev = latest.get(id);
+      if (!prev || (t.date || '') > (prev.date || '')) latest.set(id, t);
+    }
+    for (const [id, t] of latest) {
+      const text = conditionFromDescription(t.description);
+      if (text) out.set(id, text);
+    }
+  } catch { /* no conditions this build — records stay status-only */ }
+  return out;
+}
+
 async function getJson(url) {
   const r = await fetch(url, { signal: AbortSignal.timeout(20000) });
   if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
@@ -57,6 +105,7 @@ async function getJson(url) {
 export async function fetchMlbInjuries(season = new Date().getFullYear()) {
   const index = new Map();
   try {
+    const conditions = await fetchConditions(season);
     const teams = (await getJson(`${API}/teams?sportId=1&season=${season}`))?.teams || [];
     const results = await Promise.all(teams.map(async (t) => {
       try {
@@ -68,7 +117,8 @@ export async function fetchMlbInjuries(season = new Date().getFullYear()) {
       for (const r of roster) {
         const rec = mlbStatusToInjury(r?.status?.code, r?.status?.description);
         if (!rec || r?.person?.id == null) continue;
-        index.set(String(r.person.id), rec);
+        const id = String(r.person.id);
+        index.set(id, { ...rec, detail: conditions.get(id) || null });
       }
     }
   } catch { /* no injuries this build */ }

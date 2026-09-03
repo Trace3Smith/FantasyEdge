@@ -98,6 +98,26 @@ console.log('\noffline — MLB statsapi status mapping');
   check('an unknown code is ignored rather than guessed', mlbStatusToInjury('ZZZ', 'x') === null);
 }
 
+// ---- 1d. MLB condition parsing (body part, from the transactions feed) --------------------------
+const { conditionFromDescription } = await import('../api/_lib/mlbInjuries.js');
+console.log('\noffline — MLB IL condition parsing');
+{
+  const c = conditionFromDescription;
+  check('a plain placement yields the condition',
+    c('Atlanta Braves placed 3B Austin Riley on the 10-day injured list. Left oblique strain.') === 'Left oblique strain');
+  // THE TRAP: team names contain periods, so splitting on '.' returns the middle of the sentence.
+  // This exact case produced "Louis Cardinals placed 3B ..." on the first attempt.
+  check('a team name containing a period does not corrupt the parse',
+    c('St. Louis Cardinals placed 3B Blaze Jordan on the 10-day injured list. Left ankle sprain.') === 'Left ankle sprain');
+  check('a retroactive clause is skipped, not captured',
+    c('St. Louis Cardinals placed RHP Peter Strzelecki on the 15-day injured list retroactive to August 26, 2026. Right forearm extensor inflammation.')
+      === 'Right forearm extensor inflammation');
+  check('an activation is not a placement', c('Las Vegas Aviators activated C Chad Wallach from the 7-day injured list.') === null);
+  check('a placement with no stated condition yields null',
+    c('Cedar Rapids Kernels placed RHP Eston Stull on the 7-day injured list.') === null);
+  check('junk input is handled', c('') === null && c(null) === null && c('traded for cash') === null);
+}
+
 // ---- 2. live drift check ------------------------------------------------------------------------
 console.log('\nlive — served board vs ESPN current rosters');
 let board, index = new Map(), rosters = 0;
