@@ -9,6 +9,7 @@
     "prepare": "git config core.hooksPath .githooks || true",
     "check:dvp": "node scripts/check-dvp.mjs",
     "check:teams": "node scripts/check-teams.mjs",
+    "check:autopilot": "node scripts/check-autopilot.mjs",
     "check:espn": "node scripts/check-espn-fantasy.mjs"
   },
   "dependencies": {
