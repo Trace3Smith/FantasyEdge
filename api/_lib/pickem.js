@@ -8,6 +8,8 @@
 // probability. Win% = Φ(spread / 13.5): football margin-of-victory ≈ Normal with SD ~13.5,
 // so a −3 favorite ≈ 59%, −7 ≈ 70%. Honest and standard; not framed as betting advice.
 
+import { buildTeamReports } from './teamReport.js';
+
 const UA = 'FantasyEdge/1.0 (brackets pickem; contact via app)';
 
 // Normal CDF via an erf approximation (Abramowitz & Stegun 7.1.26). Used only to turn a
@@ -106,7 +108,8 @@ async function fetchWeather(coords, indoor, kickoffIso) {
 //   coordsFor(comp, home, away) — returns { lat, lon, dome } | null for the venue (weather)
 //   includeEvent(comp, ev)      — optional filter (e.g. CFB: drop FCS games); default keep all
 //   nameOf(comp)                — optional extra label (e.g. CFB bowl/playoff name); default null
-// Returns { season, seasonType, week, games, results, bestPicks, upsetAlerts, builtAt }, where
+//   leaguePath                  — ESPN sport/league segment ('football/nfl'); enables team reports
+// Returns { season, seasonType, week, games, results, teamReports, bestPicks, upsetAlerts, builtAt }, where
 // `games` is the still-to-play slate and `results` holds any game in the same window that's
 // already final (see the split below). Failure-tolerant per game so one bad event can't drop
 // the slate.
@@ -126,6 +129,7 @@ export async function buildPickem(cfg) {
       const away = c.competitors.find((t) => t.homeAway === 'away');
       if (!home || !away) continue;
       const teamOf = (t) => ({
+        id: t.team.id,
         abbr: t.team.abbreviation,
         name: t.team.displayName,
         logo: t.team.logo || null,
@@ -209,12 +213,28 @@ export async function buildPickem(cfg) {
   const upsetAlerts = picked.filter((g) => g.upsetAlert)
     .map((g) => ({ id: g.id, underdog: g.pick.team === g.home.abbr ? g.away.abbr : g.home.abbr, favorite: g.pick.team, favWinProb: g.pick.winProb }));
 
+  // Expandable team reports (recent form + offense/defense ranks) for everyone still to play.
+  // Precomputed here rather than fetched per click: the slate's teams are a small, known set, so
+  // one league-wide stats call plus a schedule each — on the daily cron — makes the panel instant
+  // and costs the reader nothing. Best-effort; a failure leaves the cards exactly as they were.
+  let teamReports = null;
+  if (cfg.leaguePath) {
+    try {
+      teamReports = await buildTeamReports({
+        leaguePath: cfg.leaguePath,
+        season: sb.season?.year ?? null,
+        teamIds: upcoming.flatMap((g) => [g.home.id, g.away.id]),
+      });
+    } catch { /* the slate is the product; the panel is an enhancement */ }
+  }
+
   return {
     season: sb.season?.year ?? null,
     seasonType: sb.season?.type ?? null,
     week: sb.week?.number ?? null,
     games: upcoming,
     results,
+    teamReports,
     bestPicks,
     upsetAlerts,
     builtAt: new Date().toISOString(),

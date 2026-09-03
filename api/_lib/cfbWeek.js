@@ -30,6 +30,7 @@ function hasRankedTeam(comp) {
 // Build the current/upcoming CFB week's ranked slate (pass `week` to target a specific one).
 export function buildCfbWeek({ week } = {}) {
   return buildPickem({
+    leaguePath: 'football/college-football',
     scoreboardUrl: week ? `${SB}?week=${encodeURIComponent(week)}` : SB,
     injuriesUrl: INJ,
     includeEvent: (comp) => hasRankedTeam(comp),

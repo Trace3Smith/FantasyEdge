@@ -95,6 +95,7 @@ const BOWL_VENUES = {
 export function buildCfbBowl({ season } = {}) {
   const yr = season ?? currentBowlSeason();
   return buildPickem({
+    leaguePath: 'football/college-football',
     scoreboardUrl: `${SB}?seasontype=3&dates=${yr}&limit=200`,
     injuriesUrl: INJ,
     includeEvent: (comp) => !isFcs(comp) && hasRealTeams(comp),

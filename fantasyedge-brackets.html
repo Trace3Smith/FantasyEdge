@@ -196,6 +196,36 @@
   .gc-wx{font-size:11.5px;color:var(--blue);display:flex;align-items:center;gap:6px;}
   .nfl-loading,.nfl-error{padding:40px 20px;text-align:center;color:var(--gray);font-size:13px;}
 
+  .team-row.expandable{cursor:pointer;border-radius:6px;padding:2px 4px;margin:-2px -4px;transition:background .15s;}
+  .team-row.expandable:hover{background:rgba(255,255,255,0.04);}
+  .team-row .tcaret{font-size:10px;color:var(--gray);transition:transform .18s;}
+  .team-row.open .tcaret{transform:rotate(180deg);}
+  .team-panel{display:none;background:var(--dark3);border-radius:8px;padding:12px 13px;margin-bottom:12px;}
+  .team-panel.open{display:block;}
+  .tp-hd{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--gray);margin:0 0 8px;}
+  .tp-hd:not(:first-child){margin-top:14px;}
+  .tp-basis{font-size:10px;letter-spacing:0;text-transform:none;color:var(--gray);font-family:inherit;font-weight:400;}
+  .tp-edge{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;border-top:1px solid rgba(255,255,255,0.05);}
+  .tp-edge:first-of-type{border-top:none;}
+  .tp-edge .te-txt{flex:1;color:var(--gray-light);}
+  .tp-edge .te-txt b{color:var(--white);font-weight:600;}
+  .tp-verdict{font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;padding:2px 7px;border-radius:4px;white-space:nowrap;}
+  .tp-verdict.edge{background:rgba(76,175,80,0.16);color:var(--green);}
+  .tp-verdict.tough{background:rgba(244,67,54,0.16);color:#f3a1a1;}
+  .tp-verdict.even{background:rgba(136,136,136,0.16);color:var(--gray-light);}
+  .tp-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:8px;}
+  .tp-stat{background:rgba(255,255,255,0.03);border-radius:6px;padding:7px 9px;}
+  .tp-stat .ts-lbl{font-size:9.5px;letter-spacing:.5px;text-transform:uppercase;color:var(--gray);}
+  .tp-stat .ts-val{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:17px;}
+  .tp-stat .ts-rank{font-size:10px;color:var(--gray);margin-left:4px;}
+  .tp-form{display:flex;flex-direction:column;gap:4px;}
+  .tp-game{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--gray-light);}
+  .tp-res{font-size:9px;font-weight:800;width:16px;height:16px;line-height:16px;text-align:center;border-radius:4px;flex-shrink:0;}
+  .tp-res.w{background:rgba(76,175,80,0.18);color:var(--green);} .tp-res.l{background:rgba(244,67,54,0.16);color:#f3a1a1;}
+  .tp-game .tg-opp{flex:1;} .tp-game .tg-rk{color:var(--gold);font-size:10px;}
+  .tp-game .tg-score{font-variant-numeric:tabular-nums;} .tp-game .tg-yr{color:var(--gray);font-size:10px;}
+  .tp-none{font-size:11.5px;color:var(--gray);}
+
   .results-sec{margin-top:26px;}
   .results-hd{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gray);margin-bottom:10px;}
   .results-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;}
@@ -398,7 +428,11 @@ async function loadFeed(cfg) {
       return;
     }
     renderRails({...data, games: upcoming}, cfg.railsId);
-    wrap.innerHTML = '<div class="games-grid">'+upcoming.map(gameCard).join('')+'</div>' + resultsHtml;
+    // Keep the slate so a team-row click can read its reports; a payload cached before team
+    // reports existed simply renders non-expandable cards.
+    FEEDS[cfg.gamesId] = {...data, games: upcoming};
+    const hasReports = !!(data.teamReports && data.teamReports.teams);
+    wrap.innerHTML = '<div class="games-grid">'+upcoming.map(g => gameCard(g, cfg.gamesId, hasReports)).join('')+'</div>' + resultsHtml;
   } catch (e) {
     cfg._loaded = false; // allow a retry on next tab switch
     wrap.innerHTML = '<div class="nfl-error">Couldn\'t load this slate. Try again shortly.</div>';
@@ -444,7 +478,7 @@ function renderRails(d, railsId) {
     `<div class="rail upset"><div class="rail-title">⚡ Upset alerts</div>${ups}</div>`;
 }
 
-function teamRow(t, picked, mkt) {
+function teamRow(t, picked, mkt, expand) {
   const logo = t.logo ? `<img src="${esc(t.logo)}" alt="">` : '';
   const rec = t.record ? `<span class="trec">${esc(t.record)}</span>` : '';
   const chk = picked ? '<span class="pickchk">✓ PICK</span>' : '';
@@ -452,7 +486,113 @@ function teamRow(t, picked, mkt) {
   const market = mkt != null
     ? `<span class="tmarket" title="Market-implied win % — the de-vigged DraftKings moneyline (the betting market's implied probability), not a public money/ticket split.">${mkt}%</span>`
     : '';
-  return `<div class="team-row${picked?' picked':''}">${logo}<span class="tname">${esc(t.name)}</span>${rec}${market}${chk}</div>`;
+  // `expand` is [feedId, gameId, side] when a team report exists for this row — the row then
+  // opens the panel. Absent (an older cached payload, or an FCS team with no league stats) it
+  // stays a plain row rather than a control that opens an empty drawer.
+  const open = expand
+    ? ` expandable" role="button" tabindex="0" onclick="toggleTeam(this,'${expand[0]}','${expand[1]}','${expand[2]}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}`
+    : '';
+  const caret = expand ? '<span class="tcaret">▾</span>' : '';
+  return `<div class="team-row${picked?' picked':''}${open}">${logo}<span class="tname">${esc(t.name)}</span>${rec}${market}${chk}${caret}</div>`;
+}
+
+// ===== Expandable team report — recent form + the offense-vs-defense ranks behind the line =====
+
+// Feeds kept by container id so a click can read the slate's team reports without a refetch.
+const FEEDS = {};
+
+// Rank 1 is good on BOTH sides of the ball (most produced on offense, fewest allowed on defense),
+// so the two are directly comparable: subtract to get the mismatch. A gap wider than a quarter of
+// the league is the threshold for calling it — anything tighter is honestly just even.
+function edgeVerdict(offRank, defRank, leagueSize) {
+  if (!offRank || !defRank || !leagueSize) return null;
+  const gap = defRank - offRank;
+  const band = Math.max(4, Math.round(leagueSize / 4));
+  if (gap >= band) return 'edge';
+  if (gap <= -band) return 'tough';
+  return 'even';
+}
+
+function edgeRow(label, off, def, oppAbbr, n) {
+  if (!off?.rank || !def?.rank) return '';
+  const v = edgeVerdict(off.rank, def.rank, n);
+  const word = v === 'edge' ? 'Edge' : v === 'tough' ? 'Tough' : 'Even';
+  return `<div class="tp-edge"><span class="te-txt">${esc(label)} offense <b>#${off.rank}</b> vs `+
+    `${esc(oppAbbr)} ${esc(label.toLowerCase())} defense <b>#${def.rank}</b></span>`+
+    `<span class="tp-verdict ${v}">${word}</span></div>`;
+}
+
+function statTile(lbl, s, suffix) {
+  if (!s || s.value == null) return '';
+  return `<div class="tp-stat"><div class="ts-lbl">${esc(lbl)}</div>`+
+    `<div class="ts-val">${s.value}${suffix||''}<span class="ts-rank">${s.rank?'#'+s.rank:''}</span></div></div>`;
+}
+
+// The panel body for one side of one game: the matchup edge first (it's the "why"), then the
+// season profile, then recent results.
+function teamPanelHtml(feed, g, side) {
+  const rep = feed.teamReports, me = g[side], opp = side === 'home' ? g.away : g.home;
+  const mine = rep?.teams?.[me.id], theirs = rep?.teams?.[opp.id];
+  if (!mine) return '<div class="tp-none">No report available for this team.</div>';
+  const n = rep.leagueSize;
+  const basis = rep.statsBasis === 'prior-season'
+    ? ` <span class="tp-basis">${rep.statsSeason} season — this year's sample is still too small to rank</span>`
+    : ` <span class="tp-basis">${rep.statsSeason} season</span>`;
+
+  const edges = theirs
+    ? edgeRow('Pass', mine.offense.yardsPerGame, theirs.defense.yardsPerGame, opp.abbr, n)
+      + edgeRow('Rush', mine.offense.rushYardsPerGame, theirs.defense.rushYardsPerGame, opp.abbr, n)
+    : '';
+  const edgeSec = edges
+    ? `<div class="tp-hd">The matchup${basis}</div>${edges}`
+    : '';
+
+  const tiles = statTile('Pts / game', mine.offense.pointsPerGame)
+    + statTile('Pts allowed', mine.defense.pointsPerGame)
+    + statTile('Yds / game', mine.offense.totalYardsPerGame)
+    + statTile('Yds allowed', mine.defense.totalYardsPerGame)
+    + statTile('Yds / carry', mine.offense.yardsPerCarry)
+    + statTile('YPC allowed', mine.defense.yardsPerCarry);
+  // A slate regularly includes teams ESPN's leaderboard doesn't cover — its team stats are
+  // FBS-only, so an FCS non-conference opponent has recent results but no season profile and no
+  // ranks to match up. Say that, rather than showing a panel that looks half-broken.
+  const statSec = tiles
+    ? `<div class="tp-hd">Season${edgeSec?'':basis}</div><div class="tp-stats">${tiles}</div>`
+    : `<div class="tp-hd">Season</div><div class="tp-none">No season stat profile is published for this team, so there are no ranks to match up.</div>`;
+
+  // Early in a year the last five games straddle two seasons, so each row is stamped with its
+  // year — but only then. A list that sits entirely in one season needs no repeated label.
+  const spansSeasons = new Set((mine.form||[]).map(f => f.season)).size > 1;
+  const games = (mine.form||[]).map(f => {
+    const rk = f.oppRank ? `<span class="tg-rk">#${f.oppRank}</span> ` : '';
+    const yr = spansSeasons ? `<span class="tg-yr">${f.season}</span>` : '';
+    return `<div class="tp-game"><span class="tp-res ${f.won?'w':'l'}">${f.won?'W':'L'}</span>`+
+      `<span class="tg-score">${f.score}–${f.oppScore}</span>`+
+      `<span class="tg-opp">${f.home?'vs':'@'} ${rk}${esc(f.opp)}</span>${yr}</div>`;
+  }).join('');
+  const formSec = games
+    ? `<div class="tp-hd">Last ${(mine.form||[]).length}</div><div class="tp-form">${games}</div>`
+    : '<div class="tp-hd">Last games</div><div class="tp-none">No completed games yet.</div>';
+
+  return edgeSec + statSec + formSec;
+}
+
+// Open/close a team's panel. Rendered on first open (not with the card) so a slate of 24 games
+// doesn't build 48 panels nobody asked for; only one side is open per card at a time.
+function toggleTeam(row, feedId, gameId, side) {
+  const feed = FEEDS[feedId];
+  const panel = document.getElementById(`tp-${feedId}-${gameId}`);
+  if (!feed || !panel) return;
+  const card = row.closest('.gcard');
+  const wasOpen = panel.classList.contains('open') && panel.dataset.side === side;
+  card.querySelectorAll('.team-row.open').forEach(r => r.classList.remove('open'));
+  if (wasOpen) { panel.classList.remove('open'); return; }
+  const g = (feed.games||[]).find(x => String(x.id) === String(gameId));
+  if (!g) return;
+  panel.dataset.side = side;
+  panel.innerHTML = teamPanelHtml(feed, g, side);
+  panel.classList.add('open');
+  row.classList.add('open');
 }
 
 function injLine(label, rows) {
@@ -482,7 +622,7 @@ function resultCard(g) {
   </div>`;
 }
 
-function gameCard(g) {
+function gameCard(g, feedId, hasReports) {
   const d = g.date ? new Date(g.date) : null;
   const when = d ? d.toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'})+' · '+d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '';
   const live = g.state==='in' ? '<span class="gc-live">● Live</span>' : (g.state==='post' ? '<span class="gc-live" style="background:rgba(136,136,136,.16);color:#aaa">Final</span>' : '');
@@ -505,7 +645,8 @@ function gameCard(g) {
     <div class="gc-top"><span class="gc-when">${esc(when)}</span><span>${live}${flag}</span></div>
     ${bowl}
     ${g.market ? '<div class="gc-market-hd" title="Market-implied win % per side, de-vigged from the DraftKings moneyline — the betting market\'s implied probability, not a public money/ticket split.">Market win %</div>' : ''}
-    <div class="matchup">${teamRow(g.away, pickTeam===g.away.abbr, g.market?g.market.away:null)}${teamRow(g.home, pickTeam===g.home.abbr, g.market?g.market.home:null)}</div>
+    <div class="matchup">${teamRow(g.away, pickTeam===g.away.abbr, g.market?g.market.away:null, hasReports&&g.away.id?[feedId,g.id,'away']:null)}${teamRow(g.home, pickTeam===g.home.abbr, g.market?g.market.home:null, hasReports&&g.home.id?[feedId,g.id,'home']:null)}</div>
+    ${hasReports ? `<div class="team-panel" id="tp-${feedId}-${g.id}"></div>` : ''}
     ${pickBlock}
     ${line}
     <div class="gc-extra">${inj}${wx}</div>

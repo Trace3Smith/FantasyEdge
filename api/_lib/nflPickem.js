@@ -34,6 +34,7 @@ const STADIUMS = {
 // Build the current/upcoming NFL week (pass `week` to target a specific one).
 export function buildNflPickem({ week } = {}) {
   return buildPickem({
+    leaguePath: 'football/nfl',
     scoreboardUrl: week ? `${SB}?week=${encodeURIComponent(week)}` : SB,
     injuriesUrl: INJ,
     coordsFor: (comp, home) => STADIUMS[home.team.abbreviation] || null,

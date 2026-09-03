@@ -223,6 +223,20 @@ export default async function handler(req, res) {
       }
     }
 
+    // Cron-summary shape shared by the three Pick'em feeds. `results` and the team-report
+    // coverage are here deliberately: both are steps that can degrade to empty WITHOUT throwing
+    // (a league mid-transition, an ESPN leaderboard that answers `{}`), which is exactly the
+    // silent-staleness failure documented in espn.js. `basis: 'prior-season'` is normal in the
+    // opening weeks; `reports: 0` on a non-empty slate is not.
+    const pickemSummary = (feed) => ({
+      games: feed.games.length,
+      results: feed.results.length,
+      upsets: feed.upsetAlerts.length,
+      reports: Object.keys(feed.teamReports?.teams || {}).length,
+      statsBasis: feed.teamReports?.statsBasis ?? null,
+      statsSeason: feed.teamReports?.statsSeason ?? null,
+    });
+
     // NFL Pick'em weekly feed (Brackets & Bowls) — free ESPN + NWS sources, no key. Additive
     // and failure-tolerant: a failed build leaves the last good feed in KV rather than
     // dropping it, and never blocks the dataset writes above.
@@ -230,7 +244,7 @@ export default async function handler(req, res) {
     try {
       const feed = await buildNflPickem();
       await redis.set(NFL_PICKEM_KEY, feed);
-      pickem = { week: feed.week, games: feed.games.length, upsets: feed.upsetAlerts.length };
+      pickem = { week: feed.week, ...pickemSummary(feed) };
     } catch (err) {
       pickem = { error: err.message };
     }
@@ -241,7 +255,7 @@ export default async function handler(req, res) {
     try {
       const feed = await buildCfbBowl();
       await redis.set(CFB_BOWL_KEY, feed);
-      cfbBowl = { season: feed.season, games: feed.games.length, upsets: feed.upsetAlerts.length };
+      cfbBowl = { season: feed.season, ...pickemSummary(feed) };
     } catch (err) {
       cfbBowl = { error: err.message };
     }
@@ -252,7 +266,7 @@ export default async function handler(req, res) {
     try {
       const feed = await buildCfbWeek();
       await redis.set(CFB_WEEK_KEY, feed);
-      cfbWeek = { week: feed.week, games: feed.games.length, upsets: feed.upsetAlerts.length };
+      cfbWeek = { week: feed.week, ...pickemSummary(feed) };
     } catch (err) {
       cfbWeek = { error: err.message };
     }

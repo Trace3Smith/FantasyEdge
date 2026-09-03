@@ -103,6 +103,48 @@ EASIER on the data side, harder on the logic side.**
    table, and requires the **new bracket-optimizer logic**. Sequence last — its long pole is
    modeling, not data, so it benefits from the pipeline being proven by #1 and #2.
 
+## Addendum (2026-09-03) — team reports, and the endpoint that gives us defense
+
+Built as the expandable team panel on every Pick'em card (`api/_lib/teamReport.js`): recent
+form, a season profile, and the offense-vs-defense rank comparison that explains *why* a
+matchup tilts. This merged two separately-scoped items — "click a team to see recent games and
+stats" and the "why behind the stats" matchup context — because they are the same question
+asked from two directions, and a rank only means something next to the rank it faces.
+
+**The finding that made it cheap.** ESPN's per-team `statistics` endpoint is offense-only: its
+`defensive` category reports `yardsAllowed` and `pointsAllowed` as a flat **0** for every team.
+That is why `nflDvp.js` derives NFL pass/rush defense by aggregating ~272 game summaries a
+season — and why doing the same for 136 FBS teams looked unaffordable.
+
+The `statistics/byteam` leaderboard does not have that hole:
+
+```
+https://site.web.api.espn.com/apis/common/v3/sports/{league}/statistics/byteam?season={yr}&seasontype=2
+```
+
+Every team's categories arrive **doubled** — `Own Passing` / `Opponent Passing`, `Own Rushing` /
+`Opponent Rushing`, and so on. The Opponent split *is* the defense (what the team allowed), and
+each stat already carries its national rank. One call returns the whole league, both sides of
+the ball, pre-ranked. Confirmed on both `football/nfl` (32 teams) and
+`football/college-football` (136).
+
+**Rank direction.** Rank 1 is good for the team in both splits, for opposite reasons: on an Own
+split it is the most produced, on an Opponent split the fewest allowed. Verified on 2025 FBS —
+Ohio State allowed 129.7 pass yds/g at opponent-rank 1, Stanford 288.9 at 136. So an offense
+rank and a defense rank are directly comparable, which is what the panel's verdict rests on.
+
+**Two traps, both hit in testing:**
+- A league that has not kicked off returns a wholly **empty body** (`{}` — no teams, no
+  categories, and *not* an error), so "zero teams" has to trigger the prior-season fallback the
+  same as "too few teams have played". Ranks computed off the 16 CFB teams who had played in
+  Week 1 would have been worse than useless.
+- NFL team schedules include **preseason** games as completed results. They are excluded from
+  recent form (`seasonType.type < 2`); starters barely play in them.
+
+**Cost:** one league-wide stats call plus one schedule call per team on the slate, on the daily
+cron — ~1s and +40KB of payload for a 24-game CFB week. No new function; it rides the existing
+`?feed=` dispatch. `npm run check:brackets` exercises the feeds and the page's real renderers.
+
 ## Bottom line for the build decision
 - **No recurring cost, no paid API, no new auth.** ESPN (free) + NWS (free) cover all four
   sections' data. Only *weather* needs the second source; only *March Madness history* needs

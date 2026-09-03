@@ -116,7 +116,12 @@ export default async function handler(req, res) {
     const { key, build } = PICKEM_FEEDS[req.query.feed];
     try {
       let feed = await redis.get(key);
-      if (!feed || !Array.isArray(feed.games)) {
+      // A payload cached before team reports existed has no `teamReports` KEY at all, so it
+      // rebuilds once and the panel lights up on the first request after a deploy rather than
+      // at the next cron. Tested for presence, not truthiness: a build whose report step failed
+      // stores an explicit null, and treating THAT as stale would rebuild the whole feed —
+      // scoreboard, injuries and weather — on every single request.
+      if (!feed || !Array.isArray(feed.games) || !('teamReports' in feed)) {
         feed = await build();
         await redis.set(key, feed);
       }
