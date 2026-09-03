@@ -133,6 +133,17 @@ const NFL_SLOTS = {
   8: 'DT', 9: 'DE', 10: 'LB', 11: 'DL', 12: 'CB', 13: 'S', 14: 'DB', 15: 'D',
   16: 'D/ST', 17: 'K', 18: 'P', 19: 'HC', 20: 'BE', 21: 'IR', 23: 'FLEX', 24: 'EDGE',
 };
+// proTeamId -> abbrev, taken from ESPN's own proTeamSchedules feed rather than inferred. An earlier
+// attempt to derive this by matching ESPN's player feed against our pool was rejected at 8/33 ids
+// above 90% confidence; this endpoint states it directly, and agrees with all 8 that were confident.
+// Id 0 (free agent) is intentionally absent so an unrostered player renders blank, not as a team.
+const NFL_TEAMS = {
+  1: 'ATL', 2: 'BUF', 3: 'CHI', 4: 'CIN', 5: 'CLE', 6: 'DAL', 7: 'DEN', 8: 'DET', 9: 'GB',
+  10: 'TEN', 11: 'IND', 12: 'KC', 13: 'LV', 14: 'LAR', 15: 'MIA', 16: 'MIN', 17: 'NE', 18: 'NO',
+  19: 'NYG', 20: 'NYJ', 21: 'PHI', 22: 'ARI', 23: 'PIT', 24: 'LAC', 25: 'SF', 26: 'SEA', 27: 'TB',
+  28: 'WSH', 29: 'CAR', 30: 'JAX', 33: 'BAL', 34: 'HOU',
+};
+
 // A player's own position id (a different id space from the lineup slots above).
 const NFL_POS = {
   1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 7: 'P', 9: 'DT', 10: 'DE',
@@ -161,12 +172,7 @@ const SPORTS = {
   // teams on every row. Fill it only from a verified source.
   nba: { game: 'fba', abbrev: 'FBA', slots: HOOPS_SLOTS, positions: HOOPS_POS, bench: new Set([12, 13]), slotOrder: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], teams: {} },
   // Off-season sports — game codes for future use; no rosters fetched while off-season.
-  // Team-id map intentionally empty, as for the NBA/WNBA. Deriving proTeamId -> abbrev by matching
-  // ESPN's feed against our own pool was attempted and REJECTED: only 8 of 33 ids resolved at >=90%
-  // confidence, because our pool's team field is itself the stale stat-season value the current-team
-  // fix addresses. A blank team label is harmless; a 70%-confident map prints wrong teams. Revisit
-  // once the corrected teams have shipped, when the same derivation should come out clean.
-  nfl: { game: 'ffl', abbrev: 'FFL', slots: NFL_SLOTS, positions: NFL_POS, bench: new Set([20, 21]), slotOrder: [0, 1, 7, 2, 3, 4, 5, 6, 23, 16, 17, 18, 19, 8, 9, 10, 11, 12, 13, 14, 15, 24], teams: {} },
+  nfl: { game: 'ffl', abbrev: 'FFL', slots: NFL_SLOTS, positions: NFL_POS, bench: new Set([20, 21]), slotOrder: [0, 1, 7, 2, 3, 4, 5, 6, 23, 16, 17, 18, 19, 8, 9, 10, 11, 12, 13, 14, 15, 24], teams: NFL_TEAMS },
   nhl: { game: 'fhl', abbrev: 'FHL', slots: {}, positions: {}, bench: new Set([], []), slotOrder: [], teams: {} },
 };
 const sportCfg = (sport) => SPORTS[sport] || SPORTS.mlb;
@@ -326,6 +332,27 @@ export async function discoverFanLeagues(creds, sport = 'mlb') {
   return { leagues: out, diag };
 }
 
+// NFL bye weeks, proTeamId -> week, from ESPN's public pro-team schedule. No league or cookies
+// needed. This is the ONLY source we have: Sleeper carries no bye field at all (0 of ~12k players),
+// and our own NFL dataset carries none either, which is why bye handling was a prerequisite for
+// Autopilot on NFL rather than a nicety — a healthy player on bye scores zero and must be benched,
+// while never being mistaken for injured and sent to IR.
+const PRO_SCHEDULE_URL = (season) =>
+  `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${season}?view=proTeamSchedules_wl`;
+
+export async function fetchNflByes(season = new Date().getFullYear()) {
+  const out = new Map();
+  try {
+    const res = await fetch(PRO_SCHEDULE_URL(season), { headers: { 'User-Agent': UA, Accept: 'application/json' }, signal: AbortSignal.timeout(20000) });
+    if (!res.ok) return out;
+    const j = await res.json();
+    for (const t of (j?.settings?.proTeams || [])) {
+      if (t?.id != null && t?.byeWeek) out.set(Number(t.id), Number(t.byeWeek));
+    }
+  } catch { /* no byes this run — callers treat an empty map as "unknown", never as "no bye" */ }
+  return out;
+}
+
 // --- roster fetch (v3 league API) ------------------------------------------------------------
 const v3Read = (game) => `https://lm-api-reads.fantasy.espn.com/apis/v3/games/${game}/seasons`;
 
@@ -346,6 +373,7 @@ function parseRoster(entries = [], cfg = SPORTS.mlb) {
       name: pl.fullName || 'Unknown',
       pos: posOf(pl.defaultPositionId, cfg),
       proTeam: teamOf(pl.proTeamId, cfg),
+      proTeamId: pl.proTeamId != null ? Number(pl.proTeamId) : null, // keys the bye lookup — no name matching
       slot: slotOf(slotId, cfg),
       slotId,
       eligibleSlots: Array.isArray(pl.eligibleSlots) ? pl.eligibleSlots : [],
@@ -483,6 +511,7 @@ export async function fetchFreeAgents(creds, { leagueId, seasonId, limit = 50 },
       name: pl.fullName || 'Unknown',
       pos: posOf(pl.defaultPositionId, cfg),
       proTeam: teamOf(pl.proTeamId, cfg),
+      proTeamId: pl.proTeamId != null ? Number(pl.proTeamId) : null, // keys the bye lookup — no name matching
       eligibleSlots: Array.isArray(pl.eligibleSlots) ? pl.eligibleSlots : [],
       percentOwned: pl.ownership?.percentOwned ?? null,
       injury: injuryLabelOf(pl.injuryStatus),
