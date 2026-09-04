@@ -127,8 +127,14 @@ export default async function handler(req, res) {
       const reports = feed?.teamReports;
       const staleReports = !feed || !('teamReports' in feed)
         || (reports != null && reports.v !== TEAM_REPORT_VERSION);
+      // Forecasts predating the timestamp+url fields can be neither aged on the card nor topped
+      // up, and those fields are purely ADDITIVE — so nothing else here would notice, and the
+      // feature would stay invisible until the next daily cron. Rebuilding once on the first
+      // request after deploy is the same self-heal the version check above does. It cannot loop:
+      // every forecast a build produces carries both fields.
+      const staleWeather = (feed?.games || []).some((g) => g.weather && !g.weather.fetchedAt);
       let built = false;
-      if (!feed || !Array.isArray(feed.games) || staleReports) {
+      if (!feed || !Array.isArray(feed.games) || staleReports || staleWeather) {
         feed = await build();
         await redis.set(key, feed);
         built = true;
