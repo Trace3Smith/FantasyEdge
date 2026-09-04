@@ -17,6 +17,7 @@ import { buildCfbWeek } from '../api/_lib/cfbWeek.js';
 import { buildNflPickem } from '../api/_lib/nflPickem.js';
 import { buildCfbBowl } from '../api/_lib/cfbBowl.js';
 import { currentSeasonRankable, TEAM_REPORT_VERSION } from '../api/_lib/teamReport.js';
+import { CFB_VENUES } from '../api/_lib/cfbVenues.js';
 
 const FEEDS = { cfbweek: buildCfbWeek, nfl: buildNflPickem, bowl: buildCfbBowl };
 let failures = 0;
@@ -39,6 +40,24 @@ function loadPageScript() {
   );
 }
 
+// The generated stadium table (scripts/gen-cfb-venues.mjs). Structural only — a regeneration that
+// wrote a null island, a swapped lat/lon, or an eastern-hemisphere longitude fails here.
+function checkVenueTable() {
+  console.log('\n[venues] CFB STADIUM TABLE');
+  const rows = Object.entries(CFB_VENUES);
+  ok(rows.length > 120, `covers the FBS field (${rows.length} venues)`);
+  const outdoor = rows.filter(([, v]) => !v.dome);
+  ok(rows.every(([, v]) => v.dome === true || (Number.isFinite(v.lat) && Number.isFinite(v.lon))),
+    'every venue is either domed or has real coordinates');
+  // US and its NWS-covered territories: American Samoa is the southern extreme, Alaska the north,
+  // Guam the far west (positive longitude), Puerto Rico the far east.
+  ok(outdoor.every(([, v]) => v.lat >= -15 && v.lat <= 72), 'every latitude is inside NWS coverage');
+  ok(outdoor.every(([, v]) => (v.lon >= -180 && v.lon <= -64) || v.lon >= 144),
+    'every longitude is inside NWS coverage (no sign flips)');
+  ok(outdoor.every(([, v]) => v.lat !== 0 && v.lon !== 0), 'no null-island coordinates');
+  ok(rows.every(([id]) => /^\d+$/.test(id)), 'every key is an ESPN venue id');
+}
+
 function checkFeed(name, feed) {
   console.log(`\n[${name}] FEED`);
   ok(Array.isArray(feed.games), 'games is an array');
@@ -49,6 +68,28 @@ function checkFeed(name, feed) {
   ok(feed.results.every((g) => g.home.winner || g.away.winner || g.home.score === g.away.score),
     'each result has a winner (or is a tie)');
   ok(feed.results.every((g) => !g.weather), 'no forecast attached to a game already played');
+  ok(feed.games.every((g) => g.venue.id === null || /^\d+$/.test(g.venue.id)), 'games carry an ESPN venue id');
+
+  // Weather. NWS only forecasts ~7 days out, so only games inside that window are expected to
+  // carry one. This leans on a live third-party service, so a total absence is reported as an
+  // outage rather than failed — but if NWS is answering at all, coverage has to be complete,
+  // which is what catches a venue table that stopped being wired in.
+  // A forecast is only expected where a coordinate can actually be resolved: a CFB venue in the
+  // generated table, or an NFL game at the home team's own stadium (that table is keyed by team,
+  // so a neutral site has no coordinate by design). Anywhere else — an international game, a venue
+  // not in the table — no forecast is the correct outcome, not a failure.
+  const resolvable = (g) => CFB_VENUES[g.venue.id] || (name === 'nfl' && !g.neutralSite);
+  const wx = feed.games.filter((g) => !g.venue.indoor && resolvable(g)
+    && Date.parse(g.date) - Date.now() < 7 * 86400000);
+  const got = wx.filter((g) => g.weather);
+  if (!wx.length) console.log('  SKIP  no outdoor games inside the NWS forecast window');
+  else if (!got.length) console.log(`  INFO  no forecasts at all on ${wx.length} outdoor games — NWS looks unavailable`);
+  else {
+    ok(got.length === wx.length,
+      `every in-window outdoor game has a forecast (${got.length}/${wx.length})`);
+    ok(got.every((g) => g.weather.tempF == null || (g.weather.tempF > -60 && g.weather.tempF < 140)),
+      'forecast temperatures are physically plausible');
+  }
 
   const ids = feed.games.flatMap((g) => [g.home.id, g.away.id]);
   ok(ids.every(Boolean), 'every team on the slate carries an ESPN id');
@@ -228,6 +269,7 @@ for (const name of (which.length ? which : ['cfbweek'])) {
   checkFeed(name, feed);
   if (feed.games.length) checkPage(name, feed, page);
 }
+checkVenueTable();
 checkCrossover(page);
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);

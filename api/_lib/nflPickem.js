@@ -37,6 +37,12 @@ export function buildNflPickem({ week } = {}) {
     leaguePath: 'football/nfl',
     scoreboardUrl: week ? `${SB}?week=${encodeURIComponent(week)}` : SB,
     injuriesUrl: INJ,
-    coordsFor: (comp, home) => STADIUMS[home.team.abbreviation] || null,
+    // Keyed by HOME TEAM, which is only the right answer when the game is at their stadium. At a
+    // neutral site it is not: the league plays in London, Munich, São Paulo and Melbourne, and
+    // looking up the home team there would forecast their home city's weather for a game on the
+    // other side of the world. Those get no forecast instead, which is the honest answer anyway —
+    // NWS is US-only. This stayed invisible until now because the international games happened to
+    // involve teams whose home stadium is a dome, so the dome check swallowed the wrong lookup.
+    coordsFor: (comp, home) => (comp.neutralSite === true ? null : STADIUMS[home.team.abbreviation] || null),
   });
 }

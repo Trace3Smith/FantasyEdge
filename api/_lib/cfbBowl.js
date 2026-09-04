@@ -6,6 +6,7 @@
 // weather via a bowl-venue coordinate table (bowls are neutral sites, not team stadiums).
 // See docs/brackets-data-research.md.
 import { buildPickem, winProbFromSpread } from './pickem.js';
+import { CFB_VENUES } from './cfbVenues.js';
 
 export { winProbFromSpread };
 
@@ -42,11 +43,13 @@ function bowlNameOf(comp) {
   return h || null;
 }
 
-// Coordinates + dome flag for the FBS bowl / CFP venues, keyed by ESPN venue id (stable
-// across seasons). Domes skip weather (ESPN's indoor flag is also authoritative). Venues not
-// in this table — e.g. a CFP first-round game at a campus stadium, or a new/minor bowl site —
-// resolve to null, so weather is simply omitted there (graceful). NWS is US-only, so any
-// international site (e.g. a Dublin game) also yields no weather.
+// Coordinates + dome flag for the FBS bowl / CFP venues, keyed by ESPN venue id (stable across
+// seasons). Hand-entered and hand-verified, so these take precedence over the generated FBS table
+// (cfbVenues.js) — which now backs this one up, and is what covers a CFP first-round game played
+// at a campus stadium rather than a bowl site. Domes skip weather (ESPN's indoor flag is also
+// authoritative). A venue in neither table resolves to null, so weather is simply omitted there
+// (graceful). NWS is US-only, so any international site (e.g. a Dublin game) also yields no
+// weather.
 const BOWL_VENUES = {
   '4013': { lat: 28.5390, lon: -81.4029, dome: false }, // Camping World Stadium, Orlando
   '3493': { dome: true },                                // Caesars Superdome, New Orleans
@@ -100,6 +103,6 @@ export function buildCfbBowl({ season } = {}) {
     injuriesUrl: INJ,
     includeEvent: (comp) => !isFcs(comp) && hasRealTeams(comp),
     nameOf: bowlNameOf,
-    coordsFor: (comp) => BOWL_VENUES[String(comp.venue?.id)] || null,
+    coordsFor: (comp) => BOWL_VENUES[String(comp.venue?.id)] || CFB_VENUES[String(comp.venue?.id)] || null,
   });
 }

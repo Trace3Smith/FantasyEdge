@@ -182,7 +182,9 @@ export async function buildPickem(cfg) {
         neutralSite: c.neutralSite === true,
         home: teamOf(home),
         away: teamOf(away),
-        venue: { name: c.venue?.fullName || '', indoor, city: c.venue?.address?.city || '' },
+        // The venue id is the key both CFB coordinate tables use, so carrying it makes the payload
+        // self-describing: weather coverage can be checked without re-deriving the venue.
+        venue: { id: c.venue?.id ? String(c.venue.id) : null, name: c.venue?.fullName || '', indoor, city: c.venue?.address?.city || '' },
         odds,
         pick,
         market, // { home, away } implied win % (de-vigged moneyline); null when no line

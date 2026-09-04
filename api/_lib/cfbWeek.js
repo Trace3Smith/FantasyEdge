@@ -9,9 +9,11 @@
 // the season's first poll (~mid-August) nothing is ranked, so the feed is simply empty — the UI then
 // says to check back in season, exactly like the Bowl feed does out of bowl season.
 //
-// Weather is intentionally omitted here (FBS has 130+ home stadiums; no coordinate table like the
-// NFL/bowl feeds) — a bounded follow-up if wanted. Injuries reuse the CFB injuries endpoint.
+// Weather comes from the generated FBS stadium table (cfbVenues.js) — ESPN publishes no
+// coordinates, so it is built by `node scripts/gen-cfb-venues.mjs` from venue zip codes and
+// committed. Injuries reuse the CFB injuries endpoint.
 import { buildPickem, winProbFromSpread } from './pickem.js';
+import { CFB_VENUES } from './cfbVenues.js';
 
 export { winProbFromSpread };
 
@@ -34,6 +36,8 @@ export function buildCfbWeek({ week } = {}) {
     scoreboardUrl: week ? `${SB}?week=${encodeURIComponent(week)}` : SB,
     injuriesUrl: INJ,
     includeEvent: (comp) => hasRankedTeam(comp),
-    coordsFor: () => null, // no CFB stadium coordinate table → weather omitted for this feed
+    // A venue missing from the table (a new build, a rare off-campus site, anywhere outside the
+    // US) resolves to null and simply gets no weather — the same graceful degrade as the bowls.
+    coordsFor: (comp) => CFB_VENUES[String(comp.venue?.id)] || null,
   });
 }
