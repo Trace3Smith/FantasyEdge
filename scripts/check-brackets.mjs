@@ -18,6 +18,7 @@ import { buildNflPickem } from '../api/_lib/nflPickem.js';
 import { buildCfbBowl } from '../api/_lib/cfbBowl.js';
 import { currentSeasonRankable, TEAM_REPORT_VERSION } from '../api/_lib/teamReport.js';
 import { CFB_VENUES } from '../api/_lib/cfbVenues.js';
+import { staleWeatherGames } from '../api/_lib/pickem.js';
 
 const FEEDS = { cfbweek: buildCfbWeek, nfl: buildNflPickem, bowl: buildCfbBowl };
 let failures = 0;
@@ -42,6 +43,34 @@ function loadPageScript() {
 
 // The generated stadium table (scripts/gen-cfb-venues.mjs). Structural only — a regeneration that
 // wrote a null island, a swapped lat/lon, or an eastern-hemisphere longitude fails here.
+// Which games the serve-time top-up picks up. This is the whole decision — the rest is one fetch
+// per selected game — and it has to be tight in both directions: too eager turns a public URL into
+// repeated upstream traffic, too shy and the forecast on a card about to kick off stays a day old.
+function checkTopUp() {
+  console.log('\n[synthetic] WEATHER TOP-UP SELECTION');
+  const now = Date.parse('2026-09-05T12:00:00Z');
+  const at = (h) => new Date(now + h * 3600000).toISOString();
+  const wx = (minsAgo) => ({ tempF: 70, condition: 'Clear', fetchedAt: new Date(now - minsAgo * 60000).toISOString(), url: 'https://api.weather.gov/gridpoints/X/1,2/forecast/hourly' });
+  const game = (id, kickInH, weather, state = 'pre') => ({ id, date: at(kickInH), state, weather });
+
+  const picked = (games) => staleWeatherGames({ games }, now).map((g) => g.id);
+
+  ok(picked([game('a', 3, wx(45))]).includes('a'), 'a game 3h out with a 45m-old forecast is refreshed');
+  ok(!picked([game('b', 3, wx(5))]).length, 'a game 3h out with a 5m-old forecast is left alone');
+  ok(!picked([game('c', 48, wx(600))]).length, 'a game two days out is not refreshed, however stale');
+  ok(!picked([game('d', 3, wx(600), 'post')]).length, 'a finished game is never refreshed');
+  ok(!picked([game('e', 3, null)]).length, 'a game with no forecast (dome/unknown venue) is skipped');
+  ok(!picked([game('f', 3, { tempF: 70, fetchedAt: at(-10) })]).length,
+    'a forecast with no url (payload built before the top-up) is skipped, not crashed on');
+  ok(picked([game('g', 3, { tempF: 70, url: 'https://api.weather.gov/x' })]).includes('g'),
+    'a forecast with no timestamp is treated as stale');
+  ok(picked([game('h', 1, wx(31)), game('i', 1, wx(29))]).join() === 'h',
+    'the staleness threshold is honoured exactly (31m refreshed, 29m not)');
+  ok(picked([game('j', -1, wx(600))]).includes('j'), 'a game already under way is still refreshed');
+  ok(!staleWeatherGames({}, now).length && !staleWeatherGames(null, now).length,
+    'an empty or missing feed selects nothing');
+}
+
 function checkVenueTable() {
   console.log('\n[venues] CFB STADIUM TABLE');
   const rows = Object.entries(CFB_VENUES);
@@ -89,6 +118,11 @@ function checkFeed(name, feed) {
       `every in-window outdoor game has a forecast (${got.length}/${wx.length})`);
     ok(got.every((g) => g.weather.tempF == null || (g.weather.tempF > -60 && g.weather.tempF < 140)),
       'forecast temperatures are physically plausible');
+    // Both are what the top-up and the age label read; without them the card can't state its own
+    // age and a stale forecast can never be refreshed.
+    ok(got.every((g) => Number.isFinite(Date.parse(g.weather.fetchedAt))), 'every forecast is timestamped');
+    ok(got.every((g) => /^https:\/\/api\.weather\.gov\//.test(g.weather.url || '')),
+      'every forecast keeps the NWS url it can be refreshed from');
   }
 
   const ids = feed.games.flatMap((g) => [g.home.id, g.away.id]);
@@ -270,6 +304,7 @@ for (const name of (which.length ? which : ['cfbweek'])) {
   if (feed.games.length) checkPage(name, feed, page);
 }
 checkVenueTable();
+checkTopUp();
 checkCrossover(page);
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);

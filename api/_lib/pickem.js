@@ -9,6 +9,7 @@
 // so a −3 favorite ≈ 59%, −7 ≈ 70%. Honest and standard; not framed as betting advice.
 
 import { buildTeamReports } from './teamReport.js';
+import { redis, redisConfigured, nwsGridKey, NWS_GRID_TTL, wxCooldownKey } from './kv.js';
 
 const UA = 'FantasyEdge/1.0 (brackets pickem; contact via app)';
 
@@ -74,32 +75,120 @@ async function fetchInjuries(url) {
   } catch { return {}; }
 }
 
+// This cache is consulted once PER GAME, which makes a slow Redis expensive in a way a
+// once-per-build cache isn't: the client retries internally, so one unreachable command costs
+// ~4.3 seconds, and a full slate would serialise that into minutes and blow the cron budget. So
+// the cache is skipped entirely when Redis isn't configured, and one failure disables it for the
+// rest of the process — a build pays the penalty once, not once per game. Forecasts still work
+// throughout; they just cost the extra gridpoint call they cost before this cache existed.
+let gridCacheOff = !redisConfigured;
+
+// The NWS hourly-forecast URL for a coordinate. This is the first of the two calls a forecast
+// costs, and it is pure lookup: a coordinate always resolves to the same grid cell, so caching it
+// leaves the second call as the only one that has to happen.
+async function nwsForecastUrl(lat, lon) {
+  const key = nwsGridKey(lat, lon);
+  if (!gridCacheOff) {
+    try { const hit = await redis.get(key); if (typeof hit === 'string' && hit) return hit; }
+    catch { gridCacheOff = true; }
+  }
+  const pt = await fetch(`https://api.weather.gov/points/${lat},${lon}`, { headers: { 'User-Agent': UA } });
+  if (!pt.ok) return null;
+  const props = (await pt.json())?.properties || {};
+  const url = props.forecastHourly || props.forecast;
+  if (!url) return null;
+  if (!gridCacheOff) {
+    try { await redis.set(key, url, { ex: NWS_GRID_TTL }); }
+    catch { gridCacheOff = true; } // serving it matters, storing it doesn't
+  }
+  return url;
+}
+
+// Read one NWS forecast URL and pick the period covering kickoff. This is a forecast FOR KICKOFF,
+// not current conditions — which is why an entry hours old is still meaningful, and why it carries
+// `fetchedAt`: the card states its own age rather than looking equally fresh at every hour.
+// `url` is kept so the forecast can be refreshed later without re-resolving the gridpoint.
+async function readForecast(url, kick) {
+  const fc = await fetch(url, { headers: { 'User-Agent': UA } });
+  if (!fc.ok) return null;
+  const periods = (await fc.json())?.properties?.periods || [];
+  if (!periods.length) return null;
+  const p = periods.find((x) => Date.parse(x.startTime) <= kick && kick < Date.parse(x.endTime)) || periods[0];
+  return {
+    tempF: p.temperature ?? null,
+    condition: p.shortForecast || '',
+    windMph: parseInt(String(p.windSpeed || '').match(/\d+/)?.[0] || '', 10) || null,
+    precipPct: p.probabilityOfPrecipitation?.value ?? null,
+    fetchedAt: new Date().toISOString(),
+    url,
+  };
+}
+
 // NWS forecast nearest kickoff for an outdoor venue. `coords` = { lat, lon, dome } or null.
-// Two calls (points → forecast); only works within the forecast window (~7 days) and only
-// for US/territory locations (NWS is US-only), so anything else returns null (populates as
-// the game nears). Best-effort — any failure returns null.
+// Only works within the forecast window (~7 days) and only for the US and its territories (NWS
+// covers nothing else), so anything else returns null and populates as the game nears.
+// Best-effort — any failure returns null.
 async function fetchWeather(coords, indoor, kickoffIso) {
   if (!coords || coords.dome || indoor) return null;
   const kick = Date.parse(kickoffIso);
   if (Number.isFinite(kick) && kick - Date.now() > 7 * 86400000) return null; // beyond NWS window
   try {
-    const pt = await fetch(`https://api.weather.gov/points/${coords.lat},${coords.lon}`, { headers: { 'User-Agent': UA } });
-    if (!pt.ok) return null;
-    const props = (await pt.json())?.properties || {};
-    const purl = props.forecastHourly || props.forecast;
-    if (!purl) return null;
-    const fc = await fetch(purl, { headers: { 'User-Agent': UA } });
-    if (!fc.ok) return null;
-    const periods = (await fc.json())?.properties?.periods || [];
-    if (!periods.length) return null;
-    const p = periods.find((x) => Date.parse(x.startTime) <= kick && kick < Date.parse(x.endTime)) || periods[0];
-    return {
-      tempF: p.temperature ?? null,
-      condition: p.shortForecast || '',
-      windMph: parseInt(String(p.windSpeed || '').match(/\d+/)?.[0] || '', 10) || null,
-      precipPct: p.probabilityOfPrecipitation?.value ?? null,
-    };
+    const url = await nwsForecastUrl(coords.lat, coords.lon);
+    return url ? await readForecast(url, kick) : null;
   } catch { return null; }
+}
+
+// ===== Serve-time top-up =====
+//
+// The daily cron is the only scheduled writer, so a forecast on a card is up to ~24h old and is
+// 5-14h old at kickoff — and the hours that matter most are the ones where a forecast actually
+// firms up. Hobby caps crons at once a day, so freshness has to come from the request path
+// instead: when the feed is served, any game about to kick off whose forecast has gone stale is
+// re-read. That is deliberately narrow — only games inside TOPUP_WINDOW, only the second NWS call
+// (the gridpoint is cached), and only once per TOPUP_MAX_AGE across all requests.
+const TOPUP_WINDOW = 24 * 3600 * 1000;  // only games about to be played
+const TOPUP_MAX_AGE = 30 * 60 * 1000;   // how stale a forecast may get inside that window
+const TOPUP_BUDGET_MS = 4000;           // hard ceiling: this runs on a user's request
+
+// Games close enough to kick off that their forecast is worth re-reading, and old enough to need
+// it. A game with no `weather.url` can't be topped up and doesn't need to be: it is either domed,
+// at an unknown venue, or was outside the 7-day window at build time — and something outside that
+// window by definition isn't inside a 24-hour one.
+export function staleWeatherGames(feed, now = Date.now()) {
+  return (feed?.games || []).filter((g) => {
+    if (g.state === 'post' || !g.weather?.url) return false;
+    const kick = Date.parse(g.date);
+    if (!Number.isFinite(kick) || kick - now > TOPUP_WINDOW) return false;
+    const age = now - Date.parse(g.weather.fetchedAt ?? 0);
+    return !(age >= 0) || age > TOPUP_MAX_AGE;
+  });
+}
+
+// Refresh the forecasts on a served feed. Returns the feed and whether anything actually changed,
+// so the caller only writes back when there is something to write. Never throws: a failed refresh
+// leaves the previous forecast in place, which is exactly what it was going to show anyway.
+export async function topUpWeather(feed, feedKey) {
+  const stale = staleWeatherGames(feed);
+  if (!stale.length) return { feed, changed: false };
+
+  // Single-flight across concurrent requests: whoever sets the cooldown does the work, everyone
+  // else serves what's cached. Set BEFORE fetching, so a burst can't all pile into NWS at once.
+  if (!redisConfigured) return { feed, changed: false }; // no cooldown to hold → never fetch
+  try {
+    const won = await redis.set(wxCooldownKey(feedKey), Date.now(), { nx: true, px: TOPUP_MAX_AGE });
+    if (!won) return { feed, changed: false };
+  } catch { return { feed, changed: false }; } // no cooldown available → don't fetch at all
+
+  const deadline = Date.now() + TOPUP_BUDGET_MS;
+  let changed = false;
+  await Promise.all(stale.map(async (g) => {
+    if (Date.now() > deadline) return;
+    try {
+      const fresh = await readForecast(g.weather.url, Date.parse(g.date));
+      if (fresh) { g.weather = fresh; changed = true; }
+    } catch { /* keep the forecast we already have */ }
+  }));
+  return { feed, changed };
 }
 
 // Build a slate of Pick'em games from an ESPN scoreboard. `cfg`:

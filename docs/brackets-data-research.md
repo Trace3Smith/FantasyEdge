@@ -236,6 +236,49 @@ re-deriving the venue. `npm run check:brackets` asserts the table's structure (n
 sign-flipped longitudes, coordinates inside NWS coverage) and that every in-window outdoor game at
 a resolvable venue actually has a forecast.
 
+## Addendum (2026-09-04) — forecast freshness on a once-a-day cron
+
+The daily cron (`0 11 * * *`) is the only scheduled writer and the feed key carries **no TTL**, so
+a forecast was up to ~24h old on the page and, measured against a real slate, **5–14h old at
+kickoff** (median 12h). Temperature survives that; precipitation probability is what moves. The
+plan is **Hobby** (verified, not assumed), which caps cron *frequency* at once a day — cron
+*count* is no longer a limit, but a second, more frequent cron isn't available. So freshness has
+to come from the request path.
+
+**Serve-time top-up** (`topUpWeather` in pickem.js, called from api/sports.js). On serve, any game
+kicking off within **24h** whose forecast is older than **30 minutes** is re-read. Deliberately
+narrow:
+- only games inside that window, so it is a handful of fetches, never the slate;
+- only the second NWS call — the gridpoint is cached, see below;
+- once per interval across ALL requests, via a `SET NX PX` cooldown taken *before* fetching, so a
+  burst of concurrent requests refreshes once rather than once each and a public URL can't be used
+  to drive repeated upstream traffic;
+- a 4s hard budget, because this runs on somebody's request;
+- skipped entirely on a cold-start build, which is already fresh.
+
+A failure leaves the previous forecast in place — which is what it was going to show anyway.
+
+**Gridpoint cache.** `api.weather.gov/points/{lat},{lon}` resolves a coordinate to its grid cell's
+hourly-forecast URL, and that mapping belongs to the coordinate, not the weather. Cached under
+`nws:grid:{lat},{lon}` (90-day TTL rather than none — NWS does occasionally re-grid an office),
+which halves what a forecast costs and is what makes the top-up cheap enough to run on a request.
+
+**A trap this introduced, and the fix.** That cache is consulted **once per game**, and the Upstash
+client retries internally: one command against an unconfigured or unreachable Redis costs **~4.3
+seconds** before it throws. A full slate serialised that into ~95s and blew a local build straight
+past a 120s timeout — in production it would have eaten the cron budget on any Redis blip, for a
+path that previously touched Redis zero times. So the cache is skipped when Redis isn't configured
+(`redisConfigured`), and **one failure disables it for the rest of the process**: a build pays that
+penalty once, not once per game. Forecasts keep working throughout, at the cost they had before the
+cache existed.
+
+**The card now states its own age** — `🌦 72°F Clear · forecast 11h old`. A weather line with no age
+reads as equally authoritative at two hours and at twenty, which was the more misleading half of
+the problem. Omitted rather than guessed for a payload built before forecasts were timestamped.
+
+`weather` now carries `fetchedAt` and the NWS `url` it can be refreshed from. Both are additive —
+an older cached payload simply shows no age and isn't topped up until the next cron.
+
 ## Bottom line for the build decision
 - **No recurring cost, no paid API, no new auth.** ESPN (free) + NWS (free) cover all four
   sections' data. Only *weather* needs the second source; only *March Madness history* needs
