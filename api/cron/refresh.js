@@ -233,8 +233,14 @@ export default async function handler(req, res) {
       results: feed.results.length,
       upsets: feed.upsetAlerts.length,
       reports: Object.keys(feed.teamReports?.teams || {}).length,
-      statsBasis: feed.teamReports?.statsBasis ?? null,
-      statsSeason: feed.teamReports?.statsSeason ?? null,
+      // Which basis each team landed on. All-'prior-season' is correct early and should give way
+      // to 'season' around Week 5 as teams cross over; a slate stuck on prior-season deep into the
+      // year means the current leaderboard isn't filling in. 'none' counts teams ESPN doesn't rank.
+      basisMix: Object.values(feed.teamReports?.teams || {}).reduce((m, t) => {
+        m[t.basis] = (m[t.basis] || 0) + 1; return m;
+      }, {}),
+      statsSeason: feed.teamReports?.season ?? null,
+      rated: feed.teamReports?.ratedCounts ?? null,
     });
 
     // NFL Pick'em weekly feed (Brackets & Bowls) — free ESPN + NWS sources, no key. Additive

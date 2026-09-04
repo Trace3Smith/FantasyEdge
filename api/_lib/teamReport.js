@@ -18,12 +18,34 @@
 // directly comparable — a #4 rush offense against a #61 rush defense is a real mismatch, and
 // that comparison is the whole point of the panel.
 //
-// EARLY SEASON. A season's ranks are noise until enough of the league has played — in Week 1
-// the CFB leaderboard returns 16 teams, most with one game. So the builder measures the season
-// it's asked for and falls back to the last completed one when the sample is too thin, flagging
-// `statsBasis: 'prior-season'` so the UI can label it rather than passing last year's ranks off
-// as this year's. Recent form backfills across the same boundary, tagging each game's season.
+// EARLY SEASON, AND THE CROSSOVER. A season's ranks are noise until a team has actually played:
+// in Week 1 the CFB leaderboard carries 16 teams, most with one game. So each team is placed on
+// a basis of its own — the current season once it clears MIN_GP games, the last completed season
+// until then — and crosses over on its own schedule as the year fills in. This is per TEAM, not
+// per league: a team off a bye with two games does not get ranked on two games just because the
+// rest of the conference has four, and a team that started early is not held on last year's
+// numbers waiting for everyone else.
+//
+// A team's basis is also gated on the RANKING POPULATION, because a rank is only as meaningful as
+// the field it's drawn from. Note that being listed is not the same as having played: ESPN's 2026
+// CFB leaderboard already carries 138 teams in Week 1, nearly all with zero games, so a team with
+// one game under its belt would "rank" against 137 teams that have produced nothing. The gate is
+// therefore on how many teams have played MIN_GP games, not on how many are listed. That makes
+// the rule two-part and both parts are needed: the team itself must have a real sample (per team),
+// and so must the league it is being ranked within (per league). In practice both clear around
+// Week 5, which is about when season ranks start meaning anything anyway.
+//
+// BOTH seasons are kept for every team, which is what makes the matchup line honest. Ranks are
+// only comparable inside one population, so an offense ranked on 2026 cannot be set against a
+// defense ranked on 2025 — the panel picks the newest season BOTH teams share and says which it
+// used. Holding both costs ~400 bytes a team and removes the whole class of mixed-basis nonsense.
+//
+// COST. A completed season's numbers never change, so the prior-season leaderboard is cached in
+// Redis without expiry (byteamKey) — fetched once per league per season, then free. Only the
+// in-progress season is fetched live on each build. Recent form backfills across the same
+// boundary, tagging each game's season.
 import { getJson } from './espn.js';
+import { redis, byteamKey } from './kv.js';
 
 // HOST: site.web.api, NOT site.api — the latter is blocked from Vercel's egress (see espn.js).
 const BYTEAM = (lg, season) =>
@@ -33,9 +55,14 @@ const SCHEDULE = (lg, id, season) =>
 
 const FORM_GAMES = 5;   // recent results shown per team
 const MIN_GP = 4;       // games below which a team's own ranks are too noisy to lean on
-const MIN_RATED = 0.5;  // fraction of the league that must clear MIN_GP for a season to rank
+const MIN_FIELD = 0.75; // share of the league that must be ON the leaderboard for its ranks to count
 const CONC = 6;         // parallel schedule fetches — same bounded-concurrency shape as nflDvp
 const SOFT_MS = 25000;  // soft budget; past it we stop fetching form and keep what we have
+
+// Bump when the teamReports payload SHAPE changes — api/sports.js treats a cached feed built
+// against an older version as stale and rebuilds it once, so a deploy self-heals rather than
+// feeding the new page an object it can't read.
+export const TEAM_REPORT_VERSION = 2;
 
 async function mapLimit(items, limit, fn) {
   const out = [];
@@ -115,6 +142,23 @@ async function leagueStats(leaguePath, season) {
   return { teams, count: Object.keys(teams).length, rated };
 }
 
+// leagueStats for a season, through the cache when the season is over. A finished season is
+// immutable, so it is fetched once per league and then read from Redis forever after; the
+// in-progress season always goes to the network. Cache failures are non-fatal in both
+// directions — a miss just costs the fetch we were going to make anyway.
+async function leagueStatsCached(leaguePath, season, { immutable }) {
+  if (!immutable) return leagueStats(leaguePath, season);
+  const key = byteamKey(leaguePath, season);
+  try {
+    const hit = await redis.get(key);
+    if (hit?.count) return hit;
+  } catch { /* fall through to the network */ }
+  const fresh = await leagueStats(leaguePath, season);
+  // Never cache an empty answer — that would pin a transient ESPN failure in place for good.
+  if (fresh.count) { try { await redis.set(key, fresh); } catch { /* serving it matters, storing it doesn't */ } }
+  return fresh;
+}
+
 // Completed games from a team's schedule, newest first, as compact result rows. Preseason is
 // excluded: an NFL team's schedule carries its August exhibitions (seasonType 1) as completed
 // games, and starters barely play in them — reading those as recent form would be wrong. Regular
@@ -160,31 +204,50 @@ async function teamForm(leaguePath, id, season) {
   return rows.slice(0, FORM_GAMES);
 }
 
+// THE CROSSOVER RULE. Are the current season's ranks credible for this team yet? Two gates, both
+// required: the team has its own real sample, and enough of the league does too for a rank drawn
+// from it to mean anything. `ratedSize` counts teams that have PLAYED MIN_GP games, not teams
+// listed — ESPN lists a team from the schedule release, long before it has produced a yard.
+export function currentSeasonRankable({ gamesPlayed, ratedSize, fullFieldSize }) {
+  const fieldOk = !fullFieldSize || ratedSize >= fullFieldSize * MIN_FIELD;
+  return gamesPlayed >= MIN_GP && fieldOk;
+}
+
+// Which season's numbers a team is READ on: the current one once it's rankable, else the last
+// completed one, else nothing. A season is only ever offered here if it also passed the storage
+// rule below, so a basis always names numbers that are actually worth showing.
+export function basisFor({ hasCurrent, hasPrior }) {
+  if (hasCurrent) return 'season';
+  if (hasPrior) return 'prior-season';
+  return 'none';
+}
+
 // Build the expandable report for every team on a slate.
 //   leaguePath — ESPN sport/league segment, e.g. 'football/nfl' or 'football/college-football'
 //   season     — the scoreboard's season year
 //   teamIds    — ESPN team ids appearing on the slate (deduped by the caller or here)
-// Returns { statsSeason, statsBasis, leagueSize, teams: { [id]: { form, offense, defense, … } } }.
-// Best-effort throughout: a failure anywhere degrades to a smaller report, never a thrown slate.
+// Returns { v, season, priorSeason, leagueSizes, ratedCounts, teams }, where each team carries its recent
+// form, the basis it should be READ on, and BOTH seasons' stats under `seasons` so a matchup can
+// find a basis the two teams share. Best-effort throughout: a failure anywhere degrades to a
+// smaller report, never a thrown slate.
 export async function buildTeamReports({ leaguePath, season, teamIds }) {
   const ids = [...new Set((teamIds || []).filter(Boolean).map(String))];
-  const empty = { statsSeason: season, statsBasis: 'none', leagueSize: 0, teams: {} };
+  const prior = season ? season - 1 : null;
+  const empty = { v: TEAM_REPORT_VERSION, season, priorSeason: prior, leagueSizes: {}, ratedCounts: {}, teams: {} };
   if (!ids.length || !season) return empty;
 
-  // Rank against the requested season when enough of the league has played, else the last
-  // completed one — Week 1 ranks computed off a handful of teams would be actively misleading.
-  let statsSeason = season, statsBasis = 'season', stats = null;
-  try {
-    stats = await leagueStats(leaguePath, season);
-    // A league that hasn't kicked off answers with a wholly EMPTY body — `{}`, no teams and no
-    // categories, not an error — so "no teams at all" has to fall back just like "too few rated".
-    if (!stats.count || stats.rated / stats.count < MIN_RATED) {
-      try {
-        const prior = await leagueStats(leaguePath, season - 1);
-        if (prior.count) { stats = prior; statsSeason = season - 1; statsBasis = 'prior-season'; }
-      } catch { /* thin current-season ranks still beat none */ }
-    }
-  } catch { stats = null; statsBasis = 'none'; }
+  // Both seasons, independently best-effort. The prior one is the fallback AND the shared basis
+  // for a mixed matchup, so it is worth having even when the current season is healthy; it comes
+  // from cache after its first fetch, so asking for it every build is close to free.
+  const [cur, prev] = await Promise.all([
+    leagueStatsCached(leaguePath, season, { immutable: false }).catch(() => null),
+    leagueStatsCached(leaguePath, prior, { immutable: true }).catch(() => null),
+  ]);
+  // `leagueSizes` is the denominator a rank is shown against (ESPN ranks across everyone listed);
+  // `ratedCounts` is how many of those have actually played, which is what gates the crossover and
+  // what makes a stalled build legible in the cron summary.
+  const leagueSizes = { [season]: cur?.count || 0, [prior]: prev?.count || 0 };
+  const ratedCounts = { [season]: cur?.rated || 0, [prior]: prev?.rated || 0 };
 
   const deadline = Date.now() + SOFT_MS;
   const forms = await mapLimit(ids, CONC, async (id) => {
@@ -192,15 +255,35 @@ export async function buildTeamReports({ leaguePath, season, teamIds }) {
     return [id, await teamForm(leaguePath, id, season)];
   });
 
+  // STORAGE RULE. A season is kept for a team only if its ranks are worth reading — real stats on
+  // both sides of the ball, and, for the in-progress season, the crossover rule satisfied. This is
+  // what keeps a matchup honest: the panel pairs two teams on the newest season they BOTH have, so
+  // a season nobody should be ranked on must never be in the map at all. ESPN lists teams before
+  // they play, with every stat zero and no rank, and without this those zeros would look like a
+  // shared 2026 basis and get compared.
+  const usable = (st) => !!st?.offense?.yardsPerGame && !!st?.defense?.yardsPerGame?.rank;
+
   const teams = {};
   for (const [id, form] of forms) {
-    const s = stats?.teams?.[id];
+    const c = cur?.teams?.[id], p = prev?.teams?.[id];
+    const gamesPlayed = c?.gamesPlayed ?? 0;
+    const hasCurrent = usable(c) && currentSeasonRankable({
+      gamesPlayed,
+      ratedSize: cur?.rated || 0,
+      fullFieldSize: prev?.count || 0,
+    });
+    const hasPrior = usable(p);
+    const basis = basisFor({ hasCurrent, hasPrior });
+    const seasons = {};
+    if (hasCurrent) seasons[season] = { gamesPlayed, offense: c.offense, defense: c.defense };
+    if (hasPrior) seasons[prior] = { gamesPlayed: p.gamesPlayed ?? 0, offense: p.offense, defense: p.defense };
     teams[id] = {
       form,
-      gamesPlayed: s?.gamesPlayed ?? 0,
-      offense: s?.offense || {},
-      defense: s?.defense || {},
+      gamesPlayed,
+      basis,
+      basisSeason: basis === 'season' ? season : basis === 'prior-season' ? prior : null,
+      seasons,
     };
   }
-  return { statsSeason, statsBasis, leagueSize: stats?.count || 0, teams };
+  return { v: TEAM_REPORT_VERSION, season, priorSeason: prior, leagueSizes, ratedCounts, teams };
 }

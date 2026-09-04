@@ -225,6 +225,9 @@
   .tp-game .tg-opp{flex:1;} .tp-game .tg-rk{color:var(--gold);font-size:10px;}
   .tp-game .tg-score{font-variant-numeric:tabular-nums;} .tp-game .tg-yr{color:var(--gray);font-size:10px;}
   .tp-none{font-size:11.5px;color:var(--gray);}
+  .tp-hedge{font-size:11.5px;color:var(--gray-light);margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.05);line-height:1.5;}
+  .tp-hedge b{color:var(--white);font-weight:600;}
+  .tp-edge .te-of{color:var(--gray);font-size:10.5px;}
 
   .results-sec{margin-top:26px;}
   .results-hd{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gray);margin-bottom:10px;}
@@ -513,9 +516,9 @@ function edgeVerdict(offRank, defRank, leagueSize) {
   return 'even';
 }
 
-function edgeRow(label, off, def, oppAbbr, n) {
+function edgeRow(label, off, def, oppAbbr, leagueSize) {
   if (!off?.rank || !def?.rank) return '';
-  const v = edgeVerdict(off.rank, def.rank, n);
+  const v = edgeVerdict(off.rank, def.rank, leagueSize);
   const word = v === 'edge' ? 'Edge' : v === 'tough' ? 'Tough' : 'Even';
   return `<div class="tp-edge"><span class="te-txt">${esc(label)} offense <b>#${off.rank}</b> vs `+
     `${esc(oppAbbr)} ${esc(label.toLowerCase())} defense <b>#${def.rank}</b></span>`+
@@ -528,36 +531,88 @@ function statTile(lbl, s, suffix) {
     `<div class="ts-val">${s.value}${suffix||''}<span class="ts-rank">${s.rank?'#'+s.rank:''}</span></div></div>`;
 }
 
+// The newest season BOTH teams have stats for. Ranks only compare inside one population, so a
+// matchup never sets a 2026 offense rank against a 2025 defense rank — if one side hasn't crossed
+// over yet, both are read on the season they share, and the line says which.
+function sharedSeason(a, b) {
+  const mine = Object.keys(a?.seasons||{}).map(Number);
+  const theirs = new Set(Object.keys(b?.seasons||{}).map(Number));
+  const both = mine.filter(y => theirs.has(y)).sort((x, y) => y - x);
+  return both[0] ?? null;
+}
+
+// How a season's numbers should be described. Last year's are labelled as last year's, with the
+// reason they're still on screen — a rank with no year on it is the thing that misleads.
+function basisHeading(year, current) {
+  return year === current ? `${year} season` : `${year} season stats`;
+}
+function basisNote(year, current, gp) {
+  if (year === current) return `${gp} game${gp===1?'':'s'} played`;
+  return `last year's roster — not enough ${current} games yet to rank`;
+}
+
+// The matchup's basis needs its OWN wording, because the reason it can sit a year behind is
+// different: a team that has crossed over still gets compared on the older season when its
+// opponent hasn't, and telling that team it lacks games of its own would be plainly wrong.
+function matchupBasisLabel(year, current, leagueSize) {
+  const of = leagueSize ? `ranks of ${leagueSize}` : '';
+  const why = year === current ? '' : ' — the newest year both teams have enough games to be compared on';
+  return `${basisHeading(year, current)}${of ? ' · ' + of : ''}${why}`;
+}
+
+// Points scored/allowed from THIS season's completed games. Free (it comes off the form rows we
+// already hold) and it is the cheap hedge against the real weakness of a prior-season basis: last
+// year's ranks can't see a new coordinator, a new quarterback, or heavy roster turnover. It won't
+// rank anyone on three games — it just puts what a team has actually done this year next to the
+// ranks, so a stale profile is visible rather than implied.
+function thisSeasonLine(form, season) {
+  const g = (form||[]).filter(f => f.season === season && f.score != null && f.oppScore != null);
+  if (!g.length) return '';
+  const w = g.filter(f => f.won).length;
+  const pf = (g.reduce((n, f) => n + f.score, 0) / g.length).toFixed(1);
+  const pa = (g.reduce((n, f) => n + f.oppScore, 0) / g.length).toFixed(1);
+  return `<div class="tp-hedge"><b>${season} so far:</b> ${w}-${g.length-w} · ${pf} scored, ${pa} allowed per game `+
+    `<span class="tp-basis">(${g.length} game${g.length===1?'':'s'} — too few to rank, shown so the ranks above aren't the only picture)</span></div>`;
+}
+
 // The panel body for one side of one game: the matchup edge first (it's the "why"), then the
 // season profile, then recent results.
 function teamPanelHtml(feed, g, side) {
   const rep = feed.teamReports, me = g[side], opp = side === 'home' ? g.away : g.home;
   const mine = rep?.teams?.[me.id], theirs = rep?.teams?.[opp.id];
   if (!mine) return '<div class="tp-none">No report available for this team.</div>';
-  const n = rep.leagueSize;
-  const basis = rep.statsBasis === 'prior-season'
-    ? ` <span class="tp-basis">${rep.statsSeason} season — this year's sample is still too small to rank</span>`
-    : ` <span class="tp-basis">${rep.statsSeason} season</span>`;
+  const cur = rep.season;
 
-  const edges = theirs
-    ? edgeRow('Pass', mine.offense.yardsPerGame, theirs.defense.yardsPerGame, opp.abbr, n)
-      + edgeRow('Rush', mine.offense.rushYardsPerGame, theirs.defense.rushYardsPerGame, opp.abbr, n)
+  // The team's own basis drives the season tiles; the matchup uses whatever season both sides
+  // share, which may be older. Both are labelled, so the two can differ without confusing anyone.
+  const myYear = mine.basisSeason;
+  const myStats = myYear ? mine.seasons?.[myYear] : null;
+  const shareYear = theirs ? sharedSeason(mine, theirs) : null;
+  const a = shareYear ? mine.seasons?.[shareYear] : null;
+  const d = shareYear ? theirs.seasons?.[shareYear] : null;
+  const n = rep.leagueSizes?.[shareYear] || 0;
+
+  const edges = a && d
+    ? edgeRow('Pass', a.offense.yardsPerGame, d.defense.yardsPerGame, opp.abbr, n)
+      + edgeRow('Rush', a.offense.rushYardsPerGame, d.defense.rushYardsPerGame, opp.abbr, n)
     : '';
   const edgeSec = edges
-    ? `<div class="tp-hd">The matchup${basis}</div>${edges}`
+    ? `<div class="tp-hd">The matchup <span class="tp-basis">${matchupBasisLabel(shareYear, cur, n)}</span></div>${edges}`
     : '';
 
-  const tiles = statTile('Pts / game', mine.offense.pointsPerGame)
-    + statTile('Pts allowed', mine.defense.pointsPerGame)
-    + statTile('Yds / game', mine.offense.totalYardsPerGame)
-    + statTile('Yds allowed', mine.defense.totalYardsPerGame)
-    + statTile('Yds / carry', mine.offense.yardsPerCarry)
-    + statTile('YPC allowed', mine.defense.yardsPerCarry);
+  const tiles = myStats ? statTile('Pts / game', myStats.offense.pointsPerGame)
+    + statTile('Pts allowed', myStats.defense.pointsPerGame)
+    + statTile('Yds / game', myStats.offense.totalYardsPerGame)
+    + statTile('Yds allowed', myStats.defense.totalYardsPerGame)
+    + statTile('Yds / carry', myStats.offense.yardsPerCarry)
+    + statTile('YPC allowed', myStats.defense.yardsPerCarry) : '';
   // A slate regularly includes teams ESPN's leaderboard doesn't cover — its team stats are
   // FBS-only, so an FCS non-conference opponent has recent results but no season profile and no
   // ranks to match up. Say that, rather than showing a panel that looks half-broken.
   const statSec = tiles
-    ? `<div class="tp-hd">Season${edgeSec?'':basis}</div><div class="tp-stats">${tiles}</div>`
+    ? `<div class="tp-hd">${basisHeading(myYear, cur)} <span class="tp-basis">${basisNote(myYear, cur, myStats.gamesPlayed)}</span></div>`+
+      `<div class="tp-stats">${tiles}</div>`+
+      (myYear !== cur ? thisSeasonLine(mine.form, cur) : '')
     : `<div class="tp-hd">Season</div><div class="tp-none">No season stat profile is published for this team, so there are no ranks to match up.</div>`;
 
   // Early in a year the last five games straddle two seasons, so each row is stamped with its

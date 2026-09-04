@@ -145,6 +145,45 @@ rank and a defense rank are directly comparable, which is what the panel's verdi
 cron — ~1s and +40KB of payload for a 24-game CFB week. No new function; it rides the existing
 `?feed=` dispatch. `npm run check:brackets` exercises the feeds and the page's real renderers.
 
+### The crossover, per team (2026-09-04)
+
+Early-season teams sit on the last completed season's ranks, and cross to the current season on
+their **own** schedule rather than the league's. Two gates, both required:
+
+1. the team has played `MIN_GP` (4) games — its own numbers aren't noise; and
+2. at least 75% of the league has too — the population a rank is drawn from is real.
+
+Gate 2 counts teams that have **played**, not teams *listed*. ESPN populates the leaderboard from
+the schedule release: on 2026-09-04 the CFB leaderboard already carried **138 teams, nearly all
+with zero games**. Ranking a team with one game against 137 that have produced nothing is worse
+than using last year. Both gates clear around Week 5, which is roughly when season ranks start
+meaning anything anyway.
+
+**Mixed matchups.** Ranks only compare inside one population, so a 2026 offense rank must never be
+set against a 2025 defense rank. Both seasons are retained per team (~400 bytes each), and a
+matchup is drawn on the newest season **both** teams have — so a crossed-over team facing one that
+hasn't is still compared on 2025, and the line says so. The two sides of a card always agree.
+
+A season is stored for a team only if its ranks are worth reading (real stats both sides, and for
+the in-progress season the crossover rule satisfied). That storage rule is what makes the shared
+-basis lookup safe: a season nobody should be ranked on is never in the map to be picked.
+
+**Labels.** A prior-season profile reads *"2025 season stats — last year's roster, not enough 2026
+games yet to rank."* The matchup gets its own wording, because it can sit a year back for a
+different reason — the opponent's sample, not yours.
+
+**The roster-turnover hedge.** Last year's ranks can't see a new coordinator or heavy turnover.
+Rather than trying to model that, a team on a prior-season basis also shows *"2026 so far: 1-0,
+42.0 scored, 26.0 allowed per game"* — derived from the form rows already in the payload, so it
+costs **nothing**, and it puts what a team has actually done this year beside the stale ranks.
+
+**Caching.** A completed season never changes, so the prior-season leaderboard is stored in Redis
+under `byteam:{league}:{season}` **without expiry** — fetched once per league per season, then
+free. It is *not* a second live feed. Only the in-progress season is fetched on each build, and an
+empty response is never cached (that would pin a transient ESPN failure in place permanently).
+`teamReports.v` versions the payload shape so `api/sports.js` rebuilds a stale-shaped cached feed
+once on deploy.
+
 ## Bottom line for the build decision
 - **No recurring cost, no paid API, no new auth.** ESPN (free) + NWS (free) cover all four
   sections' data. Only *weather* needs the second source; only *March Madness history* needs

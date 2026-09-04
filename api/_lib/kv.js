@@ -32,6 +32,14 @@ export const PROJECTIONS_KEY = 'projections:nfl';
 // Drives realistic mock-draft opponents and the falling-value boost in the
 // recommendation engine. Persisted separately for graceful degrade.
 export const ADP_KEY = 'adp:nfl';
+// Distilled team statistics for ONE COMPLETED season of one league, keyed by team id:
+// { teams: { [id]: { abbr, gamesPlayed, offense, defense } }, count, rated }. Built from ESPN's
+// statistics/byteam leaderboard (see teamReport.js) and cached WITHOUT expiry on purpose — a
+// finished season's numbers never change again, so this is fetched once per league per season
+// and then read for free for the rest of the year. Only ever written for a season strictly
+// before the current one; the in-progress season moves weekly and is always fetched live.
+export const byteamKey = (leaguePath, season) => `byteam:${leaguePath}:${season}`;
+
 // NFL Pick'em weekly feed (Brackets & Bowls) — games + market-implied picks, injuries, and
 // outdoor weather, built daily by the refresh cron from free ESPN + NWS sources and served
 // via api/sports.js (?feed=nfl-pickem). Cached so requests make zero upstream calls.

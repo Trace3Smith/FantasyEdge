@@ -16,6 +16,7 @@ import { readFileSync } from 'node:fs';
 import { buildCfbWeek } from '../api/_lib/cfbWeek.js';
 import { buildNflPickem } from '../api/_lib/nflPickem.js';
 import { buildCfbBowl } from '../api/_lib/cfbBowl.js';
+import { currentSeasonRankable, TEAM_REPORT_VERSION } from '../api/_lib/teamReport.js';
 
 const FEEDS = { cfbweek: buildCfbWeek, nfl: buildNflPickem, bowl: buildCfbBowl };
 let failures = 0;
@@ -59,15 +60,36 @@ function checkFeed(name, feed) {
   if (!feed.games.length) { console.log('  SKIP  empty slate (out of season)'); return; }
   ok(!!rep && !!rep.teams, 'teamReports present');
   if (!rep?.teams) return;
+  ok(rep.v === TEAM_REPORT_VERSION, `payload is at the current shape version (v${rep.v})`);
   ok(ids.every((id) => rep.teams[id]), 'every team on the slate has a report');
-  ok(['season', 'prior-season'].includes(rep.statsBasis), `stats basis is honest (${rep.statsBasis}, ${rep.statsSeason})`);
-  ok(rep.leagueSize > 0, `ranked against a real league (${rep.leagueSize} teams)`);
+  ok(rep.priorSeason === rep.season - 1, `prior season is the one before (${rep.priorSeason} < ${rep.season})`);
 
   const all = Object.values(rep.teams);
-  const ranks = all.flatMap((t) => [...Object.values(t.offense), ...Object.values(t.defense)])
-    .map((s) => s.rank).filter((r) => r != null);
+  const mix = all.reduce((m, t) => { m[t.basis] = (m[t.basis]||0)+1; return m; }, {});
+  console.log(`  INFO  basis mix ${JSON.stringify(mix)} · rated ${JSON.stringify(rep.ratedCounts)}`);
+  ok(all.every((t) => ['season', 'prior-season', 'none'].includes(t.basis)), 'every team carries a known basis');
+  // Each team is placed on its own basis, and that basis must be a season it actually HAS.
+  ok(all.every((t) => t.basis === 'none' ? !t.basisSeason : !!t.seasons[t.basisSeason]),
+    'each team\'s basis names a season it has stats for');
+  // The crossover has to be reproducible from the team's own numbers, not incidental: a stored
+  // current season means the rule passed, and its absence means the rule failed.
+  const rankable = (t) => currentSeasonRankable({
+    gamesPlayed: t.gamesPlayed,
+    ratedSize: rep.ratedCounts[rep.season] || 0,
+    fullFieldSize: rep.leagueSizes[rep.priorSeason] || 0,
+  });
+  ok(all.every((t) => !t.seasons[rep.season] || rankable(t)),
+    'no team is ranked on a current season the crossover rule rejects');
+  ok(all.every((t) => t.basis !== 'prior-season' || !rankable(t) || !t.seasons[rep.season]),
+    'no team is stranded on last year once it and the league have enough games');
+  ok(all.every((t) => t.basis !== 'season' || t.basisSeason === rep.season),
+    'a season basis names the current season');
+
+  const ranks = all.flatMap((t) => Object.entries(t.seasons).flatMap(([yr, sn]) =>
+    [...Object.values(sn.offense), ...Object.values(sn.defense)].map((s) => [Number(yr), s.rank])))
+    .filter(([, r]) => r != null);
   ok(ranks.length > 0, `ranks populated (${ranks.length} across ${all.length} teams)`);
-  ok(ranks.every((r) => r >= 1 && r <= rep.leagueSize * 2), 'every rank is inside the league');
+  ok(ranks.every(([yr, r]) => r >= 1 && r <= (rep.leagueSizes[yr] || 0) * 2), 'every rank is inside its own league');
   const form = all.flatMap((t) => t.form);
   ok(form.length > 0, `recent form populated (${form.length} games)`);
   ok(form.every((f) => f.score != null && f.oppScore != null), 'every form row has a score');
@@ -75,13 +97,17 @@ function checkFeed(name, feed) {
   ok(all.every((t) => t.form.length <= 5), 'form capped at five games');
   // A team with stats must have BOTH sides — an offense-only report is the bug that made DvP
   // necessary in the first place (ESPN's own defensive category reports zeros).
-  const rated = all.filter((t) => t.offense.yardsPerGame);
-  ok(rated.every((t) => t.defense.yardsPerGame?.rank), 'every rated team has real defensive ranks, not zeros');
+  const sides = all.flatMap((t) => Object.values(t.seasons));
+  ok(sides.length > 0 && sides.every((sn) => sn.offense.yardsPerGame && sn.defense.yardsPerGame?.rank),
+    'every stat season carries real defensive ranks, not zeros');
 }
 
 function checkPage(name, feed, page) {
   console.log(`\n[${name}] PAGE`);
-  const g = feed.games.find((x) => feed.teamReports?.teams?.[x.home.id]?.offense?.yardsPerGame);
+  const g = feed.games.find((x) => {
+    const h = feed.teamReports?.teams?.[x.home.id], a = feed.teamReports?.teams?.[x.away.id];
+    return h?.basisSeason && a?.basisSeason;
+  });
   if (!g) { console.log('  SKIP  no game with a rated team'); return; }
 
   const card = page.gameCard(g, 'checkGames', true);
@@ -99,6 +125,27 @@ function checkPage(name, feed, page) {
     // must SAY so, never render a silently empty section.
     ok(html.includes('tp-verdict') || html.includes('tp-stat') || html.includes('No season stat profile'),
       `${tag} shows the matchup, season stats, or says why it can't`);
+    // The whole point of the labelling: a rank from a season that isn't the current one must
+    // never appear without the year and the reason attached to it.
+    const rep2 = feed.teamReports, t = rep2.teams[g[side].id];
+    if (t.basisSeason && t.basisSeason !== rep2.season) {
+      ok(html.includes(`${t.basisSeason} season stats`) && html.includes("last year's roster"),
+        `${tag} labels last year's numbers as last year's`);
+      ok(html.includes(`${rep2.season} so far`) || !t.form.some((f) => f.season === rep2.season),
+        `${tag} hedges a stale basis with this season's actual results`);
+    }
+  }
+  // A matchup must never set one season's rank against another's.
+  const rep3 = feed.teamReports;
+  for (const gm of feed.games) {
+    const h = rep3.teams[gm.home.id], a = rep3.teams[gm.away.id];
+    if (!h?.basisSeason || !a?.basisSeason) continue;
+    const shared = Object.keys(h.seasons).filter((y) => a.seasons[y]).map(Number).sort((x, y) => y - x)[0];
+    if (shared == null) continue;
+    const panel = page.teamPanelHtml(feed, gm, 'home');
+    if (!panel.includes('tp-verdict')) continue;
+    ok(panel.includes(`The matchup <span class="tp-basis">${shared} season`),
+      `${gm.shortName}: matchup compares both teams on ${shared}`);
   }
   const withRes = feed.results.length ? page.resultCard(feed.results[0]) : null;
   if (withRes) {
@@ -113,6 +160,67 @@ function checkPage(name, feed, page) {
   ok(page.edgeVerdict(null, 45, 136) === null, 'a missing rank yields no verdict');
 }
 
+// The crossover only happens around Week 5, so live data in the opening weeks can never exercise
+// it. This builds the mid-season state by hand and drives the real renderer through it: one team
+// across the threshold, one still behind, which is the case that has to stay honest — their ranks
+// come from different populations and must NOT be compared.
+function checkCrossover(page) {
+  console.log('\n[synthetic] MID-SEASON CROSSOVER');
+  const stat = (v, r) => ({ value: v, rank: r });
+  const side = (o) => ({ yardsPerGame: stat(250, o), rushYardsPerGame: stat(150, o),
+    pointsPerGame: stat(28, o), totalYardsPerGame: stat(400, o), yardsPerCarry: stat(4.5, o) });
+  const seasonEntry = (gp, r) => ({ gamesPlayed: gp, offense: side(r), defense: side(r) });
+  const feed = {
+    teamReports: {
+      v: TEAM_REPORT_VERSION, season: 2026, priorSeason: 2025,
+      leagueSizes: { 2026: 136, 2025: 136 }, ratedCounts: { 2026: 120, 2025: 136 },
+      teams: {
+        // Crossed over: five games in, read on 2026.
+        '1': { form: [{ date: '2026-10-01T00:00Z', season: 2026, opp: 'XYZ', oppRank: null, home: true, score: 31, oppScore: 17, won: true }],
+          gamesPlayed: 5, basis: 'season', basisSeason: 2026,
+          seasons: { 2026: seasonEntry(5, 4), 2025: seasonEntry(12, 60) } },
+        // Behind the threshold (byes): still read on 2025, and has 2026 results to hedge with.
+        '2': { form: [{ date: '2026-10-01T00:00Z', season: 2026, opp: 'ABC', oppRank: null, home: false, score: 10, oppScore: 24, won: false }],
+          gamesPlayed: 3, basis: 'prior-season', basisSeason: 2025,
+          seasons: { 2025: seasonEntry(12, 90) } },
+      },
+    },
+    games: [],
+  };
+  const g = { id: 'g1', shortName: 'A @ B', date: '2026-10-08T00:00Z',
+    home: { id: '1', abbr: 'AAA', name: 'Team A', logo: null }, away: { id: '2', abbr: 'BBB', name: 'Team B', logo: null } };
+  feed.games.push(g);
+
+  const crossed = page.teamPanelHtml(feed, g, 'home');
+  ok(crossed.includes('2026 season'), 'a crossed-over team is read on the current season');
+  ok(!crossed.includes("last year's roster"), 'a crossed-over team carries no stale-data caveat');
+  ok(!crossed.includes('2026 so far'), 'a crossed-over team needs no hedge line');
+
+  const behind = page.teamPanelHtml(feed, g, 'away');
+  ok(behind.includes('2025 season stats') && behind.includes("last year's roster"),
+    'a team behind the threshold is labelled as last year, with the caveat');
+  ok(behind.includes('2026 so far') && behind.includes('0-1'),
+    "a stale basis is hedged with this season's actual results");
+
+  // Both panels describe the same game, so both must state the SAME shared basis — the older one.
+  ok(crossed.includes('The matchup <span class="tp-basis">2025 season'),
+    'a mixed matchup drops to the season both teams share (2025), not the crossed team\'s 2026');
+  ok(behind.includes('The matchup <span class="tp-basis">2025 season'), 'both sides agree on the shared basis');
+  // Scope this to the matchup block: the season tiles below it legitimately show 2026 ranks.
+  const block = crossed.slice(crossed.indexOf('The matchup'), crossed.lastIndexOf('<div class="tp-hd">2026 season'));
+  ok(block.includes('#60') && block.includes('#90') && !block.includes('#4'),
+    'the matchup uses the shared season\'s ranks, never mixing 2026 against 2025');
+  ok(block.includes('both teams have enough games'), 'and says why it sat a year back');
+
+  // Once both cross, the matchup should move to the current season on its own.
+  feed.teamReports.teams['2'] = { ...feed.teamReports.teams['2'], gamesPlayed: 5, basis: 'season',
+    basisSeason: 2026, seasons: { 2026: seasonEntry(5, 90), 2025: seasonEntry(12, 90) } };
+  const both = page.teamPanelHtml(feed, g, 'home');
+  ok(both.includes('The matchup <span class="tp-basis">2026 season'),
+    'once both teams cross, the matchup switches to the current season automatically');
+  ok(!both.includes("last year's roster"), 'and the stale-data caveat disappears');
+}
+
 const which = process.argv.slice(2).filter((a) => FEEDS[a]);
 const page = loadPageScript();
 for (const name of (which.length ? which : ['cfbweek'])) {
@@ -120,5 +228,6 @@ for (const name of (which.length ? which : ['cfbweek'])) {
   checkFeed(name, feed);
   if (feed.games.length) checkPage(name, feed, page);
 }
+checkCrossover(page);
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);

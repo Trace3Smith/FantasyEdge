@@ -11,6 +11,7 @@ import { buildPgaDataset } from './_lib/buildPgaDataset.js';
 import { buildNflPickem } from './_lib/nflPickem.js';
 import { buildCfbBowl } from './_lib/cfbBowl.js';
 import { buildCfbWeek } from './_lib/cfbWeek.js';
+import { TEAM_REPORT_VERSION } from './_lib/teamReport.js';
 import { buildMarchMadness } from './_lib/marchMadness.js';
 import { requirePremium, sendError } from './_lib/auth.js';
 import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NFL_DVP_KEY, DATASET_VERSION } from './_lib/kv.js';
@@ -116,12 +117,16 @@ export default async function handler(req, res) {
     const { key, build } = PICKEM_FEEDS[req.query.feed];
     try {
       let feed = await redis.get(key);
-      // A payload cached before team reports existed has no `teamReports` KEY at all, so it
-      // rebuilds once and the panel lights up on the first request after a deploy rather than
-      // at the next cron. Tested for presence, not truthiness: a build whose report step failed
-      // stores an explicit null, and treating THAT as stale would rebuild the whole feed —
-      // scoreboard, injuries and weather — on every single request.
-      if (!feed || !Array.isArray(feed.games) || !('teamReports' in feed)) {
+      // A payload cached before team reports existed has no `teamReports` KEY at all, and one
+      // built against an older report SHAPE carries an older `v` — either rebuilds once so the
+      // page never meets a payload it can't read. Presence and version are tested, not
+      // truthiness: a build whose report step failed stores an explicit null, and treating THAT
+      // as stale would rebuild the whole feed — scoreboard, injuries and weather — on every
+      // single request.
+      const reports = feed?.teamReports;
+      const staleReports = !feed || !('teamReports' in feed)
+        || (reports != null && reports.v !== TEAM_REPORT_VERSION);
+      if (!feed || !Array.isArray(feed.games) || staleReports) {
         feed = await build();
         await redis.set(key, feed);
       }
