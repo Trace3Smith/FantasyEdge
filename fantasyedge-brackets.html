@@ -195,9 +195,9 @@
   .gc-impact .imp-team{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.5px;color:var(--orange);margin-right:6px;}
   .gc-impact.starter{background:rgba(244,67,54,0.09);border-left-color:rgba(244,67,54,0.55);}
   .gc-impact.starter .imp-team{color:#f3a1a1;}
-  .gc-inj{font-size:11.5px;line-height:1.45;}
-  .gc-inj .inj-team{font-weight:700;color:var(--gray-light);}
-  .gc-inj .inj-out{color:#f3a1a1;} .gc-inj .inj-q{color:#fdba74;}
+  .gc-inj-more{font-size:11px;color:var(--gray);line-height:1.4;}
+  .gc-inj-more .inj-team{font-weight:700;color:var(--gray-light);}
+  .inj-out{color:#f3a1a1;} .inj-q{color:#fdba74;}
   .gc-wx{font-size:11.5px;color:var(--blue);display:flex;align-items:baseline;gap:6px;}
   .gc-wx .wx-age{color:var(--gray);}
   .nfl-loading,.nfl-error{padding:40px 20px;text-align:center;color:var(--gray);font-size:13px;}
@@ -231,6 +231,15 @@
   .tp-game .tg-opp{flex:1;} .tp-game .tg-rk{color:var(--gold);font-size:10px;}
   .tp-game .tg-score{font-variant-numeric:tabular-nums;} .tp-game .tg-yr{color:var(--gray);font-size:10px;}
   .tp-none{font-size:11.5px;color:var(--gray);}
+  .pi-line{font-size:11.5px;line-height:1.45;padding:5px 9px;margin-bottom:5px;border-radius:0 5px 5px 0;background:rgba(255,152,0,0.07);border-left:2px solid rgba(255,152,0,0.45);}
+  .pi-line.starter{background:rgba(244,67,54,0.09);border-left-color:rgba(244,67,54,0.55);}
+  .pi-line b{color:var(--white);font-weight:700;display:block;}
+  .pi-line .pi-why{color:var(--gray-light);}
+  .pi-list{display:flex;flex-direction:column;gap:2px;margin-top:8px;}
+  .pi-row{display:flex;align-items:baseline;gap:8px;font-size:11.5px;color:var(--gray-light);}
+  .pi-row.keyed .pi-name{color:var(--white);font-weight:600;}
+  .pi-row .pi-pos{width:26px;flex-shrink:0;font-size:9.5px;letter-spacing:.5px;color:var(--gray);text-transform:uppercase;}
+  .pi-row .pi-name{flex:1;}
   .tp-hedge{font-size:11.5px;color:var(--gray-light);margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.05);line-height:1.5;}
   .tp-hedge b{color:var(--white);font-weight:600;}
   .tp-edge .te-of{color:var(--gray);font-size:10.5px;}
@@ -581,8 +590,31 @@ function thisSeasonLine(form, season) {
     `<span class="tp-basis">(${g.length} game${g.length===1?'':'s'} — too few to rank, shown so the ranks above aren't the only picture)</span></div>`;
 }
 
-// The panel body for one side of one game: the matchup edge first (it's the "why"), then the
-// season profile, then recent results.
+// The team's injuries in full: every impact line WITH the reasoning the card leaves off, then every
+// individual player. This is where the detail moved when the card stopped printing an arbitrary
+// three names — the panel already existed for exactly this, so nothing needed inventing and nothing
+// is lost. Players already accounted for by a line are marked, so the list reads as the complete
+// roster rather than a second, competing summary.
+function panelInjuries(g, side) {
+  const lines = g.injuryImpact?.[side] || [];
+  const rows = g.injuries?.[side] || [];
+  if (!rows.length) return '';
+  const named = new Set(lines.flatMap((l) => l.players.map((p) => p.name)));
+  const summary = lines.map((l) => {
+    const cls = l.group === 'STARTER' ? ' starter' : '';
+    return `<div class="pi-line${cls}"><b>${esc(l.label)}</b><span class="pi-why">${esc(l.impact)}</span></div>`;
+  }).join('');
+  const list = rows.slice().sort((a, b) => (named.has(b.name) ? 1 : 0) - (named.has(a.name) ? 1 : 0))
+    .map((r) => {
+      const out = /out|reserve|susp/i.test(r.status) ? 'inj-out' : 'inj-q';
+      return `<div class="pi-row${named.has(r.name) ? ' keyed' : ''}"><span class="pi-pos">${esc(r.pos || '—')}</span>`+
+        `<span class="pi-name">${esc(r.name)}</span><span class="${out}">${esc(r.status)}</span></div>`;
+    }).join('');
+  return `<div class="tp-hd">Injuries <span class="tp-basis">${rows.length} listed</span></div>${summary}<div class="pi-list">${list}</div>`;
+}
+
+// The panel body for one side of one game: the matchup edge first (it's the "why"), then injuries
+// (the most time-sensitive thing on the card), then the season profile, then recent results.
 function teamPanelHtml(feed, g, side) {
   const rep = feed.teamReports, me = g[side], opp = side === 'home' ? g.away : g.home;
   const mine = rep?.teams?.[me.id], theirs = rep?.teams?.[opp.id];
@@ -635,7 +667,7 @@ function teamPanelHtml(feed, g, side) {
     ? `<div class="tp-hd">Last ${(mine.form||[]).length}</div><div class="tp-form">${games}</div>`
     : '<div class="tp-hd">Last games</div><div class="tp-none">No completed games yet.</div>';
 
-  return edgeSec + statSec + formSec;
+  return edgeSec + panelInjuries(g, side) + statSec + formSec;
 }
 
 // Open/close a team's panel. Rendered on first open (not with the card) so a slate of 24 games
@@ -660,24 +692,32 @@ function toggleTeam(row, feedId, gameId, side) {
 // rather than inside the expandable panel on purpose: the whole value is not having to read five
 // names to know a unit is thin, and that is a glance-level judgement. The names stay below for
 // anyone who wants them. Server-side templated (api/_lib/injuryGroups.js) — nothing generated here.
+// The card carries the CLAIM only — "Starting RB Christian McCaffrey questionable (3 RB affected)".
+// The reasoning that used to trail each line ("could force a committee backfield") now lives in the
+// team panel: it is the same sentence on every card that fires a given rule, so at a glance it read
+// as padding around the fact, and four of them stacked turned a card into a paragraph.
 function impactLines(label, lines) {
   if (!lines || !lines.length) return '';
   return lines.map((l) => {
     // Starter lines carry the stronger treatment: one named starter outranks any count of backups.
     const cls = l.group === 'STARTER' ? ' starter' : '';
-    return `<div class="gc-impact${cls}" title="${esc(l.players.map(p => p.name + ' (' + p.pos + ') — ' + p.status).join(', '))}">`+
-      `<span class="imp-team">${esc(label)}</span><b>${esc(l.label)}</b> — ${esc(l.impact)}</div>`;
+    return `<div class="gc-impact${cls}" title="${esc(l.impact)} · ${esc(l.players.map(p => p.name + ' (' + p.pos + ') — ' + p.status).join(', '))}">`+
+      `<span class="imp-team">${esc(label)}</span><b>${esc(l.label)}</b></div>`;
   }).join('');
 }
 
-function injLine(label, rows) {
-  if (!rows || !rows.length) return '';
-  const items = rows.slice(0,3).map(x => {
-    const cls = /out|reserve|susp/i.test(x.status) ? 'inj-out' : 'inj-q';
-    return `<span class="${cls}">${esc(x.name)}${x.pos?' ('+esc(x.pos)+')':''} — ${esc(x.status)}</span>`;
-  }).join(', ');
-  return `<div class="gc-inj"><span class="inj-team">${esc(label)}:</span> ${items}</div>`;
+// Injuries no line already accounts for. The card stopped printing names — it printed an arbitrary
+// three of them, which is how it came to contradict its own lines — so this is the pointer to where
+// the names now live rather than a truncated sample of them.
+function injuryResidual(label, lines, rows, expandable) {
+  const named = new Set((lines || []).flatMap((l) => l.players.map((p) => p.name)));
+  const rest = (rows || []).filter((r) => !named.has(r.name)).length;
+  if (!rest) return '';
+  const lead = (lines || []).length ? `+${rest} other${rest === 1 ? '' : 's'}` : `${rest} injur${rest === 1 ? 'y' : 'ies'}`;
+  const how = expandable ? ` · open ${esc(label)} for the full list` : '';
+  return `<div class="gc-inj-more"><span class="inj-team">${esc(label)}:</span> ${lead}${how}</div>`;
 }
+
 
 // A finished game: score only. No pick, no line, no forecast — those are pre-game reads, and
 // showing them after the fact is what made a played game look like an unset line.
@@ -724,8 +764,9 @@ function gameCard(g, feedId, hasReports) {
   const line = g.odds
     ? `<div class="gc-line"><span>Spread <b>${esc(g.odds.details||g.odds.spread)}</b></span>${g.odds.overUnder!=null?`<span>O/U <b>${g.odds.overUnder}</b></span>`:''}<span>${g.venue.indoor?'🏟 Indoor':'☁ Outdoor'} · ${esc(g.venue.name)}</span></div>`
     : `<div class="gc-line"><span>${g.venue.indoor?'🏟 Indoor':'☁ Outdoor'} · ${esc(g.venue.name)}</span></div>`;
-  const impact = impactLines(g.away.abbr, g.injuryImpact?.away) + impactLines(g.home.abbr, g.injuryImpact?.home);
-  const inj = injLine(g.away.abbr, g.injuries.away) + injLine(g.home.abbr, g.injuries.home);
+  const side = (t, s) => impactLines(t.abbr, g.injuryImpact?.[s])
+    + injuryResidual(t.abbr, g.injuryImpact?.[s], g.injuries?.[s], hasReports && !!t.id);
+  const impact = side(g.away, 'away') + side(g.home, 'home');
   const wx = g.weather
     ? `<div class="gc-wx">🌦 <span>${g.weather.tempF!=null?g.weather.tempF+'°F':''} ${esc(g.weather.condition||'')}${g.weather.windMph?' · wind '+g.weather.windMph+'mph':''}${g.weather.precipPct!=null?' · '+g.weather.precipPct+'% precip':''}<span class="wx-age">${forecastAge(g.weather.fetchedAt)}</span></span></div>`
     : '';
@@ -739,7 +780,7 @@ function gameCard(g, feedId, hasReports) {
     ${hasReports ? `<div class="team-panel" id="tp-${feedId}-${g.id}"></div>` : ''}
     ${pickBlock}
     ${line}
-    <div class="gc-extra">${impact}${inj}${wx}</div>
+    <div class="gc-extra">${impact}${wx}</div>
   </div>`;
 }
 

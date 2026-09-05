@@ -369,6 +369,22 @@ abbreviations are normalised before ranking. And names are matched **forgivingly
 feeds (punctuation and Jr./III suffixes stripped), because `Ja'Marr Chase` and `Marvin Harrison Jr.`
 are exactly where the same player gets written two ways and a silent miss looks like a healthy team.
 
+**Card vs panel (2026-09-05).** The card carries the CLAIM only — *"Starting RB Christian McCaffrey
+questionable (3 RB affected)"* — and the reasoning moved to the team panel. The same sentence
+appears on every card that fires a given rule, so at a glance it read as padding around the fact,
+and four stacked lines turned a card into a paragraph. The panel carries each line WITH its
+reasoning, then every individual player; the card shows a residual pointer (*"+1 other · open SF for
+the full list"*) for anything no line accounts for.
+
+**The contradiction this fixed.** Two truncations were stacking: the payload capped injuries at 6
+per team, and the card rendered only the first 3 of those. The impact lines counted the whole squad.
+So San Francisco's card asserted *"Starting RB Christian McCaffrey questionable (3 RB affected)"*
+while the visible list beneath it showed Bosa, Evans and Kittle — McCaffrey sat 6th and was never
+rendered, and four more players named in lines weren't in the payload at all. Neither list was
+wrong; the visible one was an arbitrary subset that had outlived the design it belonged to. The cap
+is gone (353 rows league-wide vs the 192 a 6-cap allowed, no team over 17, **+10KB**), and
+`check:brackets` now asserts every player a line names is findable in the injuries shipped with it.
+
 **Placement:** the impact lines sit on the CARD FACE above the names, not in the expandable panel.
 The value is not having to read five names to know a unit is thin, which is a glance-level
 judgement; the names stay below for anyone who wants them.

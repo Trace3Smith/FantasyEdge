@@ -301,10 +301,15 @@ export async function buildPickem(cfg) {
         market, // { home, away } implied win % (de-vigged moneyline); null when no line
         upsetAlert,
         injuries: {
-          // Display list: the few names worth printing on a card. Capped HERE rather than at fetch
-          // time so the impact lines below still count the whole squad (see fetchInjuries).
-          home: (injuries[home.team.id] || []).slice(0, 6),
-          away: (injuries[away.team.id] || []).slice(0, 6),
+          // The COMPLETE list, uncapped. It was trimmed to 6 while the card printed a few names
+          // inline, but that made the card contradict itself: the impact lines count the whole
+          // squad, so a card could name a player in a line who had been cut from the list beneath
+          // it — San Francisco listed Bosa, Evans and Kittle while a line named McCaffrey, who sat
+          // 6th and was never rendered. The card no longer prints names at all (the team panel
+          // does), so the cap has nothing left to protect and costs ~10KB to drop: 353 rows
+          // league-wide against the 192 a 6-cap allowed, and no team carries more than 17.
+          home: injuries[home.team.id] || [],
+          away: injuries[away.team.id] || [],
         },
         // Position-group impact lines — "3 OL out or questionable" and what that does to the game.
         // Templated, not generated: no per-game model call. Empty for CFB, which has no injury data.
