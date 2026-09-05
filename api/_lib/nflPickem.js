@@ -4,6 +4,7 @@
 // the win-probability-from-spread derivation, injuries, and weather logic.
 import { buildPickem, winProbFromSpread } from './pickem.js';
 import { redis, NFL_DATASET_KEY } from './kv.js';
+import { getJson } from './espn.js';
 
 export { winProbFromSpread };
 
@@ -32,41 +33,117 @@ const STADIUMS = {
   TEN: { lat: 36.1665, lon: -86.7713, dome: false }, WSH: { lat: 38.9078, lon: -76.8645, dome: false },
 };
 
-// Starting quarterbacks, for the single-QB injury rule in injuryGroups.js.
+// Starting skill players, for the starter injury lines in injuryGroups.js.
 //
-// ESPN publishes no starter flag on the injury feed, and its depth-chart endpoint would cost a
-// call per team. But the NFL dataset this app already builds and caches carries a fantasy
-// projection per player, and the team's top projected QB IS the starter — checked against the real
+// ESPN publishes no starter flag on the injury feed, and its depth-chart endpoint would cost a call
+// per team. But the NFL dataset this app already builds and caches carries a fantasy projection per
+// player, and the team's top projected player at a position IS the starter — checked against real
 // depth charts it gets Penix over Tua, Daniels over Mariota, Ward over Trubisky, Lamar over
 // Huntley, Mahomes over Fields. So this costs ONE cached read per build and no upstream calls.
 //
 // A MARGIN IS REQUIRED, because a projection leader is a correlate of the starter, not the starter
-// itself, and the gap is the confidence signal. Cleveland came back Watson 102.1 vs Sanders 97.1 —
-// a genuine open competition, where naming either as "the starter" would be inventing a fact. Below
-// the margin the team is simply omitted and the QB rule stays silent for it.
-const QB_MARGIN_RATIO = 1.25; // top QB must lead the next by 25%…
+// itself, and the size of the gap is the confidence signal. How often that gate passes varies by
+// position, and it should: the top player's median lead over the second is 21.3x at QB, 3.25x at
+// TE, 2.51x at RB and just 1.36x at WR. So 31/32 teams resolve a quarterback but only about
+// two-thirds resolve a receiver — correctly, because Chicago genuinely reads Burden 209.0 vs
+// Odunze 207.9 and Washington's backfield reads White 128.1 vs Croskey-Merritt 127.9. Naming a
+// starter there would be inventing a fact, so those teams are simply omitted and the line stays
+// silent for them. Loosening the gate to raise coverage would trade a true signal for a confident
+// guess, which is the one thing this must not do.
+const QB_MARGIN_RATIO = 1.25; // top player must lead the next by 25%…
 const QB_MARGIN_ABS = 40;     // …and by a real number of points, so two low projections can't qualify
+const STARTER_POSITIONS = ['QB', 'RB', 'WR', 'TE'];
 
-export async function startingQbs() {
-  let dataset;
-  try { dataset = await redis.get(NFL_DATASET_KEY); } catch { return {}; }
-  const qbs = (dataset?.players || []).filter((p) => p.pos === 'QB' && !p.searchOnly && p.team);
+// The dataset carries a stray team key or two from upstream — one Washington receiver arrives as
+// WAS while the other eighteen are WSH, which would leave him out of the pool his team is ranked
+// on and stand him up as a one-man team of his own. Normalising first is what makes the dataset
+// resolve to exactly 32 teams.
+const TEAM_ALIAS = { WAS: 'WSH', JAC: 'JAX', LA: 'LAR', SD: 'LAC', OAK: 'LV', STL: 'LAR' };
+const normTeam = (t) => TEAM_ALIAS[t] || t;
+
+// The team's most disruptive pass rusher, by last season's sack total. Answers the case the
+// offensive method can't: a rotational rusher who isn't RB1/WR1-equivalent on any depth chart but
+// is the reason the pass rush works.
+//
+// ONE REQUEST. The leaderboard is sortable and every team's sack leader appears within the top ~91,
+// so 150 rows covers the league — espn.js's fetchByAthlete would page all 32 pages (1580 athletes)
+// to tell us the same thing, so this fetches the one page it needs instead.
+const SACKS_URL = (season) => 'https://site.web.api.espn.com/apis/common/v3/sports/football/nfl'
+  + `/statistics/byathlete?season=${season}&seasontype=2&limit=150&sort=defensive.sacks%3Adesc`;
+// The gate asks "is he so much better that losing him changes the pass rush?", not "is he the
+// best?". Detroit reads Hutchinson 14.5 vs 11 and abstains — losing him hurts, but a team whose
+// second rusher has 11 sacks does not lose its pressure. Seattle reads 7 vs 7 and abstains outright.
+// 16 of 32 teams resolve; the floor stops a weak team's 3-sack "leader" being called disruptive.
+const SACK_MARGIN_RATIO = 1.5;
+const SACK_MARGIN_ABS = 2;
+const SACK_FLOOR = 4;
+
+export async function topPassRushers(season) {
+  let j;
+  try { j = await getJson(SACKS_URL(season)); } catch { return {}; }
+  const glossary = {};
+  for (const c of (j.categories || [])) glossary[c.name] = c.names || [];
+  const si = (glossary.defensive || []).indexOf('sacks');
+  if (si < 0) return {};
+
   const byTeam = {};
-  for (const p of qbs) (byTeam[p.team] = byTeam[p.team] || []).push(p);
+  for (const a of (j.athletes || [])) {
+    const team = a.athlete?.teamShortName;
+    const name = a.athlete?.displayName;
+    const sacks = (a.categories || []).find((c) => c.name === 'defensive')?.values?.[si];
+    if (!team || !name || typeof sacks !== 'number') continue;
+    (byTeam[normTeam(team)] = byTeam[normTeam(team)] || []).push({ name, sacks });
+  }
 
   const out = {};
   for (const [team, list] of Object.entries(byTeam)) {
-    const ranked = list
-      .map((p) => ({ name: p.name, pts: p.proj?.fpts })
-      ).filter((p) => typeof p.pts === 'number' && p.name)
-      .sort((a, b) => b.pts - a.pts);
-    if (!ranked.length) continue;
-    const [first, second] = ranked;
-    // A lone QB on the roster is unambiguous; otherwise require a clear gap over the next man.
-    if (!second || (first.pts >= second.pts * QB_MARGIN_RATIO && first.pts - second.pts >= QB_MARGIN_ABS)) {
+    const [first, second] = list.slice().sort((a, b) => b.sacks - a.sacks);
+    if (!first || first.sacks < SACK_FLOOR) continue;
+    if (!second || (first.sacks >= second.sacks * SACK_MARGIN_RATIO && first.sacks - second.sacks >= SACK_MARGIN_ABS)) {
       out[team] = first.name;
     }
   }
+  return out;
+}
+
+export async function startingSkillPlayers() {
+  let dataset;
+  try { dataset = await redis.get(NFL_DATASET_KEY); } catch { return {}; }
+  const players = (dataset?.players || []).filter(
+    (p) => !p.searchOnly && p.team && STARTER_POSITIONS.includes(p.pos) && typeof p.proj?.fpts === 'number',
+  );
+
+  const pools = {}; // team -> pos -> players
+  for (const p of players) {
+    const t = normTeam(p.team);
+    ((pools[t] = pools[t] || {})[p.pos] = pools[t][p.pos] || []).push(p);
+  }
+
+  const out = {};
+  for (const [team, byPos] of Object.entries(pools)) {
+    for (const [pos, list] of Object.entries(byPos)) {
+      const ranked = list.slice().sort((a, b) => b.proj.fpts - a.proj.fpts);
+      const [first, second] = ranked;
+      if (!first?.name) continue;
+      // A lone player at the position is unambiguous; otherwise require a clear gap over the next.
+      if (!second || (first.proj.fpts >= second.proj.fpts * QB_MARGIN_RATIO
+        && first.proj.fpts - second.proj.fpts >= QB_MARGIN_ABS)) {
+        (out[team] = out[team] || {})[pos] = first.name;
+      }
+    }
+  }
+  return out;
+}
+
+// Every inferred key player for the slate, merged into the one map injuryGroups.js reads.
+// Both halves are independently best-effort: a failure in either leaves the other's lines intact.
+export async function keyPlayers(season) {
+  const [skill, rushers] = await Promise.all([
+    startingSkillPlayers().catch(() => ({})),
+    topPassRushers(season).catch(() => ({})),
+  ]);
+  const out = { ...skill };
+  for (const [team, name] of Object.entries(rushers)) out[team] = { ...(out[team] || {}), PASSRUSH: name };
   return out;
 }
 
@@ -74,7 +151,9 @@ export async function startingQbs() {
 export function buildNflPickem({ week } = {}) {
   return buildPickem({
     leaguePath: 'football/nfl',
-    startingQbs,
+    // Sacks are a season total, so early in a year the current season has nothing to rank — the
+    // last completed one is what carries signal, exactly as the team reports fall back.
+    starters: () => keyPlayers(new Date().getFullYear() - 1),
     scoreboardUrl: week ? `${SB}?week=${encodeURIComponent(week)}` : SB,
     injuriesUrl: INJ,
     // Keyed by HOME TEAM, which is only the right answer when the game is at their stadium. At a

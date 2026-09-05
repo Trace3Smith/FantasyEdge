@@ -312,6 +312,63 @@ Trubisky, Lamar over Huntley). One cached read per build, no upstream calls. A *
 the rule correctly abstains rather than inventing a starter. 31 of 32 teams resolve; the QB line
 fires on exactly the two genuine starters.
 
+**Extended to RB/WR/TE (2026-09-05).** The same projection-leader method now infers a starter at
+every skill position, and an injured starter fires its own named line — *"Starting RB D'Andre Swift
+questionable"* — above any group count. The gate is unchanged, and how often it passes varies by
+position exactly as it should: the top player's median lead over the second is **21.3x at QB, 3.25x
+at TE, 2.51x at RB, 1.36x at WR**, so 31/32 teams resolve a quarterback but only 20/32 a receiver.
+Chicago reads Burden 209.0 vs Odunze 207.9 and Washington's backfield White 128.1 vs
+Croskey-Merritt 127.9 — naming a starter there would be inventing a fact, so those teams abstain and
+fall back to the group count. Loosening the gate to raise WR coverage would trade a true signal for
+a confident guess. League-wide this took starter lines from 2 (QB only) to **18**.
+
+**Beyond starters: the top pass rusher (2026-09-05).** A rotational rusher can be the reason a pass
+rush works without being anyone's RB1-equivalent, and no projection covers him — the NFL dataset
+drops every defensive player (`buildNflDataset.js:45`: *"Fantasy positions we keep; everything else
+(OL, DL, LB, DB, P, LS) is dropped"*) and carries no snap counts. ESPN's `byathlete` leaderboard
+does carry per-player defensive stats and is sortable, so the team's sack leader comes from
+**production rather than projection** — arguably stronger evidence, being measured output rather
+than a forecast:
+
+```
+.../statistics/byathlete?season=2025&sort=defensive.sacks:desc  →  Myles Garrett DE CLE, 23
+```
+
+**One request.** Every team's sack leader appears within the top ~91, so `limit=150` covers the
+league in a single call — `fetchByAthlete` would page all 32 pages (1580 athletes) for the same
+answer. The gate asks *"is he so much better that losing him changes the pass rush?"*, not *"is he
+the best?"*: 1.5x over the next man, +2 sacks, and a floor of 4. **16 of 32 teams resolve.** Detroit
+reads Hutchinson 14.5 vs 11 and abstains — losing him hurts, but a team whose second rusher has 11
+sacks has not lost its pressure. Seattle reads 7 vs 7 and abstains outright. The folded unit is
+resolved from the injured player's own position, since sack leaders are as often linebackers as
+linemen (14 DE, 14 LB, 4 DT).
+
+**Measured and rejected: tackles, passes defended, interceptions.** All three were tested the same
+way and none clears the bar. Tackle leaders sit at a median 1.21x over their teammate (Indianapolis:
+126 vs 125) — tackle volume tracks snaps played, so it would mostly name "the starting middle
+linebacker", which the group count already approximates. Passes defended is the same shape at 1.20x
+with outright ties at the top (Seattle 12 vs 12, Minnesota 10 vs 10). Interceptions are too sparse
+to gate on at all: only 5 teams have two players inside the top 300, and with counts of 0–7 a 3-vs-2
+reads as a "1.5x gap" while meaning nothing. **So the secondary gets no line.** Adding one would be
+noise wearing the same clothes as the sack signal.
+
+**Still out of reach:** snap share (the literal definition of "rotational") appears in no free ESPN
+endpoint, and **no individual statistic exists for offensive linemen at all** — an OL key
+contributor is unidentifiable from stats at any price tier, and would need a depth chart or snap
+data. ESPN's `/depthcharts` exists for the NFL at 32 calls/week, and is explicitly unsupported for
+college football.
+
+A starter line **absorbs its own unit's group line** rather than repeating it: *"Starting RB X out
+(2 RB affected)"* instead of that line plus *"2 RB out"*. Lines are capped at 4 per team, since a
+card listing six things communicates less than one listing three.
+
+Two data problems fixed alongside it. The dataset carried **33 team keys, not 32** — one Washington
+receiver arrives as `WAS` while the other eighteen are `WSH`, which both excluded him from his own
+team's pool and stood him up as a one-man team that would trivially "win" its position. Team
+abbreviations are normalised before ranking. And names are matched **forgivingly** across the two
+feeds (punctuation and Jr./III suffixes stripped), because `Ja'Marr Chase` and `Marvin Harrison Jr.`
+are exactly where the same player gets written two ways and a silent miss looks like a healthy team.
+
 **Placement:** the impact lines sit on the CARD FACE above the names, not in the expandable panel.
 The value is not having to read five names to know a unit is thin, which is a glance-level
 judgement; the names stay below for anyone who wants them.
