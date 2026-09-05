@@ -193,8 +193,54 @@
   .gc-inj{font-size:11.5px;line-height:1.45;}
   .gc-inj .inj-team{font-weight:700;color:var(--gray-light);}
   .gc-inj .inj-out{color:#f3a1a1;} .gc-inj .inj-q{color:#fdba74;}
-  .gc-wx{font-size:11.5px;color:var(--blue);display:flex;align-items:center;gap:6px;}
+  .gc-wx{font-size:11.5px;color:var(--blue);display:flex;align-items:baseline;gap:6px;}
+  .gc-wx .wx-age{color:var(--gray);}
   .nfl-loading,.nfl-error{padding:40px 20px;text-align:center;color:var(--gray);font-size:13px;}
+
+  .team-row.expandable{cursor:pointer;border-radius:6px;padding:2px 4px;margin:-2px -4px;transition:background .15s;}
+  .team-row.expandable:hover{background:rgba(255,255,255,0.04);}
+  .team-row .tcaret{font-size:10px;color:var(--gray);transition:transform .18s;}
+  .team-row.open .tcaret{transform:rotate(180deg);}
+  .team-panel{display:none;background:var(--dark3);border-radius:8px;padding:12px 13px;margin-bottom:12px;}
+  .team-panel.open{display:block;}
+  .tp-hd{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--gray);margin:0 0 8px;}
+  .tp-hd:not(:first-child){margin-top:14px;}
+  .tp-basis{font-size:10px;letter-spacing:0;text-transform:none;color:var(--gray);font-family:inherit;font-weight:400;}
+  .tp-edge{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;border-top:1px solid rgba(255,255,255,0.05);}
+  .tp-edge:first-of-type{border-top:none;}
+  .tp-edge .te-txt{flex:1;color:var(--gray-light);}
+  .tp-edge .te-txt b{color:var(--white);font-weight:600;}
+  .tp-verdict{font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;padding:2px 7px;border-radius:4px;white-space:nowrap;}
+  .tp-verdict.edge{background:rgba(76,175,80,0.16);color:var(--green);}
+  .tp-verdict.tough{background:rgba(244,67,54,0.16);color:#f3a1a1;}
+  .tp-verdict.even{background:rgba(136,136,136,0.16);color:var(--gray-light);}
+  .tp-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:8px;}
+  .tp-stat{background:rgba(255,255,255,0.03);border-radius:6px;padding:7px 9px;}
+  .tp-stat .ts-lbl{font-size:9.5px;letter-spacing:.5px;text-transform:uppercase;color:var(--gray);}
+  .tp-stat .ts-val{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:17px;}
+  .tp-stat .ts-rank{font-size:10px;color:var(--gray);margin-left:4px;}
+  .tp-form{display:flex;flex-direction:column;gap:4px;}
+  .tp-game{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--gray-light);}
+  .tp-res{font-size:9px;font-weight:800;width:16px;height:16px;line-height:16px;text-align:center;border-radius:4px;flex-shrink:0;}
+  .tp-res.w{background:rgba(76,175,80,0.18);color:var(--green);} .tp-res.l{background:rgba(244,67,54,0.16);color:#f3a1a1;}
+  .tp-game .tg-opp{flex:1;} .tp-game .tg-rk{color:var(--gold);font-size:10px;}
+  .tp-game .tg-score{font-variant-numeric:tabular-nums;} .tp-game .tg-yr{color:var(--gray);font-size:10px;}
+  .tp-none{font-size:11.5px;color:var(--gray);}
+  .tp-hedge{font-size:11.5px;color:var(--gray-light);margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.05);line-height:1.5;}
+  .tp-hedge b{color:var(--white);font-weight:600;}
+  .tp-edge .te-of{color:var(--gray);font-size:10.5px;}
+
+  .results-sec{margin-top:26px;}
+  .results-hd{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gray);margin-bottom:10px;}
+  .results-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;}
+  .rcard{background:var(--dark2);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:12px 14px;}
+  .rcard .rc-top{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;}
+  .rcard .rc-final{font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;background:rgba(136,136,136,0.16);color:var(--gray-light);padding:2px 8px;border-radius:4px;}
+  .rc-row{display:flex;align-items:center;gap:9px;padding:3px 0;color:var(--gray-light);}
+  .rc-row img{width:20px;height:20px;flex-shrink:0;}
+  .rc-row .rc-name{flex:1;font-size:13.5px;}
+  .rc-row .rc-score{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:17px;}
+  .rc-row.won{color:var(--white);} .rc-row.won .rc-name{font-weight:700;} .rc-row.won .rc-score{color:var(--green);}
 </style>
 <link rel="stylesheet" href="assets/mobile.css">
 </head>
@@ -370,9 +416,27 @@ async function loadFeed(cfg) {
     if (!r.ok) throw new Error('HTTP '+r.status);
     const data = await r.json();
     cfg.header(data);
-    if (!data.games || !data.games.length) { document.getElementById(cfg.railsId).innerHTML=''; wrap.innerHTML = `<div class="nfl-error">${cfg.empty}</div>`; return; }
-    renderRails(data, cfg.railsId);
-    wrap.innerHTML = '<div class="games-grid">'+data.games.map(gameCard).join('')+'</div>';
+    // A scoreboard week is a date range, so a completed game can arrive in `games`. The feed
+    // now splits those into `results`, but a KV payload cached by an earlier build won't have —
+    // so re-split client-side too and the page is correct the moment it deploys, not a cron later.
+    const upcoming = (data.games||[]).filter(g => g.state !== 'post');
+    const results = (data.results||[]).concat((data.games||[]).filter(g => g.state === 'post'))
+      .sort((a,b) => Date.parse(b.date) - Date.parse(a.date));
+    const resultsHtml = results.length
+      ? `<div class="results-sec"><div class="results-hd">Final — already played this week</div>`+
+        `<div class="results-grid">${results.map(resultCard).join('')}</div></div>`
+      : '';
+    if (!upcoming.length) {
+      document.getElementById(cfg.railsId).innerHTML='';
+      wrap.innerHTML = `<div class="nfl-error">${results.length ? 'Every game in this window has been played — the next slate posts shortly.' : cfg.empty}</div>` + resultsHtml;
+      return;
+    }
+    renderRails({...data, games: upcoming}, cfg.railsId);
+    // Keep the slate so a team-row click can read its reports; a payload cached before team
+    // reports existed simply renders non-expandable cards.
+    FEEDS[cfg.gamesId] = {...data, games: upcoming};
+    const hasReports = !!(data.teamReports && data.teamReports.teams);
+    wrap.innerHTML = '<div class="games-grid">'+upcoming.map(g => gameCard(g, cfg.gamesId, hasReports)).join('')+'</div>' + resultsHtml;
   } catch (e) {
     cfg._loaded = false; // allow a retry on next tab switch
     wrap.innerHTML = '<div class="nfl-error">Couldn\'t load this slate. Try again shortly.</div>';
@@ -406,10 +470,11 @@ function loadCfbWeek(){ loadFeed(CFB_WEEK_FEED); }
 function stampText(d){ const w = d.builtAt ? new Date(d.builtAt) : null; return w ? 'Updated '+w.toLocaleDateString([], {month:'short',day:'numeric'}) : ''; }
 
 function renderRails(d, railsId) {
-  const best = (d.bestPicks||[]).map(p =>
+  const live = new Set((d.games||[]).map(g => g.id));
+  const best = (d.bestPicks||[]).filter(p => live.has(p.id)).map(p =>
     `<div class="rail-row"><span class="rr-team">${esc(p.team)} <span class="rr-meta">vs ${esc(p.opp)}</span></span><span class="rr-pct">${p.winProb}%</span></div>`
   ).join('') || '<div class="rail-empty">Picks post once lines are set.</div>';
-  const ups = (d.upsetAlerts||[]).map(u =>
+  const ups = (d.upsetAlerts||[]).filter(u => live.has(u.id)).map(u =>
     `<div class="rail-row"><span class="rr-team">${esc(u.underdog)} <span class="rr-meta">+dog vs ${esc(u.favorite)}</span></span><span class="rr-pct">${u.favWinProb}%</span></div>`
   ).join('') || '<div class="rail-empty">No coin-flip games flagged.</div>';
   document.getElementById(railsId).innerHTML =
@@ -417,7 +482,7 @@ function renderRails(d, railsId) {
     `<div class="rail upset"><div class="rail-title">⚡ Upset alerts</div>${ups}</div>`;
 }
 
-function teamRow(t, picked, mkt) {
+function teamRow(t, picked, mkt, expand) {
   const logo = t.logo ? `<img src="${esc(t.logo)}" alt="">` : '';
   const rec = t.record ? `<span class="trec">${esc(t.record)}</span>` : '';
   const chk = picked ? '<span class="pickchk">✓ PICK</span>' : '';
@@ -425,7 +490,165 @@ function teamRow(t, picked, mkt) {
   const market = mkt != null
     ? `<span class="tmarket" title="Market-implied win % — the de-vigged DraftKings moneyline (the betting market's implied probability), not a public money/ticket split.">${mkt}%</span>`
     : '';
-  return `<div class="team-row${picked?' picked':''}">${logo}<span class="tname">${esc(t.name)}</span>${rec}${market}${chk}</div>`;
+  // `expand` is [feedId, gameId, side] when a team report exists for this row — the row then
+  // opens the panel. Absent (an older cached payload, or an FCS team with no league stats) it
+  // stays a plain row rather than a control that opens an empty drawer.
+  const open = expand
+    ? ` expandable" role="button" tabindex="0" onclick="toggleTeam(this,'${expand[0]}','${expand[1]}','${expand[2]}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}`
+    : '';
+  const caret = expand ? '<span class="tcaret">▾</span>' : '';
+  return `<div class="team-row${picked?' picked':''}${open}">${logo}<span class="tname">${esc(t.name)}</span>${rec}${market}${chk}${caret}</div>`;
+}
+
+// ===== Expandable team report — recent form + the offense-vs-defense ranks behind the line =====
+
+// Feeds kept by container id so a click can read the slate's team reports without a refetch.
+const FEEDS = {};
+
+// Rank 1 is good on BOTH sides of the ball (most produced on offense, fewest allowed on defense),
+// so the two are directly comparable: subtract to get the mismatch. A gap wider than a quarter of
+// the league is the threshold for calling it — anything tighter is honestly just even.
+function edgeVerdict(offRank, defRank, leagueSize) {
+  if (!offRank || !defRank || !leagueSize) return null;
+  const gap = defRank - offRank;
+  const band = Math.max(4, Math.round(leagueSize / 4));
+  if (gap >= band) return 'edge';
+  if (gap <= -band) return 'tough';
+  return 'even';
+}
+
+function edgeRow(label, off, def, oppAbbr, leagueSize) {
+  if (!off?.rank || !def?.rank) return '';
+  const v = edgeVerdict(off.rank, def.rank, leagueSize);
+  const word = v === 'edge' ? 'Edge' : v === 'tough' ? 'Tough' : 'Even';
+  return `<div class="tp-edge"><span class="te-txt">${esc(label)} offense <b>#${off.rank}</b> vs `+
+    `${esc(oppAbbr)} ${esc(label.toLowerCase())} defense <b>#${def.rank}</b></span>`+
+    `<span class="tp-verdict ${v}">${word}</span></div>`;
+}
+
+function statTile(lbl, s, suffix) {
+  if (!s || s.value == null) return '';
+  return `<div class="tp-stat"><div class="ts-lbl">${esc(lbl)}</div>`+
+    `<div class="ts-val">${s.value}${suffix||''}<span class="ts-rank">${s.rank?'#'+s.rank:''}</span></div></div>`;
+}
+
+// The newest season BOTH teams have stats for. Ranks only compare inside one population, so a
+// matchup never sets a 2026 offense rank against a 2025 defense rank — if one side hasn't crossed
+// over yet, both are read on the season they share, and the line says which.
+function sharedSeason(a, b) {
+  const mine = Object.keys(a?.seasons||{}).map(Number);
+  const theirs = new Set(Object.keys(b?.seasons||{}).map(Number));
+  const both = mine.filter(y => theirs.has(y)).sort((x, y) => y - x);
+  return both[0] ?? null;
+}
+
+// How a season's numbers should be described. Last year's are labelled as last year's, with the
+// reason they're still on screen — a rank with no year on it is the thing that misleads.
+function basisHeading(year, current) {
+  return year === current ? `${year} season` : `${year} season stats`;
+}
+function basisNote(year, current, gp) {
+  if (year === current) return `${gp} game${gp===1?'':'s'} played`;
+  return `last year's roster — not enough ${current} games yet to rank`;
+}
+
+// The matchup's basis needs its OWN wording, because the reason it can sit a year behind is
+// different: a team that has crossed over still gets compared on the older season when its
+// opponent hasn't, and telling that team it lacks games of its own would be plainly wrong.
+function matchupBasisLabel(year, current, leagueSize) {
+  const of = leagueSize ? `ranks of ${leagueSize}` : '';
+  const why = year === current ? '' : ' — the newest year both teams have enough games to be compared on';
+  return `${basisHeading(year, current)}${of ? ' · ' + of : ''}${why}`;
+}
+
+// Points scored/allowed from THIS season's completed games. Free (it comes off the form rows we
+// already hold) and it is the cheap hedge against the real weakness of a prior-season basis: last
+// year's ranks can't see a new coordinator, a new quarterback, or heavy roster turnover. It won't
+// rank anyone on three games — it just puts what a team has actually done this year next to the
+// ranks, so a stale profile is visible rather than implied.
+function thisSeasonLine(form, season) {
+  const g = (form||[]).filter(f => f.season === season && f.score != null && f.oppScore != null);
+  if (!g.length) return '';
+  const w = g.filter(f => f.won).length;
+  const pf = (g.reduce((n, f) => n + f.score, 0) / g.length).toFixed(1);
+  const pa = (g.reduce((n, f) => n + f.oppScore, 0) / g.length).toFixed(1);
+  return `<div class="tp-hedge"><b>${season} so far:</b> ${w}-${g.length-w} · ${pf} scored, ${pa} allowed per game `+
+    `<span class="tp-basis">(${g.length} game${g.length===1?'':'s'} — too few to rank, shown so the ranks above aren't the only picture)</span></div>`;
+}
+
+// The panel body for one side of one game: the matchup edge first (it's the "why"), then the
+// season profile, then recent results.
+function teamPanelHtml(feed, g, side) {
+  const rep = feed.teamReports, me = g[side], opp = side === 'home' ? g.away : g.home;
+  const mine = rep?.teams?.[me.id], theirs = rep?.teams?.[opp.id];
+  if (!mine) return '<div class="tp-none">No report available for this team.</div>';
+  const cur = rep.season;
+
+  // The team's own basis drives the season tiles; the matchup uses whatever season both sides
+  // share, which may be older. Both are labelled, so the two can differ without confusing anyone.
+  const myYear = mine.basisSeason;
+  const myStats = myYear ? mine.seasons?.[myYear] : null;
+  const shareYear = theirs ? sharedSeason(mine, theirs) : null;
+  const a = shareYear ? mine.seasons?.[shareYear] : null;
+  const d = shareYear ? theirs.seasons?.[shareYear] : null;
+  const n = rep.leagueSizes?.[shareYear] || 0;
+
+  const edges = a && d
+    ? edgeRow('Pass', a.offense.yardsPerGame, d.defense.yardsPerGame, opp.abbr, n)
+      + edgeRow('Rush', a.offense.rushYardsPerGame, d.defense.rushYardsPerGame, opp.abbr, n)
+    : '';
+  const edgeSec = edges
+    ? `<div class="tp-hd">The matchup <span class="tp-basis">${matchupBasisLabel(shareYear, cur, n)}</span></div>${edges}`
+    : '';
+
+  const tiles = myStats ? statTile('Pts / game', myStats.offense.pointsPerGame)
+    + statTile('Pts allowed', myStats.defense.pointsPerGame)
+    + statTile('Yds / game', myStats.offense.totalYardsPerGame)
+    + statTile('Yds allowed', myStats.defense.totalYardsPerGame)
+    + statTile('Yds / carry', myStats.offense.yardsPerCarry)
+    + statTile('YPC allowed', myStats.defense.yardsPerCarry) : '';
+  // A slate regularly includes teams ESPN's leaderboard doesn't cover — its team stats are
+  // FBS-only, so an FCS non-conference opponent has recent results but no season profile and no
+  // ranks to match up. Say that, rather than showing a panel that looks half-broken.
+  const statSec = tiles
+    ? `<div class="tp-hd">${basisHeading(myYear, cur)} <span class="tp-basis">${basisNote(myYear, cur, myStats.gamesPlayed)}</span></div>`+
+      `<div class="tp-stats">${tiles}</div>`+
+      (myYear !== cur ? thisSeasonLine(mine.form, cur) : '')
+    : `<div class="tp-hd">Season</div><div class="tp-none">No season stat profile is published for this team, so there are no ranks to match up.</div>`;
+
+  // Early in a year the last five games straddle two seasons, so each row is stamped with its
+  // year — but only then. A list that sits entirely in one season needs no repeated label.
+  const spansSeasons = new Set((mine.form||[]).map(f => f.season)).size > 1;
+  const games = (mine.form||[]).map(f => {
+    const rk = f.oppRank ? `<span class="tg-rk">#${f.oppRank}</span> ` : '';
+    const yr = spansSeasons ? `<span class="tg-yr">${f.season}</span>` : '';
+    return `<div class="tp-game"><span class="tp-res ${f.won?'w':'l'}">${f.won?'W':'L'}</span>`+
+      `<span class="tg-score">${f.score}–${f.oppScore}</span>`+
+      `<span class="tg-opp">${f.home?'vs':'@'} ${rk}${esc(f.opp)}</span>${yr}</div>`;
+  }).join('');
+  const formSec = games
+    ? `<div class="tp-hd">Last ${(mine.form||[]).length}</div><div class="tp-form">${games}</div>`
+    : '<div class="tp-hd">Last games</div><div class="tp-none">No completed games yet.</div>';
+
+  return edgeSec + statSec + formSec;
+}
+
+// Open/close a team's panel. Rendered on first open (not with the card) so a slate of 24 games
+// doesn't build 48 panels nobody asked for; only one side is open per card at a time.
+function toggleTeam(row, feedId, gameId, side) {
+  const feed = FEEDS[feedId];
+  const panel = document.getElementById(`tp-${feedId}-${gameId}`);
+  if (!feed || !panel) return;
+  const card = row.closest('.gcard');
+  const wasOpen = panel.classList.contains('open') && panel.dataset.side === side;
+  card.querySelectorAll('.team-row.open').forEach(r => r.classList.remove('open'));
+  if (wasOpen) { panel.classList.remove('open'); return; }
+  const g = (feed.games||[]).find(x => String(x.id) === String(gameId));
+  if (!g) return;
+  panel.dataset.side = side;
+  panel.innerHTML = teamPanelHtml(feed, g, side);
+  panel.classList.add('open');
+  row.classList.add('open');
 }
 
 function injLine(label, rows) {
@@ -437,7 +660,39 @@ function injLine(label, rows) {
   return `<div class="gc-inj"><span class="inj-team">${esc(label)}:</span> ${items}</div>`;
 }
 
-function gameCard(g) {
+// A finished game: score only. No pick, no line, no forecast — those are pre-game reads, and
+// showing them after the fact is what made a played game look like an unset line.
+function resultCard(g) {
+  const d = g.date ? new Date(g.date) : null;
+  const when = d ? d.toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'}) : '';
+  const row = (t) => {
+    const logo = t.logo ? `<img src="${esc(t.logo)}" alt="">` : '';
+    return `<div class="rc-row${t.winner?' won':''}">${logo}<span class="rc-name">${esc(t.name)}</span>`+
+           `<span class="rc-score">${t.score!=null?t.score:'—'}</span></div>`;
+  };
+  const bowl = g.bowlName ? `<div class="gc-bowl">${esc(g.bowlName)}</div>` : '';
+  return `<div class="rcard">
+    <div class="rc-top"><span class="gc-when">${esc(when)}</span><span class="rc-final">Final</span></div>
+    ${bowl}
+    ${row(g.away)}${row(g.home)}
+  </div>`;
+}
+
+// How old a forecast is, in words. A weather line with no age reads as equally authoritative at
+// two hours and at twenty, which is the part that actually misleads — the daily cron means an
+// entry can legitimately be most of a day old. Omitted entirely for a payload built before
+// forecasts carried a timestamp, rather than guessing at one.
+function forecastAge(fetchedAt) {
+  const t = Date.parse(fetchedAt ?? '');
+  if (!Number.isFinite(t)) return '';
+  const mins = Math.round((Date.now() - t) / 60000);
+  if (mins < 0) return '';
+  if (mins < 5) return ' · just updated';
+  if (mins < 90) return ` · forecast ${mins}m old`;
+  return ` · forecast ${Math.round(mins / 60)}h old`;
+}
+
+function gameCard(g, feedId, hasReports) {
   const d = g.date ? new Date(g.date) : null;
   const when = d ? d.toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'})+' · '+d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '';
   const live = g.state==='in' ? '<span class="gc-live">● Live</span>' : (g.state==='post' ? '<span class="gc-live" style="background:rgba(136,136,136,.16);color:#aaa">Final</span>' : '');
@@ -452,7 +707,7 @@ function gameCard(g) {
     : `<div class="gc-line"><span>${g.venue.indoor?'🏟 Indoor':'☁ Outdoor'} · ${esc(g.venue.name)}</span></div>`;
   const inj = injLine(g.away.abbr, g.injuries.away) + injLine(g.home.abbr, g.injuries.home);
   const wx = g.weather
-    ? `<div class="gc-wx">🌦 ${g.weather.tempF!=null?g.weather.tempF+'°F':''} ${esc(g.weather.condition||'')}${g.weather.windMph?' · wind '+g.weather.windMph+'mph':''}${g.weather.precipPct!=null?' · '+g.weather.precipPct+'% precip':''}</div>`
+    ? `<div class="gc-wx">🌦 <span>${g.weather.tempF!=null?g.weather.tempF+'°F':''} ${esc(g.weather.condition||'')}${g.weather.windMph?' · wind '+g.weather.windMph+'mph':''}${g.weather.precipPct!=null?' · '+g.weather.precipPct+'% precip':''}<span class="wx-age">${forecastAge(g.weather.fetchedAt)}</span></span></div>`
     : '';
   // CFB bowl/playoff games carry a bowl name; NFL games don't. `@`/`vs` for site type.
   const bowl = g.bowlName ? `<div class="gc-bowl">${esc(g.bowlName)}</div>` : '';
@@ -460,7 +715,8 @@ function gameCard(g) {
     <div class="gc-top"><span class="gc-when">${esc(when)}</span><span>${live}${flag}</span></div>
     ${bowl}
     ${g.market ? '<div class="gc-market-hd" title="Market-implied win % per side, de-vigged from the DraftKings moneyline — the betting market\'s implied probability, not a public money/ticket split.">Market win %</div>' : ''}
-    <div class="matchup">${teamRow(g.away, pickTeam===g.away.abbr, g.market?g.market.away:null)}${teamRow(g.home, pickTeam===g.home.abbr, g.market?g.market.home:null)}</div>
+    <div class="matchup">${teamRow(g.away, pickTeam===g.away.abbr, g.market?g.market.away:null, hasReports&&g.away.id?[feedId,g.id,'away']:null)}${teamRow(g.home, pickTeam===g.home.abbr, g.market?g.market.home:null, hasReports&&g.home.id?[feedId,g.id,'home']:null)}</div>
+    ${hasReports ? `<div class="team-panel" id="tp-${feedId}-${g.id}"></div>` : ''}
     ${pickBlock}
     ${line}
     <div class="gc-extra">${inj}${wx}</div>

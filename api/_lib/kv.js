@@ -32,6 +32,28 @@ export const PROJECTIONS_KEY = 'projections:nfl';
 // Drives realistic mock-draft opponents and the falling-value boost in the
 // recommendation engine. Persisted separately for graceful degrade.
 export const ADP_KEY = 'adp:nfl';
+// Distilled team statistics for ONE COMPLETED season of one league, keyed by team id:
+// { teams: { [id]: { abbr, gamesPlayed, offense, defense } }, count, rated }. Built from ESPN's
+// statistics/byteam leaderboard (see teamReport.js) and cached WITHOUT expiry on purpose — a
+// finished season's numbers never change again, so this is fetched once per league per season
+// and then read for free for the rest of the year. Only ever written for a season strictly
+// before the current one; the in-progress season moves weekly and is always fetched live.
+export const byteamKey = (leaguePath, season) => `byteam:${leaguePath}:${season}`;
+
+// NWS gridpoint lookup for one coordinate: api.weather.gov/points/{lat},{lon} resolves a
+// coordinate to the hourly-forecast URL for its grid cell, and that mapping is a property of the
+// coordinate, not of the weather — the same point returns the same URL every time. Caching it
+// halves the calls a forecast costs (two round-trips become one) and makes a serve-time refresh
+// cheap enough to run on a request. Given a long TTL rather than none: NWS does occasionally
+// re-grid a forecast office, and a stale URL would quietly stop resolving.
+export const nwsGridKey = (lat, lon) => `nws:grid:${lat},${lon}`;
+export const NWS_GRID_TTL = 90 * 24 * 3600; // 90 days
+
+// Single-flight guard for the serve-time weather top-up, one per Pick'em feed. Held for the
+// length of the top-up interval so a burst of concurrent requests refreshes once, not once each,
+// and a public URL can never be used to drive repeated upstream fetches.
+export const wxCooldownKey = (feedKey) => `wx:cooldown:${feedKey}`;
+
 // NFL Pick'em weekly feed (Brackets & Bowls) — games + market-implied picks, injuries, and
 // outdoor weather, built daily by the refresh cron from free ESPN + NWS sources and served
 // via api/sports.js (?feed=nfl-pickem). Cached so requests make zero upstream calls.
@@ -81,6 +103,16 @@ export const NFL_DVP_KEY = 'matchup:nfl-dvp';
 // Anthropic spend proportional to change, not to roster size. Keyed per player, separate from the
 // daily datasets so it survives the rebuild and never read-modify-writes a dataset key.
 export const synopsisKey = (sport, id) => `synopsis:${sport}:${id}`;
+
+// Whether Redis is actually wired up. Worth knowing before calling it on a hot path: the client
+// RETRIES internally, so a command with no credentials (local dev) or against an unreachable
+// server costs ~4.3 SECONDS before it throws. Anything that would issue one call per item — the
+// per-venue gridpoint cache, say — has to check this first, or a Redis outage turns a build that
+// took eight seconds into one that takes two minutes and blows the cron budget.
+export const redisConfigured = Boolean(
+  (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL)
+  && (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN),
+);
 
 export const redis = new Redis({
   url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL,

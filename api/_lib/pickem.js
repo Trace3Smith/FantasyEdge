@@ -8,6 +8,9 @@
 // probability. Win% = Φ(spread / 13.5): football margin-of-victory ≈ Normal with SD ~13.5,
 // so a −3 favorite ≈ 59%, −7 ≈ 70%. Honest and standard; not framed as betting advice.
 
+import { buildTeamReports } from './teamReport.js';
+import { redis, redisConfigured, nwsGridKey, NWS_GRID_TTL, wxCooldownKey } from './kv.js';
+
 const UA = 'FantasyEdge/1.0 (brackets pickem; contact via app)';
 
 // Normal CDF via an erf approximation (Abramowitz & Stegun 7.1.26). Used only to turn a
@@ -72,32 +75,120 @@ async function fetchInjuries(url) {
   } catch { return {}; }
 }
 
+// This cache is consulted once PER GAME, which makes a slow Redis expensive in a way a
+// once-per-build cache isn't: the client retries internally, so one unreachable command costs
+// ~4.3 seconds, and a full slate would serialise that into minutes and blow the cron budget. So
+// the cache is skipped entirely when Redis isn't configured, and one failure disables it for the
+// rest of the process — a build pays the penalty once, not once per game. Forecasts still work
+// throughout; they just cost the extra gridpoint call they cost before this cache existed.
+let gridCacheOff = !redisConfigured;
+
+// The NWS hourly-forecast URL for a coordinate. This is the first of the two calls a forecast
+// costs, and it is pure lookup: a coordinate always resolves to the same grid cell, so caching it
+// leaves the second call as the only one that has to happen.
+async function nwsForecastUrl(lat, lon) {
+  const key = nwsGridKey(lat, lon);
+  if (!gridCacheOff) {
+    try { const hit = await redis.get(key); if (typeof hit === 'string' && hit) return hit; }
+    catch { gridCacheOff = true; }
+  }
+  const pt = await fetch(`https://api.weather.gov/points/${lat},${lon}`, { headers: { 'User-Agent': UA } });
+  if (!pt.ok) return null;
+  const props = (await pt.json())?.properties || {};
+  const url = props.forecastHourly || props.forecast;
+  if (!url) return null;
+  if (!gridCacheOff) {
+    try { await redis.set(key, url, { ex: NWS_GRID_TTL }); }
+    catch { gridCacheOff = true; } // serving it matters, storing it doesn't
+  }
+  return url;
+}
+
+// Read one NWS forecast URL and pick the period covering kickoff. This is a forecast FOR KICKOFF,
+// not current conditions — which is why an entry hours old is still meaningful, and why it carries
+// `fetchedAt`: the card states its own age rather than looking equally fresh at every hour.
+// `url` is kept so the forecast can be refreshed later without re-resolving the gridpoint.
+async function readForecast(url, kick) {
+  const fc = await fetch(url, { headers: { 'User-Agent': UA } });
+  if (!fc.ok) return null;
+  const periods = (await fc.json())?.properties?.periods || [];
+  if (!periods.length) return null;
+  const p = periods.find((x) => Date.parse(x.startTime) <= kick && kick < Date.parse(x.endTime)) || periods[0];
+  return {
+    tempF: p.temperature ?? null,
+    condition: p.shortForecast || '',
+    windMph: parseInt(String(p.windSpeed || '').match(/\d+/)?.[0] || '', 10) || null,
+    precipPct: p.probabilityOfPrecipitation?.value ?? null,
+    fetchedAt: new Date().toISOString(),
+    url,
+  };
+}
+
 // NWS forecast nearest kickoff for an outdoor venue. `coords` = { lat, lon, dome } or null.
-// Two calls (points → forecast); only works within the forecast window (~7 days) and only
-// for US/territory locations (NWS is US-only), so anything else returns null (populates as
-// the game nears). Best-effort — any failure returns null.
+// Only works within the forecast window (~7 days) and only for the US and its territories (NWS
+// covers nothing else), so anything else returns null and populates as the game nears.
+// Best-effort — any failure returns null.
 async function fetchWeather(coords, indoor, kickoffIso) {
   if (!coords || coords.dome || indoor) return null;
   const kick = Date.parse(kickoffIso);
   if (Number.isFinite(kick) && kick - Date.now() > 7 * 86400000) return null; // beyond NWS window
   try {
-    const pt = await fetch(`https://api.weather.gov/points/${coords.lat},${coords.lon}`, { headers: { 'User-Agent': UA } });
-    if (!pt.ok) return null;
-    const props = (await pt.json())?.properties || {};
-    const purl = props.forecastHourly || props.forecast;
-    if (!purl) return null;
-    const fc = await fetch(purl, { headers: { 'User-Agent': UA } });
-    if (!fc.ok) return null;
-    const periods = (await fc.json())?.properties?.periods || [];
-    if (!periods.length) return null;
-    const p = periods.find((x) => Date.parse(x.startTime) <= kick && kick < Date.parse(x.endTime)) || periods[0];
-    return {
-      tempF: p.temperature ?? null,
-      condition: p.shortForecast || '',
-      windMph: parseInt(String(p.windSpeed || '').match(/\d+/)?.[0] || '', 10) || null,
-      precipPct: p.probabilityOfPrecipitation?.value ?? null,
-    };
+    const url = await nwsForecastUrl(coords.lat, coords.lon);
+    return url ? await readForecast(url, kick) : null;
   } catch { return null; }
+}
+
+// ===== Serve-time top-up =====
+//
+// The daily cron is the only scheduled writer, so a forecast on a card is up to ~24h old and is
+// 5-14h old at kickoff — and the hours that matter most are the ones where a forecast actually
+// firms up. Hobby caps crons at once a day, so freshness has to come from the request path
+// instead: when the feed is served, any game about to kick off whose forecast has gone stale is
+// re-read. That is deliberately narrow — only games inside TOPUP_WINDOW, only the second NWS call
+// (the gridpoint is cached), and only once per TOPUP_MAX_AGE across all requests.
+const TOPUP_WINDOW = 24 * 3600 * 1000;  // only games about to be played
+const TOPUP_MAX_AGE = 30 * 60 * 1000;   // how stale a forecast may get inside that window
+const TOPUP_BUDGET_MS = 4000;           // hard ceiling: this runs on a user's request
+
+// Games close enough to kick off that their forecast is worth re-reading, and old enough to need
+// it. A game with no `weather.url` can't be topped up and doesn't need to be: it is either domed,
+// at an unknown venue, or was outside the 7-day window at build time — and something outside that
+// window by definition isn't inside a 24-hour one.
+export function staleWeatherGames(feed, now = Date.now()) {
+  return (feed?.games || []).filter((g) => {
+    if (g.state === 'post' || !g.weather?.url) return false;
+    const kick = Date.parse(g.date);
+    if (!Number.isFinite(kick) || kick - now > TOPUP_WINDOW) return false;
+    const age = now - Date.parse(g.weather.fetchedAt ?? 0);
+    return !(age >= 0) || age > TOPUP_MAX_AGE;
+  });
+}
+
+// Refresh the forecasts on a served feed. Returns the feed and whether anything actually changed,
+// so the caller only writes back when there is something to write. Never throws: a failed refresh
+// leaves the previous forecast in place, which is exactly what it was going to show anyway.
+export async function topUpWeather(feed, feedKey) {
+  const stale = staleWeatherGames(feed);
+  if (!stale.length) return { feed, changed: false };
+
+  // Single-flight across concurrent requests: whoever sets the cooldown does the work, everyone
+  // else serves what's cached. Set BEFORE fetching, so a burst can't all pile into NWS at once.
+  if (!redisConfigured) return { feed, changed: false }; // no cooldown to hold → never fetch
+  try {
+    const won = await redis.set(wxCooldownKey(feedKey), Date.now(), { nx: true, px: TOPUP_MAX_AGE });
+    if (!won) return { feed, changed: false };
+  } catch { return { feed, changed: false }; } // no cooldown available → don't fetch at all
+
+  const deadline = Date.now() + TOPUP_BUDGET_MS;
+  let changed = false;
+  await Promise.all(stale.map(async (g) => {
+    if (Date.now() > deadline) return;
+    try {
+      const fresh = await readForecast(g.weather.url, Date.parse(g.date));
+      if (fresh) { g.weather = fresh; changed = true; }
+    } catch { /* keep the forecast we already have */ }
+  }));
+  return { feed, changed };
 }
 
 // Build a slate of Pick'em games from an ESPN scoreboard. `cfg`:
@@ -106,8 +197,11 @@ async function fetchWeather(coords, indoor, kickoffIso) {
 //   coordsFor(comp, home, away) — returns { lat, lon, dome } | null for the venue (weather)
 //   includeEvent(comp, ev)      — optional filter (e.g. CFB: drop FCS games); default keep all
 //   nameOf(comp)                — optional extra label (e.g. CFB bowl/playoff name); default null
-// Returns { season, seasonType, week, games, bestPicks, upsetAlerts, builtAt }. Failure-
-// tolerant per game so one bad event can't drop the slate.
+//   leaguePath                  — ESPN sport/league segment ('football/nfl'); enables team reports
+// Returns { season, seasonType, week, games, results, teamReports, bestPicks, upsetAlerts, builtAt }, where
+// `games` is the still-to-play slate and `results` holds any game in the same window that's
+// already final (see the split below). Failure-tolerant per game so one bad event can't drop
+// the slate.
 export async function buildPickem(cfg) {
   const r = await fetch(cfg.scoreboardUrl, { headers: { 'User-Agent': UA } });
   if (!r.ok) throw new Error(`ESPN scoreboard HTTP ${r.status}`);
@@ -123,7 +217,16 @@ export async function buildPickem(cfg) {
       const home = c.competitors.find((t) => t.homeAway === 'home');
       const away = c.competitors.find((t) => t.homeAway === 'away');
       if (!home || !away) continue;
-      const teamOf = (t) => ({ abbr: t.team.abbreviation, name: t.team.displayName, logo: t.team.logo || null, record: t.records?.[0]?.summary || null });
+      const teamOf = (t) => ({
+        id: t.team.id,
+        abbr: t.team.abbreviation,
+        name: t.team.displayName,
+        logo: t.team.logo || null,
+        record: t.records?.[0]?.summary || null,
+        // Final score + winner, present only once a game is over — what the results section renders.
+        score: t.score != null && t.score !== '' ? Number(t.score) : null,
+        winner: t.winner === true,
+      });
 
       // Odds → market-implied pick + win%. Absent odds (rare, or way out) → no pick yet.
       const o = (c.odds || [])[0];
@@ -152,21 +255,25 @@ export async function buildPickem(cfg) {
         if (homePct != null) { const h = Math.round(homePct); market = { home: h, away: 100 - h }; }
       }
 
+      const state = ev.status?.type?.state || 'pre';
       const indoor = c.venue?.indoor === true;
       const coords = cfg.coordsFor ? cfg.coordsFor(c, home, away) : null;
-      const weather = await fetchWeather(coords, indoor, ev.date);
+      // A finished game gets no forecast — the weather already happened, and it saves the NWS calls.
+      const weather = state === 'post' ? null : await fetchWeather(coords, indoor, ev.date);
       const bowlName = cfg.nameOf ? cfg.nameOf(c) : null;
 
       games.push({
         id: ev.id,
         date: ev.date,
         shortName: ev.shortName,
-        state: ev.status?.type?.state || 'pre',
+        state,
         ...(bowlName ? { bowlName } : {}),
         neutralSite: c.neutralSite === true,
         home: teamOf(home),
         away: teamOf(away),
-        venue: { name: c.venue?.fullName || '', indoor, city: c.venue?.address?.city || '' },
+        // The venue id is the key both CFB coordinate tables use, so carrying it makes the payload
+        // self-describing: weather coverage can be checked without re-deriving the venue.
+        venue: { id: c.venue?.id ? String(c.venue.id) : null, name: c.venue?.fullName || '', indoor, city: c.venue?.address?.city || '' },
         odds,
         pick,
         market, // { home, away } implied win % (de-vigged moneyline); null when no line
@@ -180,18 +287,45 @@ export async function buildPickem(cfg) {
     } catch { /* skip a single malformed event; keep the slate */ }
   }
 
+  // A scoreboard "week" is a DATE RANGE, not a set of unplayed games: ESPN's CFB Week 1 spans
+  // the Week-0 Saturday through the following Monday, so games already played sit in the same
+  // payload as the upcoming slate. Their betting lines are pulled once they're final, which made
+  // them render as "Line not set yet" alongside real picks. Split them out: `games` is what's
+  // still ahead (pre + in-progress), `results` is what already happened, newest first.
+  const upcoming = games.filter((g) => g.state !== 'post');
+  const results = games.filter((g) => g.state === 'post')
+    .sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+
   // Highest-confidence picks (safest) and the upset watchlist — the page's two headline rails.
-  const picked = games.filter((g) => g.pick);
+  // Built from the upcoming slate only: a rail entry for a finished game is noise.
+  const picked = upcoming.filter((g) => g.pick);
   const bestPicks = picked.slice().sort((a, b) => b.pick.winProb - a.pick.winProb).slice(0, 5)
     .map((g) => ({ id: g.id, team: g.pick.team, winProb: g.pick.winProb, opp: g.pick.team === g.home.abbr ? g.away.abbr : g.home.abbr }));
   const upsetAlerts = picked.filter((g) => g.upsetAlert)
     .map((g) => ({ id: g.id, underdog: g.pick.team === g.home.abbr ? g.away.abbr : g.home.abbr, favorite: g.pick.team, favWinProb: g.pick.winProb }));
 
+  // Expandable team reports (recent form + offense/defense ranks) for everyone still to play.
+  // Precomputed here rather than fetched per click: the slate's teams are a small, known set, so
+  // one league-wide stats call plus a schedule each — on the daily cron — makes the panel instant
+  // and costs the reader nothing. Best-effort; a failure leaves the cards exactly as they were.
+  let teamReports = null;
+  if (cfg.leaguePath) {
+    try {
+      teamReports = await buildTeamReports({
+        leaguePath: cfg.leaguePath,
+        season: sb.season?.year ?? null,
+        teamIds: upcoming.flatMap((g) => [g.home.id, g.away.id]),
+      });
+    } catch { /* the slate is the product; the panel is an enhancement */ }
+  }
+
   return {
     season: sb.season?.year ?? null,
     seasonType: sb.season?.type ?? null,
     week: sb.week?.number ?? null,
-    games,
+    games: upcoming,
+    results,
+    teamReports,
     bestPicks,
     upsetAlerts,
     builtAt: new Date().toISOString(),

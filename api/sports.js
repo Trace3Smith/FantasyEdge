@@ -11,6 +11,8 @@ import { buildPgaDataset } from './_lib/buildPgaDataset.js';
 import { buildNflPickem } from './_lib/nflPickem.js';
 import { buildCfbBowl } from './_lib/cfbBowl.js';
 import { buildCfbWeek } from './_lib/cfbWeek.js';
+import { TEAM_REPORT_VERSION } from './_lib/teamReport.js';
+import { topUpWeather } from './_lib/pickem.js';
 import { buildMarchMadness } from './_lib/marchMadness.js';
 import { requirePremium, sendError } from './_lib/auth.js';
 import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NFL_DVP_KEY, DATASET_VERSION } from './_lib/kv.js';
@@ -116,9 +118,37 @@ export default async function handler(req, res) {
     const { key, build } = PICKEM_FEEDS[req.query.feed];
     try {
       let feed = await redis.get(key);
-      if (!feed || !Array.isArray(feed.games)) {
+      // A payload cached before team reports existed has no `teamReports` KEY at all, and one
+      // built against an older report SHAPE carries an older `v` — either rebuilds once so the
+      // page never meets a payload it can't read. Presence and version are tested, not
+      // truthiness: a build whose report step failed stores an explicit null, and treating THAT
+      // as stale would rebuild the whole feed — scoreboard, injuries and weather — on every
+      // single request.
+      const reports = feed?.teamReports;
+      const staleReports = !feed || !('teamReports' in feed)
+        || (reports != null && reports.v !== TEAM_REPORT_VERSION);
+      // Forecasts predating the timestamp+url fields can be neither aged on the card nor topped
+      // up, and those fields are purely ADDITIVE — so nothing else here would notice, and the
+      // feature would stay invisible until the next daily cron. Rebuilding once on the first
+      // request after deploy is the same self-heal the version check above does. It cannot loop:
+      // every forecast a build produces carries both fields.
+      const staleWeather = (feed?.games || []).some((g) => g.weather && !g.weather.fetchedAt);
+      let built = false;
+      if (!feed || !Array.isArray(feed.games) || staleReports || staleWeather) {
         feed = await build();
         await redis.set(key, feed);
+        built = true;
+      }
+
+      // Weather top-up. The daily cron is the only scheduled writer and Hobby won't run one more
+      // often, so a forecast is otherwise up to ~24h old — including through the final hours
+      // before kickoff, which is exactly when it firms up. Re-read only the games about to be
+      // played, only when their forecast has gone stale, and only once per interval across all
+      // requests (the top-up holds a cooldown). A build we just did is already fresh, so it skips.
+      if (!built) {
+        const { feed: toppedUp, changed } = await topUpWeather(feed, key);
+        feed = toppedUp;
+        if (changed) await redis.set(key, feed);
       }
       return res.json(feed);
     } catch (err) {

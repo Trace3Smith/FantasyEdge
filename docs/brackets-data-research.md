@@ -103,6 +103,182 @@ EASIER on the data side, harder on the logic side.**
    table, and requires the **new bracket-optimizer logic**. Sequence last — its long pole is
    modeling, not data, so it benefits from the pipeline being proven by #1 and #2.
 
+## Addendum (2026-09-03) — team reports, and the endpoint that gives us defense
+
+Built as the expandable team panel on every Pick'em card (`api/_lib/teamReport.js`): recent
+form, a season profile, and the offense-vs-defense rank comparison that explains *why* a
+matchup tilts. This merged two separately-scoped items — "click a team to see recent games and
+stats" and the "why behind the stats" matchup context — because they are the same question
+asked from two directions, and a rank only means something next to the rank it faces.
+
+**The finding that made it cheap.** ESPN's per-team `statistics` endpoint is offense-only: its
+`defensive` category reports `yardsAllowed` and `pointsAllowed` as a flat **0** for every team.
+That is why `nflDvp.js` derives NFL pass/rush defense by aggregating ~272 game summaries a
+season — and why doing the same for 136 FBS teams looked unaffordable.
+
+The `statistics/byteam` leaderboard does not have that hole:
+
+```
+https://site.web.api.espn.com/apis/common/v3/sports/{league}/statistics/byteam?season={yr}&seasontype=2
+```
+
+Every team's categories arrive **doubled** — `Own Passing` / `Opponent Passing`, `Own Rushing` /
+`Opponent Rushing`, and so on. The Opponent split *is* the defense (what the team allowed), and
+each stat already carries its national rank. One call returns the whole league, both sides of
+the ball, pre-ranked. Confirmed on both `football/nfl` (32 teams) and
+`football/college-football` (136).
+
+**Rank direction.** Rank 1 is good for the team in both splits, for opposite reasons: on an Own
+split it is the most produced, on an Opponent split the fewest allowed. Verified on 2025 FBS —
+Ohio State allowed 129.7 pass yds/g at opponent-rank 1, Stanford 288.9 at 136. So an offense
+rank and a defense rank are directly comparable, which is what the panel's verdict rests on.
+
+**Two traps, both hit in testing:**
+- A league that has not kicked off returns a wholly **empty body** (`{}` — no teams, no
+  categories, and *not* an error), so "zero teams" has to trigger the prior-season fallback the
+  same as "too few teams have played". Ranks computed off the 16 CFB teams who had played in
+  Week 1 would have been worse than useless.
+- NFL team schedules include **preseason** games as completed results. They are excluded from
+  recent form (`seasonType.type < 2`); starters barely play in them.
+
+**Cost:** one league-wide stats call plus one schedule call per team on the slate, on the daily
+cron — ~1s and +40KB of payload for a 24-game CFB week. No new function; it rides the existing
+`?feed=` dispatch. `npm run check:brackets` exercises the feeds and the page's real renderers.
+
+### The crossover, per team (2026-09-04)
+
+Early-season teams sit on the last completed season's ranks, and cross to the current season on
+their **own** schedule rather than the league's. Two gates, both required:
+
+1. the team has played `MIN_GP` (4) games — its own numbers aren't noise; and
+2. at least 75% of the league has too — the population a rank is drawn from is real.
+
+Gate 2 counts teams that have **played**, not teams *listed*. ESPN populates the leaderboard from
+the schedule release: on 2026-09-04 the CFB leaderboard already carried **138 teams, nearly all
+with zero games**. Ranking a team with one game against 137 that have produced nothing is worse
+than using last year. Both gates clear around Week 5, which is roughly when season ranks start
+meaning anything anyway.
+
+**Mixed matchups.** Ranks only compare inside one population, so a 2026 offense rank must never be
+set against a 2025 defense rank. Both seasons are retained per team (~400 bytes each), and a
+matchup is drawn on the newest season **both** teams have — so a crossed-over team facing one that
+hasn't is still compared on 2025, and the line says so. The two sides of a card always agree.
+
+A season is stored for a team only if its ranks are worth reading (real stats both sides, and for
+the in-progress season the crossover rule satisfied). That storage rule is what makes the shared
+-basis lookup safe: a season nobody should be ranked on is never in the map to be picked.
+
+**Labels.** A prior-season profile reads *"2025 season stats — last year's roster, not enough 2026
+games yet to rank."* The matchup gets its own wording, because it can sit a year back for a
+different reason — the opponent's sample, not yours.
+
+**The roster-turnover hedge.** Last year's ranks can't see a new coordinator or heavy turnover.
+Rather than trying to model that, a team on a prior-season basis also shows *"2026 so far: 1-0,
+42.0 scored, 26.0 allowed per game"* — derived from the form rows already in the payload, so it
+costs **nothing**, and it puts what a team has actually done this year beside the stale ranks.
+
+**Caching.** A completed season never changes, so the prior-season leaderboard is stored in Redis
+under `byteam:{league}:{season}` **without expiry** — fetched once per league per season, then
+free. It is *not* a second live feed. Only the in-progress season is fetched on each build, and an
+empty response is never cached (that would pin a transient ESPN failure in place permanently).
+`teamReports.v` versions the payload shape so `api/sports.js` rebuilds a stale-shaped cached feed
+once on deploy.
+
+## Addendum (2026-09-04) — CFB stadium coordinates, so the weekly feed gets weather
+
+`api/_lib/cfbVenues.js`, generated by `node scripts/gen-cfb-venues.mjs` and committed as reviewed
+data. 172 FBS venues (13 domed). The CFB Week feed previously passed `coordsFor: () => null` and
+showed no weather at all; it now matches NFL Pick'em and the bowls.
+
+**ESPN has no coordinates.** A venue record carries a name, city/state, an `indoor` flag and a
+**ZIP** — no lat/lon, which is what NWS needs. The zip is the usable key: ESPN's are usually
+campus-specific (94305 = Stanford, 73019 = Oklahoma's campus, 90037 = the Coliseum), so a zip
+centroid normally lands a couple of km from the stadium, well inside NWS's ~2.5km grid.
+
+**Every row is validated against the API that will consume it.** A geocoder returning a plausible
+wrong answer is the real risk, so each coordinate is round-tripped through NWS `/points`: it must
+resolve to a gridpoint, and the state NWS reports back must match ESPN's. Anything failing is
+reported and left out rather than written unchecked. This caught a genuine ESPN data error — East
+Carolina's stadium in Greenville, NC is recorded with zip **37604, which is Johnson City,
+Tennessee**, ~250 miles away. The generator offers two candidates (zip centroid, then city
+geocode) precisely so validation has something to fall through to.
+
+**Precision, stated honestly.** Not every zip is geographic. Fenway Park is recorded under 02297, a
+unique/PO-box zip whose centroid sits ~15km east. Cross-checked against the independently
+hand-built `BOWL_VENUES`, dome flags agree on all 12 shared venues, 26 of 30 coordinates agree
+within 8km, worst ~16km. That is several grid cells but does not move a temperature, wind speed or
+chance of rain enough to change a card, so it's accepted rather than chased. `BOWL_VENUES` still
+takes precedence where it has a hand-verified coordinate; the generated table now backs it up,
+which is what covers a CFP first-round game at a campus stadium.
+
+**Two things a single-season walk gets wrong**, both fixed:
+- `groups=80` (FBS) is required. Without it the scoreboard returns a handful of featured games —
+  15 in a week that actually had 51 — silently producing a table full of holes.
+- One season isn't enough. Neutral-site games are played at NFL stadiums, and Wisconsin vs Notre
+  Dame at **Lambeau Field** had no FBS game there in 2025, so a 2025-only table left that card
+  with no forecast. The generator walks three seasons including the current one, which also picks
+  up venues that are only scheduled so far.
+
+**NWS coverage is not "USA only".** It forecasts the territories too, and college football plays in
+San Juan and Honolulu — ESPN reports those in its `country` field rather than as a state, so they
+have to be allow-listed or real venues get dropped. Dublin, London and Nassau are genuinely
+outside coverage and are skipped on purpose.
+
+**A latent NFL bug surfaced alongside this.** `nflPickem.js` resolves coordinates by HOME TEAM,
+which is wrong at a neutral site: the league plays in London, Munich, São Paulo and Melbourne, and
+the home-team lookup would forecast their home city's weather for a game on the other side of the
+world. It stayed invisible because those games happened to involve dome teams, so the dome check
+swallowed the wrong lookup. Neutral-site NFL games now get no forecast, which is the honest answer
+— NWS is US-only.
+
+Games also now carry `venue.id` in the payload, so weather coverage is checkable without
+re-deriving the venue. `npm run check:brackets` asserts the table's structure (no null island, no
+sign-flipped longitudes, coordinates inside NWS coverage) and that every in-window outdoor game at
+a resolvable venue actually has a forecast.
+
+## Addendum (2026-09-04) — forecast freshness on a once-a-day cron
+
+The daily cron (`0 11 * * *`) is the only scheduled writer and the feed key carries **no TTL**, so
+a forecast was up to ~24h old on the page and, measured against a real slate, **5–14h old at
+kickoff** (median 12h). Temperature survives that; precipitation probability is what moves. The
+plan is **Hobby** (verified, not assumed), which caps cron *frequency* at once a day — cron
+*count* is no longer a limit, but a second, more frequent cron isn't available. So freshness has
+to come from the request path.
+
+**Serve-time top-up** (`topUpWeather` in pickem.js, called from api/sports.js). On serve, any game
+kicking off within **24h** whose forecast is older than **30 minutes** is re-read. Deliberately
+narrow:
+- only games inside that window, so it is a handful of fetches, never the slate;
+- only the second NWS call — the gridpoint is cached, see below;
+- once per interval across ALL requests, via a `SET NX PX` cooldown taken *before* fetching, so a
+  burst of concurrent requests refreshes once rather than once each and a public URL can't be used
+  to drive repeated upstream traffic;
+- a 4s hard budget, because this runs on somebody's request;
+- skipped entirely on a cold-start build, which is already fresh.
+
+A failure leaves the previous forecast in place — which is what it was going to show anyway.
+
+**Gridpoint cache.** `api.weather.gov/points/{lat},{lon}` resolves a coordinate to its grid cell's
+hourly-forecast URL, and that mapping belongs to the coordinate, not the weather. Cached under
+`nws:grid:{lat},{lon}` (90-day TTL rather than none — NWS does occasionally re-grid an office),
+which halves what a forecast costs and is what makes the top-up cheap enough to run on a request.
+
+**A trap this introduced, and the fix.** That cache is consulted **once per game**, and the Upstash
+client retries internally: one command against an unconfigured or unreachable Redis costs **~4.3
+seconds** before it throws. A full slate serialised that into ~95s and blew a local build straight
+past a 120s timeout — in production it would have eaten the cron budget on any Redis blip, for a
+path that previously touched Redis zero times. So the cache is skipped when Redis isn't configured
+(`redisConfigured`), and **one failure disables it for the rest of the process**: a build pays that
+penalty once, not once per game. Forecasts keep working throughout, at the cost they had before the
+cache existed.
+
+**The card now states its own age** — `🌦 72°F Clear · forecast 11h old`. A weather line with no age
+reads as equally authoritative at two hours and at twenty, which was the more misleading half of
+the problem. Omitted rather than guessed for a payload built before forecasts were timestamped.
+
+`weather` now carries `fetchedAt` and the NWS `url` it can be refreshed from. Both are additive —
+an older cached payload simply shows no age and isn't topped up until the next cron.
+
 ## Bottom line for the build decision
 - **No recurring cost, no paid API, no new auth.** ESPN (free) + NWS (free) cover all four
   sections' data. Only *weather* needs the second source; only *March Madness history* needs
