@@ -10,6 +10,7 @@
 
 import { buildTeamReports } from './teamReport.js';
 import { redis, redisConfigured, nwsGridKey, NWS_GRID_TTL, wxCooldownKey } from './kv.js';
+import { groupInjuries } from './injuryGroups.js';
 
 const UA = 'FantasyEdge/1.0 (brackets pickem; contact via app)';
 
@@ -49,8 +50,21 @@ const NOTABLE_STATUS = new Set(['Out', 'Doubtful', 'Questionable', 'Injured Rese
 const KEY_POS = new Set(['QB', 'RB', 'WR', 'TE', 'LT', 'CB', 'EDGE', 'DE', 'K']);
 
 // Fetch every team's injuries from a league's site injuries endpoint in one call →
-// { teamAbbr: [{name,pos,status}] }, slimmed to notable statuses and capped per team (key
-// positions first). Best-effort: on any failure returns {} so games still render.
+// { teamId: [{name,pos,status}] }, slimmed to notable statuses, key positions first.
+//
+// KEYED BY TEAM ID, and it has to be. This was previously keyed on
+// `t.team?.abbreviation || t.abbreviation` — but ESPN's injuries payload shapes a team as
+// `{ id, displayName, injuries }`, carrying NEITHER of those fields. So `abbr` was always
+// undefined, every team hit the `continue`, and the map came back empty: no NFL injury has ever
+// reached a card. `id` is the field that is actually present (22 = Arizona), and it matches the
+// team id already on every game object. The old keys are kept as fallbacks for any other shape.
+//
+// NO CAP HERE, deliberately. This list used to be trimmed to 6 per team, which is fine for
+// printing a few names but silently wrong for COUNTING a unit: the sort put KEY_POS first, and
+// KEY_POS contains LT but not C, G or OT — so an offensive line could be trimmed away before it
+// was counted. Measured against a live payload, ALL 32 teams exceeded that cap, so every team's
+// group counts would have been understated. The trim now happens at display time instead, where
+// losing a name costs nothing. Best-effort: on any failure returns {} so games still render.
 async function fetchInjuries(url) {
   try {
     const r = await fetch(url, { headers: { 'User-Agent': UA } });
@@ -58,8 +72,8 @@ async function fetchInjuries(url) {
     const j = await r.json();
     const out = {};
     for (const t of (j.injuries || [])) {
-      const abbr = t.team?.abbreviation || t.abbreviation;
-      if (!abbr) continue;
+      const key = t.id ?? t.team?.id ?? t.team?.abbreviation ?? t.abbreviation;
+      if (key == null) continue;
       const rows = [];
       for (const e of (t.injuries || [])) {
         const status = e.status || e.type?.description || '';
@@ -69,7 +83,7 @@ async function fetchInjuries(url) {
         rows.push({ name: ath.displayName || ath.fullName || 'Unknown', pos: ath.position?.abbreviation || '', status: norm || status });
       }
       rows.sort((a, b) => (KEY_POS.has(b.pos) ? 1 : 0) - (KEY_POS.has(a.pos) ? 1 : 0));
-      if (rows.length) out[abbr] = rows.slice(0, 6);
+      if (rows.length) out[String(key)] = rows;
     }
     return out;
   } catch { return {}; }
@@ -198,6 +212,8 @@ export async function topUpWeather(feed, feedKey) {
 //   includeEvent(comp, ev)      — optional filter (e.g. CFB: drop FCS games); default keep all
 //   nameOf(comp)                — optional extra label (e.g. CFB bowl/playoff name); default null
 //   leaguePath                  — ESPN sport/league segment ('football/nfl'); enables team reports
+//   startingQbs()               — optional async () => { [teamAbbr]: 'Player Name' }; enables the
+//                                 single-QB injury rule (see injuryGroups.js). Omit and it never fires.
 // Returns { season, seasonType, week, games, results, teamReports, bestPicks, upsetAlerts, builtAt }, where
 // `games` is the still-to-play slate and `results` holds any game in the same window that's
 // already final (see the split below). Failure-tolerant per game so one bad event can't drop
@@ -207,6 +223,10 @@ export async function buildPickem(cfg) {
   if (!r.ok) throw new Error(`ESPN scoreboard HTTP ${r.status}`);
   const sb = await r.json();
   const injuries = await fetchInjuries(cfg.injuriesUrl);
+  // Starting quarterbacks, when the league wrapper can identify them. Best-effort and optional:
+  // without it the QB injury rule stays silent rather than guessing at a depth chart.
+  let starters = {};
+  if (cfg.startingQbs) { try { starters = (await cfg.startingQbs()) || {}; } catch { starters = {}; } }
 
   const games = [];
   for (const ev of (sb.events || [])) {
@@ -279,8 +299,18 @@ export async function buildPickem(cfg) {
         market, // { home, away } implied win % (de-vigged moneyline); null when no line
         upsetAlert,
         injuries: {
-          home: injuries[home.team.abbreviation] || [],
-          away: injuries[away.team.abbreviation] || [],
+          // Display list: the few names worth printing on a card. Capped HERE rather than at fetch
+          // time so the impact lines below still count the whole squad (see fetchInjuries).
+          home: (injuries[home.team.id] || []).slice(0, 6),
+          away: (injuries[away.team.id] || []).slice(0, 6),
+        },
+        // Position-group impact lines — "3 OL out or questionable" and what that does to the game.
+        // Templated, not generated: no per-game model call. Empty for CFB, which has no injury data.
+        injuryImpact: {
+          // Injuries key by team id (ESPN's payload shape); starters key by abbreviation (the
+          // dataset's). Each map is keyed by whatever its own source actually provides.
+          home: groupInjuries(injuries[home.team.id], starters[home.team.abbreviation]),
+          away: groupInjuries(injuries[away.team.id], starters[away.team.abbreviation]),
         },
         weather,
       });

@@ -279,6 +279,47 @@ the problem. Omitted rather than guessed for a payload built before forecasts we
 `weather` now carries `fetchedAt` and the NWS `url` it can be refreshed from. Both are additive —
 an older cached payload simply shows no age and isn't topped up until the next cron.
 
+## Addendum (2026-09-05) — grouped injury impact, and a feed that was never wired up
+
+Cards now say what a team's injuries MEAN — "3 OL out or questionable — could mean more pressure on
+the QB and a weaker run game" — instead of only listing names. Templated per position group
+(`api/_lib/injuryGroups.js`), chosen by group and severity at build time: no model call per game.
+
+**A bug this uncovered: no NFL injury had ever reached a card.** `fetchInjuries` keyed its map on
+`t.team?.abbreviation || t.abbreviation`, but ESPN shapes a team in the injuries payload as
+`{ id, displayName, injuries }` — carrying neither field. Every team hit the `continue`, the map
+came back empty, and the failure was invisible because an empty injury list looks exactly like a
+healthy team. Confirmed against production: **0 injury rows across all 16 NFL cards**. Now keyed on
+`id` (22 = Arizona), which matches the team id already on every game object: 192 rows, 52 impact
+lines. `check:brackets` asserts NFL cards carry injuries so it fails loudly if the key breaks again.
+
+**Two rules that keep the lines honest**, both from measuring the live payload:
+- **IR is excluded from the trigger.** It's the largest status bucket (168 of 800 rows) and means a
+  player has been gone for weeks and is priced in. Of 85 groups that would have fired on a snapshot,
+  13 were entirely IR — reading as breaking news about a months-old situation. IR still shows in the
+  per-player list underneath.
+- **A group needs two**, and specialists (K/PK/P/LS) aren't in the position map at all, so a
+  questionable kicker can never fire a line.
+
+**The QB exception.** A single injured QB outweighs any group, but ESPN publishes no starter flag
+and firing on any QB injury would be wrong most of the time: on a live snapshot 9 teams had a
+notable QB injury and only **2 were starters** (Mahomes, Penix) — the rest backups and IR depth
+arms. `shortComment` mentions depth in only 11 of 78 QB rows, so prose parsing won't help either.
+Instead the starter is identified from the NFL dataset already cached in Redis — the team's top
+projected QB, which matches the real depth chart (Penix over Tua, Daniels over Mariota, Ward over
+Trubisky, Lamar over Huntley). One cached read per build, no upstream calls. A **margin is required**
+(25% and 40 points): Cleveland returns Watson 102.1 vs Sanders 97.1, a real open competition, and
+the rule correctly abstains rather than inventing a starter. 31 of 32 teams resolve; the QB line
+fires on exactly the two genuine starters.
+
+**Placement:** the impact lines sit on the CARD FACE above the names, not in the expandable panel.
+The value is not having to read five names to know a unit is thin, which is a glance-level
+judgement; the names stay below for anyone who wants them.
+
+**CFB gets nothing**, and needs no gate to do so: the endpoint returns no data, so the grouping
+produces no lines and the section never renders. See the addendum above for what sourcing it would
+cost, and why we didn't.
+
 ## Bottom line for the build decision
 - **No recurring cost, no paid API, no new auth.** ESPN (free) + NWS (free) cover all four
   sections' data. Only *weather* needs the second source; only *March Madness history* needs

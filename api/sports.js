@@ -133,8 +133,13 @@ export default async function handler(req, res) {
       // request after deploy is the same self-heal the version check above does. It cannot loop:
       // every forecast a build produces carries both fields.
       const staleWeather = (feed?.games || []).some((g) => g.weather && !g.weather.fetchedAt);
+      // Same additive problem for the grouped injury lines: a payload built before them carries no
+      // `injuryImpact` key, and nothing else would notice. Rebuild once on the first request rather
+      // than waiting a day. No loop risk — every game a build produces has the key, even when the
+      // league has no injury data and the arrays come back empty.
+      const staleInjuries = (feed?.games || []).some((g) => !g.injuryImpact);
       let built = false;
-      if (!feed || !Array.isArray(feed.games) || staleReports || staleWeather) {
+      if (!feed || !Array.isArray(feed.games) || staleReports || staleWeather || staleInjuries) {
         feed = await build();
         await redis.set(key, feed);
         built = true;
