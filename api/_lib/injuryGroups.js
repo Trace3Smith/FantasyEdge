@@ -52,14 +52,15 @@ const GROUP_COPY = {
 const TRIGGER_STATUS = new Set(['Out', 'Doubtful', 'Questionable', 'Suspension']);
 const MIN_GROUP = 2; // a unit needs two to be a story
 
-// Bump whenever the LINES this module produces change — new roles, new rules, new copy.
+// Bump whenever the LINES this module produces change — new roles, new rules, new copy — or when
+// the injury data the feed ships alongside them changes shape or completeness.
 //
 // This exists because the payload's shape stops being a usable staleness signal once a feature is
 // additive. A cached feed already carrying `injuryImpact` looked current after starter lines
 // shipped, because "no starter line" is indistinguishable from "no starter is injured" — so the
 // new lines stayed invisible until the next daily cron. Presence checks caught the first two
 // rounds of this and could not catch the third. An explicit version can.
-export const INJURY_IMPACT_VERSION = 3;
+export const INJURY_IMPACT_VERSION = 4;
 
 export { POSITION_GROUP, GROUP_COPY, TRIGGER_STATUS, MIN_GROUP };
 

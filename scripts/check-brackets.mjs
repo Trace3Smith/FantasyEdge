@@ -198,6 +198,14 @@ function checkFeed(name, feed) {
   // loudly if the key breaks again.
   if (name === 'nfl') ok(injRows > 0, `NFL cards carry injuries (${injRows} rows) — the map is actually keyed correctly`);
   ok(impacts.every((l) => l.players.length === l.count), 'every impact line is backed by the players it counts');
+  // The contradiction that shipped: a card named McCaffrey in a starter line while the list beneath
+  // it showed three other players, because the line counted the whole squad and the list was a
+  // capped, arbitrary subset. Anyone a line names must be findable in the injuries it ships.
+  const missing = feed.games.flatMap((g) => ['home', 'away'].flatMap((s) => {
+    const have = new Set((g.injuries?.[s] || []).map((r) => r.name));
+    return (g.injuryImpact?.[s] || []).flatMap((l) => l.players.map((p) => p.name)).filter((n) => !have.has(n));
+  }));
+  ok(!missing.length, `every player named in a line is in the shipped injury list${missing.length ? ` (missing: ${missing.slice(0, 3).join(', ')})` : ''}`);
   ok(impacts.every((l) => l.group === 'STARTER' || l.count >= 2), 'only a named starter fires on a single player');
   ok(impacts.every((l) => l.group !== 'STARTER' || /^(Starting (QB|RB|WR|TE)|Top pass rusher) \S/.test(l.label)),
     'every key-player line names the player it is about');
