@@ -95,18 +95,45 @@ function checkInjuryGroups() {
   ok(labels([p('A', 'C', 'Out'), p('B', 'G', 'Injured Reserve'), p('C', 'OT', 'Out')])[0] === '2 OL out',
     'IR players are excluded from the count, not counted as out');
 
-  // The QB exception.
+  // Starter lines: one named player, fired only when the caller could identify them confidently.
   const qb = [p('Starter Guy', 'QB', 'Questionable')];
-  ok(!labels(qb).length, 'a QB injury with no starter information stays silent');
-  ok(!labels(qb, 'Someone Else').length, 'an injured BACKUP QB never fires');
-  ok(labels(qb, 'Starter Guy')[0] === 'Starting QB questionable', 'an injured STARTER does fire, alone');
-  ok(!labels([p('Starter Guy', 'QB', 'Injured Reserve')], 'Starter Guy').length,
+  ok(!labels(qb).length, 'a starter injury with no starter information stays silent');
+  ok(!labels(qb, { QB: 'Someone Else' }).length, 'an injured BACKUP never fires');
+  ok(labels(qb, { QB: 'Starter Guy' })[0] === 'Starting QB Starter Guy questionable',
+    'an injured starter fires alone, and is named');
+  ok(labels(qb, 'Starter Guy')[0]?.startsWith('Starting QB'), 'a bare string is accepted as the QB shorthand');
+  ok(!labels([p('Starter Guy', 'QB', 'Injured Reserve')], { QB: 'Starter Guy' }).length,
     'a starter on IR does not fire (already priced in)');
-  const mixed = groupInjuries([p('Starter Guy', 'QB', 'Out'), p('A', 'C', 'Out'), p('B', 'G', 'Out'),
-    p('C', 'WR', 'Out'), p('D', 'TE', 'Out'), p('E', 'WR', 'Out')], 'Starter Guy');
-  ok(mixed[0].group === 'QB', 'the QB line always leads, whatever the group counts');
-  ok(mixed[1].count >= mixed[2].count, 'remaining units are ordered by how many are affected');
-  ok(mixed.every((l) => l.impact && l.label), 'every line carries both a count and a consequence');
+  // Extended to the skill positions, same gate, same shape.
+  for (const [pos, unit] of [['RB', 'RB'], ['WR', 'WR'], ['TE', 'TE']]) {
+    const rows = [p('Star Player', pos, 'Out')];
+    ok(labels(rows, { [pos]: 'Star Player' })[0] === `Starting ${unit} Star Player out`,
+      `a starting ${pos} fires on its own`);
+    ok(!labels(rows).length, `an injured ${pos} with no starter information stays silent`);
+    ok(!labels(rows, { [pos]: 'Different Player' }).length, `a backup ${pos} never fires`);
+  }
+  // Name matching has to survive two feeds writing the same player differently.
+  ok(labels([p("Ja'Marr Chase", 'WR', 'Out')], { WR: 'JaMarr Chase' }).length === 1,
+    'punctuation differences still match the starter');
+  ok(labels([p('Marvin Harrison Jr.', 'WR', 'Out')], { WR: 'Marvin Harrison' }).length === 1,
+    'a name suffix still matches the starter');
+
+  // Folding: a starter line must absorb its own unit's count rather than repeating it.
+  const folded = groupInjuries([p('Star RB', 'RB', 'Out'), p('Backup RB', 'RB', 'Questionable')], { RB: 'Star RB' });
+  ok(folded.length === 1, 'a starter line and its own group line are not both shown');
+  ok(folded[0].label === 'Starting RB Star RB out (2 RB affected)', 'the group count folds into the starter line');
+  ok(folded[0].players.length === 2, 'and the folded line still carries every affected player');
+  const unfolded = groupInjuries([p('Backup A', 'RB', 'Out'), p('Backup B', 'RB', 'Out')], { RB: 'Star RB' });
+  ok(unfolded[0].label === '2 RB out', 'a group with no injured starter still reports as a group');
+
+  // Priority and cap.
+  const mixed = groupInjuries([p('Star QB', 'QB', 'Out'), p('Star RB', 'RB', 'Out'), p('A', 'C', 'Out'),
+    p('B', 'G', 'Out'), p('C', 'DE', 'Out'), p('D', 'DT', 'Out'), p('E', 'CB', 'Out'), p('F', 'S', 'Out')],
+    { QB: 'Star QB', RB: 'Star RB' });
+  ok(mixed[0].label.startsWith('Starting QB'), 'the QB line always leads');
+  ok(mixed[1].label.startsWith('Starting RB'), 'other starters follow the QB, ahead of any group');
+  ok(mixed.length <= 4, `lines are capped so a card stays glanceable (${mixed.length})`);
+  ok(mixed.every((l) => l.impact && l.label), 'every line carries both a label and a consequence');
   ok(!labels([]).length && !labels(null).length, 'empty or missing injuries produce nothing');
 }
 
@@ -149,7 +176,9 @@ function checkFeed(name, feed) {
   // loudly if the key breaks again.
   if (name === 'nfl') ok(injRows > 0, `NFL cards carry injuries (${injRows} rows) — the map is actually keyed correctly`);
   ok(impacts.every((l) => l.players.length === l.count), 'every impact line is backed by the players it counts');
-  ok(impacts.every((l) => l.group === 'QB' || l.count >= 2), 'only the QB rule fires on a single player');
+  ok(impacts.every((l) => l.group === 'STARTER' || l.count >= 2), 'only a named starter fires on a single player');
+  ok(impacts.every((l) => l.group !== 'STARTER' || /^Starting (QB|RB|WR|TE) \S/.test(l.label)),
+    'every starter line names the player it is about');
   ok(impacts.every((l) => !l.players.some((x) => /reserve/i.test(x.status))), 'no impact line rests on Injured Reserve');
   ok(impacts.every((l) => !l.players.some((x) => ['PK', 'K', 'P', 'LS'].includes(x.pos))), 'no specialist appears in an impact line');
 

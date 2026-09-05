@@ -312,6 +312,27 @@ Trubisky, Lamar over Huntley). One cached read per build, no upstream calls. A *
 the rule correctly abstains rather than inventing a starter. 31 of 32 teams resolve; the QB line
 fires on exactly the two genuine starters.
 
+**Extended to RB/WR/TE (2026-09-05).** The same projection-leader method now infers a starter at
+every skill position, and an injured starter fires its own named line — *"Starting RB D'Andre Swift
+questionable"* — above any group count. The gate is unchanged, and how often it passes varies by
+position exactly as it should: the top player's median lead over the second is **21.3x at QB, 3.25x
+at TE, 2.51x at RB, 1.36x at WR**, so 31/32 teams resolve a quarterback but only 20/32 a receiver.
+Chicago reads Burden 209.0 vs Odunze 207.9 and Washington's backfield White 128.1 vs
+Croskey-Merritt 127.9 — naming a starter there would be inventing a fact, so those teams abstain and
+fall back to the group count. Loosening the gate to raise WR coverage would trade a true signal for
+a confident guess. League-wide this took starter lines from 2 (QB only) to **18**.
+
+A starter line **absorbs its own unit's group line** rather than repeating it: *"Starting RB X out
+(2 RB affected)"* instead of that line plus *"2 RB out"*. Lines are capped at 4 per team, since a
+card listing six things communicates less than one listing three.
+
+Two data problems fixed alongside it. The dataset carried **33 team keys, not 32** — one Washington
+receiver arrives as `WAS` while the other eighteen are `WSH`, which both excluded him from his own
+team's pool and stood him up as a one-man team that would trivially "win" its position. Team
+abbreviations are normalised before ranking. And names are matched **forgivingly** across the two
+feeds (punctuation and Jr./III suffixes stripped), because `Ja'Marr Chase` and `Marvin Harrison Jr.`
+are exactly where the same player gets written two ways and a silent miss looks like a healthy team.
+
 **Placement:** the impact lines sit on the CARD FACE above the names, not in the expandable panel.
 The value is not having to read five names to know a unit is thin, which is a glance-level
 judgement; the names stay below for anyone who wants them.

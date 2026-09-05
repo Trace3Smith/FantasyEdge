@@ -212,8 +212,9 @@ export async function topUpWeather(feed, feedKey) {
 //   includeEvent(comp, ev)      — optional filter (e.g. CFB: drop FCS games); default keep all
 //   nameOf(comp)                — optional extra label (e.g. CFB bowl/playoff name); default null
 //   leaguePath                  — ESPN sport/league segment ('football/nfl'); enables team reports
-//   startingQbs()               — optional async () => { [teamAbbr]: 'Player Name' }; enables the
-//                                 single-QB injury rule (see injuryGroups.js). Omit and it never fires.
+//   starters()                  — optional async () => { [teamAbbr]: { QB|RB|WR|TE: 'Name' } };
+//                                 enables the starter injury lines (see injuryGroups.js). Omit and
+//                                 they never fire — only the position-group counts do.
 // Returns { season, seasonType, week, games, results, teamReports, bestPicks, upsetAlerts, builtAt }, where
 // `games` is the still-to-play slate and `results` holds any game in the same window that's
 // already final (see the split below). Failure-tolerant per game so one bad event can't drop
@@ -223,10 +224,10 @@ export async function buildPickem(cfg) {
   if (!r.ok) throw new Error(`ESPN scoreboard HTTP ${r.status}`);
   const sb = await r.json();
   const injuries = await fetchInjuries(cfg.injuriesUrl);
-  // Starting quarterbacks, when the league wrapper can identify them. Best-effort and optional:
-  // without it the QB injury rule stays silent rather than guessing at a depth chart.
+  // Starting skill players, when the league wrapper can identify them. Best-effort and optional:
+  // without it the starter lines stay silent rather than guessing at a depth chart.
   let starters = {};
-  if (cfg.startingQbs) { try { starters = (await cfg.startingQbs()) || {}; } catch { starters = {}; } }
+  if (cfg.starters) { try { starters = (await cfg.starters()) || {}; } catch { starters = {}; } }
 
   const games = [];
   for (const ev of (sb.events || [])) {
