@@ -10,7 +10,7 @@
 
 import { buildTeamReports } from './teamReport.js';
 import { redis, redisConfigured, nwsGridKey, NWS_GRID_TTL, wxCooldownKey } from './kv.js';
-import { groupInjuries } from './injuryGroups.js';
+import { groupInjuries, INJURY_IMPACT_VERSION } from './injuryGroups.js';
 
 const UA = 'FantasyEdge/1.0 (brackets pickem; contact via app)';
 
@@ -215,7 +215,8 @@ export async function topUpWeather(feed, feedKey) {
 //   starters()                  — optional async () => { [teamAbbr]: { QB|RB|WR|TE: 'Name' } };
 //                                 enables the starter injury lines (see injuryGroups.js). Omit and
 //                                 they never fire — only the position-group counts do.
-// Returns { season, seasonType, week, games, results, teamReports, bestPicks, upsetAlerts, builtAt }, where
+// Returns { injuryImpactV, season, seasonType, week, games, results, teamReports, bestPicks,
+// upsetAlerts, builtAt }, where
 // `games` is the still-to-play slate and `results` holds any game in the same window that's
 // already final (see the split below). Failure-tolerant per game so one bad event can't drop
 // the slate.
@@ -351,6 +352,9 @@ export async function buildPickem(cfg) {
   }
 
   return {
+    // Version of the derived content in this payload, so a server that has moved on can tell a
+    // cached feed is behind WITHOUT having to infer it from which optional fields happen to be set.
+    injuryImpactV: INJURY_IMPACT_VERSION,
     season: sb.season?.year ?? null,
     seasonType: sb.season?.type ?? null,
     week: sb.week?.number ?? null,

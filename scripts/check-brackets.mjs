@@ -19,7 +19,7 @@ import { buildCfbBowl } from '../api/_lib/cfbBowl.js';
 import { currentSeasonRankable, TEAM_REPORT_VERSION } from '../api/_lib/teamReport.js';
 import { CFB_VENUES } from '../api/_lib/cfbVenues.js';
 import { staleWeatherGames } from '../api/_lib/pickem.js';
-import { groupInjuries } from '../api/_lib/injuryGroups.js';
+import { groupInjuries, INJURY_IMPACT_VERSION } from '../api/_lib/injuryGroups.js';
 
 const FEEDS = { cfbweek: buildCfbWeek, nfl: buildNflPickem, bowl: buildCfbBowl };
 let failures = 0;
@@ -184,6 +184,8 @@ function checkFeed(name, feed) {
     'each result has a winner (or is a tie)');
   ok(feed.results.every((g) => !g.weather), 'no forecast attached to a game already played');
   ok(feed.games.every((g) => g.venue.id === null || /^\d+$/.test(g.venue.id)), 'games carry an ESPN venue id');
+  ok(feed.injuryImpactV === INJURY_IMPACT_VERSION,
+    `feed is stamped with the derived-content version (v${feed.injuryImpactV})`);
   // Impact lines must never contradict the card: a line claiming N players needs N players behind
   // it, and must never rest on Injured Reserve, which is what makes it read as this week's news.
   const impacts = feed.games.flatMap((g) => [...(g.injuryImpact?.home || []), ...(g.injuryImpact?.away || [])]);
