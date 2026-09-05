@@ -3,6 +3,7 @@
 // scoreboard/injuries endpoints and the stadium coordinates for weather. See pickem.js for
 // the win-probability-from-spread derivation, injuries, and weather logic.
 import { buildPickem, winProbFromSpread } from './pickem.js';
+import { redis, NFL_DATASET_KEY } from './kv.js';
 
 export { winProbFromSpread };
 
@@ -31,10 +32,49 @@ const STADIUMS = {
   TEN: { lat: 36.1665, lon: -86.7713, dome: false }, WSH: { lat: 38.9078, lon: -76.8645, dome: false },
 };
 
+// Starting quarterbacks, for the single-QB injury rule in injuryGroups.js.
+//
+// ESPN publishes no starter flag on the injury feed, and its depth-chart endpoint would cost a
+// call per team. But the NFL dataset this app already builds and caches carries a fantasy
+// projection per player, and the team's top projected QB IS the starter — checked against the real
+// depth charts it gets Penix over Tua, Daniels over Mariota, Ward over Trubisky, Lamar over
+// Huntley, Mahomes over Fields. So this costs ONE cached read per build and no upstream calls.
+//
+// A MARGIN IS REQUIRED, because a projection leader is a correlate of the starter, not the starter
+// itself, and the gap is the confidence signal. Cleveland came back Watson 102.1 vs Sanders 97.1 —
+// a genuine open competition, where naming either as "the starter" would be inventing a fact. Below
+// the margin the team is simply omitted and the QB rule stays silent for it.
+const QB_MARGIN_RATIO = 1.25; // top QB must lead the next by 25%…
+const QB_MARGIN_ABS = 40;     // …and by a real number of points, so two low projections can't qualify
+
+export async function startingQbs() {
+  let dataset;
+  try { dataset = await redis.get(NFL_DATASET_KEY); } catch { return {}; }
+  const qbs = (dataset?.players || []).filter((p) => p.pos === 'QB' && !p.searchOnly && p.team);
+  const byTeam = {};
+  for (const p of qbs) (byTeam[p.team] = byTeam[p.team] || []).push(p);
+
+  const out = {};
+  for (const [team, list] of Object.entries(byTeam)) {
+    const ranked = list
+      .map((p) => ({ name: p.name, pts: p.proj?.fpts })
+      ).filter((p) => typeof p.pts === 'number' && p.name)
+      .sort((a, b) => b.pts - a.pts);
+    if (!ranked.length) continue;
+    const [first, second] = ranked;
+    // A lone QB on the roster is unambiguous; otherwise require a clear gap over the next man.
+    if (!second || (first.pts >= second.pts * QB_MARGIN_RATIO && first.pts - second.pts >= QB_MARGIN_ABS)) {
+      out[team] = first.name;
+    }
+  }
+  return out;
+}
+
 // Build the current/upcoming NFL week (pass `week` to target a specific one).
 export function buildNflPickem({ week } = {}) {
   return buildPickem({
     leaguePath: 'football/nfl',
+    startingQbs,
     scoreboardUrl: week ? `${SB}?week=${encodeURIComponent(week)}` : SB,
     injuriesUrl: INJ,
     // Keyed by HOME TEAM, which is only the right answer when the game is at their stadium. At a

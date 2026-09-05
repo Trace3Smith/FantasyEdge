@@ -19,6 +19,7 @@ import { buildCfbBowl } from '../api/_lib/cfbBowl.js';
 import { currentSeasonRankable, TEAM_REPORT_VERSION } from '../api/_lib/teamReport.js';
 import { CFB_VENUES } from '../api/_lib/cfbVenues.js';
 import { staleWeatherGames } from '../api/_lib/pickem.js';
+import { groupInjuries } from '../api/_lib/injuryGroups.js';
 
 const FEEDS = { cfbweek: buildCfbWeek, nfl: buildNflPickem, bowl: buildCfbBowl };
 let failures = 0;
@@ -71,6 +72,44 @@ function checkTopUp() {
     'an empty or missing feed selects nothing');
 }
 
+// The injury grouping rules. All pure, so the whole rule set is exercised without a network call.
+function checkInjuryGroups() {
+  console.log('\n[synthetic] INJURY POSITION GROUPS');
+  const p = (name, pos, status) => ({ name, pos, status });
+  const labels = (rows, starter) => groupInjuries(rows, starter).map((l) => l.label);
+
+  // Rollup: distinct line positions must count as ONE unit. This is the whole feature.
+  ok(labels([p('A', 'C', 'Out'), p('B', 'G', 'Out'), p('C', 'OT', 'Out')])[0] === '3 OL out',
+    'C + G + OT roll up into one OL line');
+  ok(labels([p('A', 'CB', 'Questionable'), p('B', 'S', 'Questionable')])[0] === '2 DB questionable',
+    'CB + S roll up into the secondary');
+  ok(labels([p('A', 'DE', 'Out'), p('B', 'DT', 'Questionable')])[0] === '2 DL out or questionable',
+    'mixed statuses are phrased as "out or questionable"');
+
+  // The noise floor.
+  ok(!labels([p('A', 'C', 'Out')]).length, 'a single lineman does not fire');
+  ok(!labels([p('A', 'PK', 'Questionable'), p('B', 'P', 'Out'), p('C', 'LS', 'Out')]).length,
+    'specialists never fire — a questionable kicker is not a story');
+  ok(!labels([p('A', 'C', 'Injured Reserve'), p('B', 'G', 'Injured Reserve')]).length,
+    'an all-IR group does not fire — long-term absence is already priced in');
+  ok(labels([p('A', 'C', 'Out'), p('B', 'G', 'Injured Reserve'), p('C', 'OT', 'Out')])[0] === '2 OL out',
+    'IR players are excluded from the count, not counted as out');
+
+  // The QB exception.
+  const qb = [p('Starter Guy', 'QB', 'Questionable')];
+  ok(!labels(qb).length, 'a QB injury with no starter information stays silent');
+  ok(!labels(qb, 'Someone Else').length, 'an injured BACKUP QB never fires');
+  ok(labels(qb, 'Starter Guy')[0] === 'Starting QB questionable', 'an injured STARTER does fire, alone');
+  ok(!labels([p('Starter Guy', 'QB', 'Injured Reserve')], 'Starter Guy').length,
+    'a starter on IR does not fire (already priced in)');
+  const mixed = groupInjuries([p('Starter Guy', 'QB', 'Out'), p('A', 'C', 'Out'), p('B', 'G', 'Out'),
+    p('C', 'WR', 'Out'), p('D', 'TE', 'Out'), p('E', 'WR', 'Out')], 'Starter Guy');
+  ok(mixed[0].group === 'QB', 'the QB line always leads, whatever the group counts');
+  ok(mixed[1].count >= mixed[2].count, 'remaining units are ordered by how many are affected');
+  ok(mixed.every((l) => l.impact && l.label), 'every line carries both a count and a consequence');
+  ok(!labels([]).length && !labels(null).length, 'empty or missing injuries produce nothing');
+}
+
 function checkVenueTable() {
   console.log('\n[venues] CFB STADIUM TABLE');
   const rows = Object.entries(CFB_VENUES);
@@ -98,6 +137,21 @@ function checkFeed(name, feed) {
     'each result has a winner (or is a tie)');
   ok(feed.results.every((g) => !g.weather), 'no forecast attached to a game already played');
   ok(feed.games.every((g) => g.venue.id === null || /^\d+$/.test(g.venue.id)), 'games carry an ESPN venue id');
+  // Impact lines must never contradict the card: a line claiming N players needs N players behind
+  // it, and must never rest on Injured Reserve, which is what makes it read as this week's news.
+  const impacts = feed.games.flatMap((g) => [...(g.injuryImpact?.home || []), ...(g.injuryImpact?.away || [])]);
+  const injRows = feed.games.reduce((n, g) => n + g.injuries.home.length + g.injuries.away.length, 0);
+  console.log(`  INFO  ${injRows} injury rows, ${impacts.length} impact lines across ${feed.games.length} games`);
+  // The keying regression. fetchInjuries once keyed on a field ESPN's payload does not have, so the
+  // map came back empty and no injury ever reached a card — silently, because an empty injury list
+  // is indistinguishable from a healthy team. The NFL endpoint carries hundreds of rows year-round,
+  // preseason included, so "some card has an injury" is a safe assertion and is the one that fails
+  // loudly if the key breaks again.
+  if (name === 'nfl') ok(injRows > 0, `NFL cards carry injuries (${injRows} rows) — the map is actually keyed correctly`);
+  ok(impacts.every((l) => l.players.length === l.count), 'every impact line is backed by the players it counts');
+  ok(impacts.every((l) => l.group === 'QB' || l.count >= 2), 'only the QB rule fires on a single player');
+  ok(impacts.every((l) => !l.players.some((x) => /reserve/i.test(x.status))), 'no impact line rests on Injured Reserve');
+  ok(impacts.every((l) => !l.players.some((x) => ['PK', 'K', 'P', 'LS'].includes(x.pos))), 'no specialist appears in an impact line');
 
   // Weather. NWS only forecasts ~7 days out, so only games inside that window are expected to
   // carry one. This leans on a live third-party service, so a total absence is reported as an
@@ -304,6 +358,7 @@ for (const name of (which.length ? which : ['cfbweek'])) {
   if (feed.games.length) checkPage(name, feed, page);
 }
 checkVenueTable();
+checkInjuryGroups();
 checkTopUp();
 checkCrossover(page);
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');
