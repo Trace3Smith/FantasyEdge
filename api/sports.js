@@ -13,6 +13,7 @@ import { buildCfbBowl } from './_lib/cfbBowl.js';
 import { buildCfbWeek } from './_lib/cfbWeek.js';
 import { TEAM_REPORT_VERSION } from './_lib/teamReport.js';
 import { topUpWeather } from './_lib/pickem.js';
+import { INJURY_IMPACT_VERSION } from './_lib/injuryGroups.js';
 import { buildMarchMadness } from './_lib/marchMadness.js';
 import { requirePremium, sendError } from './_lib/auth.js';
 import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NFL_DVP_KEY, DATASET_VERSION } from './_lib/kv.js';
@@ -133,13 +134,14 @@ export default async function handler(req, res) {
       // request after deploy is the same self-heal the version check above does. It cannot loop:
       // every forecast a build produces carries both fields.
       const staleWeather = (feed?.games || []).some((g) => g.weather && !g.weather.fetchedAt);
-      // Same additive problem for the grouped injury lines: a payload built before them carries no
-      // `injuryImpact` key, and nothing else would notice. Rebuild once on the first request rather
-      // than waiting a day. No loop risk — every game a build produces has the key, even when the
-      // league has no injury data and the arrays come back empty.
-      const staleInjuries = (feed?.games || []).some((g) => !g.injuryImpact);
+      // Derived-content version. Presence checks like the two above only work while a change ADDS a
+      // field; they cannot see a change that adds new VALUES to a field already there. Starter
+      // injury lines were exactly that — a cached payload already had `injuryImpact`, so it looked
+      // current, and the new lines stayed invisible until the next daily cron. An explicit version
+      // catches every such change. A payload built before versioning has none, so it rebuilds once.
+      const staleImpact = feed?.injuryImpactV !== INJURY_IMPACT_VERSION;
       let built = false;
-      if (!feed || !Array.isArray(feed.games) || staleReports || staleWeather || staleInjuries) {
+      if (!feed || !Array.isArray(feed.games) || staleReports || staleWeather || staleImpact) {
         feed = await build();
         await redis.set(key, feed);
         built = true;
