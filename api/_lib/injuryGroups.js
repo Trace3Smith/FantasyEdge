@@ -78,15 +78,32 @@ function phraseFor(rows) {
 // median 21.3x at QB, 3.25x at TE, 2.51x at RB and only 1.36x at WR — so WR abstains far more
 // often, correctly: where Chicago reads Burden 209.0 vs Odunze 207.9, naming either "the starter"
 // would be inventing a fact.
+//
+// PASSRUSH is inferred differently from the rest, and deliberately so. The offensive roles come
+// from a PROJECTION — a forecast of what a player will do. The pass rusher comes from PRODUCTION,
+// last season's sack total, which is arguably the stronger evidence: it is measured output rather
+// than an expectation. It also answers the case a depth chart can't, a rotational rusher who plays
+// fewer snaps than a starter but is the reason the pass rush works.
+//
+// `positions` guards against a name collision between two players in different units. `group: 'auto'`
+// resolves from the injured player's own position rather than a fixed unit, because a team's sack
+// leader is as often a linebacker as a lineman (league-wide: 14 DE, 14 LB, 4 DT).
 const STARTER_COPY = {
-  QB: { unit: 'QB', group: null, impact: 'a backup under center changes the whole offense' },
-  RB: { unit: 'RB', group: 'BACK', impact: 'could force a committee backfield' },
-  WR: { unit: 'WR', group: 'RECV', impact: 'takes away their top target in the passing game' },
-  TE: { unit: 'TE', group: 'RECV', impact: 'costs them a primary target and a blocker' },
+  QB: { lead: 'Starting QB', positions: ['QB'], group: null, impact: 'a backup under center changes the whole offense' },
+  RB: { lead: 'Starting RB', positions: ['RB'], group: 'BACK', impact: 'could force a committee backfield' },
+  WR: { lead: 'Starting WR', positions: ['WR'], group: 'RECV', impact: 'takes away their top target in the passing game' },
+  TE: { lead: 'Starting TE', positions: ['TE'], group: 'RECV', impact: 'costs them a primary target and a blocker' },
+  PASSRUSH: {
+    lead: 'Top pass rusher',
+    positions: ['DE', 'DT', 'NT', 'DL', 'EDGE', 'LB', 'OLB', 'ILB', 'MLB'],
+    group: 'auto',
+    impact: 'could mean far less pressure on the quarterback',
+  },
 };
 // Fixed display order. QB leads because nothing outranks it; the rest follow the order a reader
-// would weigh them. Deterministic, so a card never reshuffles between builds for no reason.
-const STARTER_ORDER = ['QB', 'RB', 'WR', 'TE'];
+// would weigh them. Deterministic, so a card never reshuffles between builds for no reason. This is
+// a display convention, not a claim that a starting tight end matters more than an elite rusher.
+const STARTER_ORDER = ['QB', 'RB', 'WR', 'TE', 'PASSRUSH'];
 const MAX_LINES = 4; // a card is a glance, not a medical report
 
 export { STARTER_COPY, STARTER_ORDER, MAX_LINES };
@@ -101,7 +118,7 @@ function sameName(a, b) {
 
 // Group one team's injuries into impact lines, highest-priority first.
 //   rows     — [{ name, pos, status }] for the team, unabridged (see the cap note in pickem.js)
-//   starters — { QB: name, RB: name, WR: name, TE: name }, only for positions the caller could
+//   starters — { QB|RB|WR|TE|PASSRUSH: name }, only for roles the caller could
 //              identify confidently. A bare string is accepted as shorthand for { QB: name }.
 // Pure and side-effect free, so the whole rule set is testable without a network call.
 export function groupInjuries(rows, starters = null) {
@@ -111,14 +128,15 @@ export function groupInjuries(rows, starters = null) {
   // 1. Starter lines, and the groups they already speak for.
   const starterLines = [];
   const covered = new Set();
-  for (const pos of STARTER_ORDER) {
-    const name = known[pos];
+  for (const role of STARTER_ORDER) {
+    const name = known[role];
     if (!name) continue;
-    const hit = usable.find((r) => r.pos === pos && sameName(r.name, name));
+    const copy = STARTER_COPY[role];
+    const hit = usable.find((r) => copy.positions.includes(r.pos) && sameName(r.name, name));
     if (!hit) continue;
-    const copy = STARTER_COPY[pos];
-    starterLines.push({ group: 'STARTER', pos, count: 1, players: [hit], impact: copy.impact, _hit: hit });
-    if (copy.group) covered.add(copy.group);
+    starterLines.push({ group: 'STARTER', role, count: 1, players: [hit], impact: copy.impact, _hit: hit });
+    const g = copy.group === 'auto' ? POSITION_GROUP[hit.pos] : copy.group;
+    if (g) covered.add(g);
   }
 
   // 2. Group lines — except where a starter line already covers that unit, in which case the depth
@@ -133,10 +151,16 @@ export function groupInjuries(rows, starters = null) {
   for (const [g, list] of Object.entries(byGroup)) {
     if (list.length < MIN_GROUP) continue;
     if (covered.has(g)) {
-      const owner = starterLines.find((l) => STARTER_COPY[l.pos].group === g);
+      const owner = starterLines.find((l) => {
+        const cg = STARTER_COPY[l.role].group;
+        return (cg === 'auto' ? POSITION_GROUP[l.players[0].pos] : cg) === g;
+      });
       if (owner && list.length >= MIN_GROUP) {
         owner.depth = { group: g, count: list.length };
-        owner.players = list; // the tooltip should show everyone affected, not just the starter
+        // The line is now about the whole unit, not just the one player, so `count` moves with
+        // `players` — they describe the same set and must never disagree.
+        owner.players = list;
+        owner.count = list.length;
       }
       continue;
     }
@@ -152,16 +176,16 @@ export function groupInjuries(rows, starters = null) {
 
   // 3. Labels for the starter lines, now that any folded depth is known.
   for (const l of starterLines) {
-    const copy = STARTER_COPY[l.pos];
+    const copy = STARTER_COPY[l.role];
     const depth = l.depth ? ` (${l.depth.count} ${GROUP_COPY[l.depth.group].name} affected)` : '';
-    l.label = `Starting ${copy.unit} ${l._hit.name} ${l._hit.status.toLowerCase()}${depth}`;
+    l.label = `${copy.lead} ${l._hit.name} ${l._hit.status.toLowerCase()}${depth}`;
     l.players = l.players.map((r) => ({ name: r.name, pos: r.pos, status: r.status }));
     delete l._hit;
   }
 
   // Starters first in their fixed order, then the biggest remaining units. Capped, because a card
   // that lists six things communicates less than one that lists three.
-  starterLines.sort((a, b) => STARTER_ORDER.indexOf(a.pos) - STARTER_ORDER.indexOf(b.pos));
+  starterLines.sort((a, b) => STARTER_ORDER.indexOf(a.role) - STARTER_ORDER.indexOf(b.role));
   groupLines.sort((a, b) => b.count - a.count || a.group.localeCompare(b.group));
   return [...starterLines, ...groupLines].slice(0, MAX_LINES);
 }

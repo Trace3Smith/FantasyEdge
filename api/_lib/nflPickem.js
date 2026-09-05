@@ -4,6 +4,7 @@
 // the win-probability-from-spread derivation, injuries, and weather logic.
 import { buildPickem, winProbFromSpread } from './pickem.js';
 import { redis, NFL_DATASET_KEY } from './kv.js';
+import { getJson } from './espn.js';
 
 export { winProbFromSpread };
 
@@ -60,6 +61,51 @@ const STARTER_POSITIONS = ['QB', 'RB', 'WR', 'TE'];
 const TEAM_ALIAS = { WAS: 'WSH', JAC: 'JAX', LA: 'LAR', SD: 'LAC', OAK: 'LV', STL: 'LAR' };
 const normTeam = (t) => TEAM_ALIAS[t] || t;
 
+// The team's most disruptive pass rusher, by last season's sack total. Answers the case the
+// offensive method can't: a rotational rusher who isn't RB1/WR1-equivalent on any depth chart but
+// is the reason the pass rush works.
+//
+// ONE REQUEST. The leaderboard is sortable and every team's sack leader appears within the top ~91,
+// so 150 rows covers the league — espn.js's fetchByAthlete would page all 32 pages (1580 athletes)
+// to tell us the same thing, so this fetches the one page it needs instead.
+const SACKS_URL = (season) => 'https://site.web.api.espn.com/apis/common/v3/sports/football/nfl'
+  + `/statistics/byathlete?season=${season}&seasontype=2&limit=150&sort=defensive.sacks%3Adesc`;
+// The gate asks "is he so much better that losing him changes the pass rush?", not "is he the
+// best?". Detroit reads Hutchinson 14.5 vs 11 and abstains — losing him hurts, but a team whose
+// second rusher has 11 sacks does not lose its pressure. Seattle reads 7 vs 7 and abstains outright.
+// 16 of 32 teams resolve; the floor stops a weak team's 3-sack "leader" being called disruptive.
+const SACK_MARGIN_RATIO = 1.5;
+const SACK_MARGIN_ABS = 2;
+const SACK_FLOOR = 4;
+
+export async function topPassRushers(season) {
+  let j;
+  try { j = await getJson(SACKS_URL(season)); } catch { return {}; }
+  const glossary = {};
+  for (const c of (j.categories || [])) glossary[c.name] = c.names || [];
+  const si = (glossary.defensive || []).indexOf('sacks');
+  if (si < 0) return {};
+
+  const byTeam = {};
+  for (const a of (j.athletes || [])) {
+    const team = a.athlete?.teamShortName;
+    const name = a.athlete?.displayName;
+    const sacks = (a.categories || []).find((c) => c.name === 'defensive')?.values?.[si];
+    if (!team || !name || typeof sacks !== 'number') continue;
+    (byTeam[normTeam(team)] = byTeam[normTeam(team)] || []).push({ name, sacks });
+  }
+
+  const out = {};
+  for (const [team, list] of Object.entries(byTeam)) {
+    const [first, second] = list.slice().sort((a, b) => b.sacks - a.sacks);
+    if (!first || first.sacks < SACK_FLOOR) continue;
+    if (!second || (first.sacks >= second.sacks * SACK_MARGIN_RATIO && first.sacks - second.sacks >= SACK_MARGIN_ABS)) {
+      out[team] = first.name;
+    }
+  }
+  return out;
+}
+
 export async function startingSkillPlayers() {
   let dataset;
   try { dataset = await redis.get(NFL_DATASET_KEY); } catch { return {}; }
@@ -89,11 +135,25 @@ export async function startingSkillPlayers() {
   return out;
 }
 
+// Every inferred key player for the slate, merged into the one map injuryGroups.js reads.
+// Both halves are independently best-effort: a failure in either leaves the other's lines intact.
+export async function keyPlayers(season) {
+  const [skill, rushers] = await Promise.all([
+    startingSkillPlayers().catch(() => ({})),
+    topPassRushers(season).catch(() => ({})),
+  ]);
+  const out = { ...skill };
+  for (const [team, name] of Object.entries(rushers)) out[team] = { ...(out[team] || {}), PASSRUSH: name };
+  return out;
+}
+
 // Build the current/upcoming NFL week (pass `week` to target a specific one).
 export function buildNflPickem({ week } = {}) {
   return buildPickem({
     leaguePath: 'football/nfl',
-    starters: startingSkillPlayers,
+    // Sacks are a season total, so early in a year the current season has nothing to rank — the
+    // last completed one is what carries signal, exactly as the team reports fall back.
+    starters: () => keyPlayers(new Date().getFullYear() - 1),
     scoreboardUrl: week ? `${SB}?week=${encodeURIComponent(week)}` : SB,
     injuriesUrl: INJ,
     // Keyed by HOME TEAM, which is only the right answer when the game is at their stadium. At a

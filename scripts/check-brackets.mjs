@@ -104,6 +104,25 @@ function checkInjuryGroups() {
   ok(labels(qb, 'Starter Guy')[0]?.startsWith('Starting QB'), 'a bare string is accepted as the QB shorthand');
   ok(!labels([p('Starter Guy', 'QB', 'Injured Reserve')], { QB: 'Starter Guy' }).length,
     'a starter on IR does not fire (already priced in)');
+  // The pass rusher: inferred from production rather than projection, and its unit is resolved
+  // from the injured player's own position, because a team's sack leader is as often a linebacker
+  // as a lineman (league-wide: 14 DE, 14 LB, 4 DT).
+  ok(labels([p('Edge Guy', 'DE', 'Out')], { PASSRUSH: 'Edge Guy' })[0] === 'Top pass rusher Edge Guy out',
+    'a top pass rusher fires on its own, at DE');
+  ok(labels([p('Edge Guy', 'LB', 'Out')], { PASSRUSH: 'Edge Guy' })[0] === 'Top pass rusher Edge Guy out',
+    '...and at LB, since sack leaders are as often linebackers');
+  ok(!labels([p('Edge Guy', 'DE', 'Out')]).length, 'a defensive injury with no leader information stays silent');
+  ok(!labels([p('Someone Else', 'DE', 'Out')], { PASSRUSH: 'Edge Guy' }).length, 'a non-leader rusher never fires');
+  ok(!labels([p('Edge Guy', 'WR', 'Out')], { PASSRUSH: 'Edge Guy' }).length,
+    'a name collision at an unrelated position cannot fire the rusher line');
+  // The auto group must fold the right unit: a DE folds DL, the same player at LB folds LB.
+  const foldDl = groupInjuries([p('Edge Guy', 'DE', 'Out'), p('Other', 'DT', 'Out')], { PASSRUSH: 'Edge Guy' });
+  ok(foldDl.length === 1 && foldDl[0].label === 'Top pass rusher Edge Guy out (2 DL affected)',
+    'a DE sack leader folds the DL group');
+  const foldLb = groupInjuries([p('Edge Guy', 'LB', 'Out'), p('Other', 'LB', 'Out')], { PASSRUSH: 'Edge Guy' });
+  ok(foldLb.length === 1 && foldLb[0].label === 'Top pass rusher Edge Guy out (2 LB affected)',
+    'the same leader at LB folds the LB group instead');
+
   // Extended to the skill positions, same gate, same shape.
   for (const [pos, unit] of [['RB', 'RB'], ['WR', 'WR'], ['TE', 'TE']]) {
     const rows = [p('Star Player', pos, 'Out')];
@@ -122,7 +141,8 @@ function checkInjuryGroups() {
   const folded = groupInjuries([p('Star RB', 'RB', 'Out'), p('Backup RB', 'RB', 'Questionable')], { RB: 'Star RB' });
   ok(folded.length === 1, 'a starter line and its own group line are not both shown');
   ok(folded[0].label === 'Starting RB Star RB out (2 RB affected)', 'the group count folds into the starter line');
-  ok(folded[0].players.length === 2, 'and the folded line still carries every affected player');
+  ok(folded[0].players.length === 2 && folded[0].count === 2,
+    'and the folded line carries every affected player, with count and players agreeing');
   const unfolded = groupInjuries([p('Backup A', 'RB', 'Out'), p('Backup B', 'RB', 'Out')], { RB: 'Star RB' });
   ok(unfolded[0].label === '2 RB out', 'a group with no injured starter still reports as a group');
 
@@ -177,8 +197,8 @@ function checkFeed(name, feed) {
   if (name === 'nfl') ok(injRows > 0, `NFL cards carry injuries (${injRows} rows) — the map is actually keyed correctly`);
   ok(impacts.every((l) => l.players.length === l.count), 'every impact line is backed by the players it counts');
   ok(impacts.every((l) => l.group === 'STARTER' || l.count >= 2), 'only a named starter fires on a single player');
-  ok(impacts.every((l) => l.group !== 'STARTER' || /^Starting (QB|RB|WR|TE) \S/.test(l.label)),
-    'every starter line names the player it is about');
+  ok(impacts.every((l) => l.group !== 'STARTER' || /^(Starting (QB|RB|WR|TE)|Top pass rusher) \S/.test(l.label)),
+    'every key-player line names the player it is about');
   ok(impacts.every((l) => !l.players.some((x) => /reserve/i.test(x.status))), 'no impact line rests on Injured Reserve');
   ok(impacts.every((l) => !l.players.some((x) => ['PK', 'K', 'P', 'LS'].includes(x.pos))), 'no specialist appears in an impact line');
 
