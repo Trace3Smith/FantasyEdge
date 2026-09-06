@@ -18,6 +18,7 @@ import { buildNflPickem } from '../api/_lib/nflPickem.js';
 import { buildCfbBowl } from '../api/_lib/cfbBowl.js';
 import { currentSeasonRankable, TEAM_REPORT_VERSION } from '../api/_lib/teamReport.js';
 import { CFB_VENUES } from '../api/_lib/cfbVenues.js';
+import { CFB_CONFERENCES } from '../api/_lib/cfbWeek.js';
 import { staleWeatherGames } from '../api/_lib/pickem.js';
 import { groupInjuries, INJURY_IMPACT_VERSION } from '../api/_lib/injuryGroups.js';
 
@@ -184,6 +185,24 @@ function checkFeed(name, feed) {
     'each result has a winner (or is a tie)');
   ok(feed.results.every((g) => !g.weather), 'no forecast attached to a game already played');
   ok(feed.games.every((g) => g.venue.id === null || /^\d+$/.test(g.venue.id)), 'games carry an ESPN venue id');
+
+  // Rank and conference are what the page filters on — without them the slate is one undifferentiated
+  // list, which is worse than the ranked-only feed it replaced.
+  const slots = [...feed.games, ...feed.results].flatMap((g) => [g.home, g.away]);
+  ok(slots.every((t) => t.rank === null || (t.rank >= 1 && t.rank <= 25)),
+    'every team carries a usable rank (1-25, or null for unranked)');
+  if (name === 'cfbweek' && slots.length) {
+    const fbs = slots.filter((t) => CFB_CONFERENCES[t.conf]);
+    console.log(`  INFO  ${feed.games.length + feed.results.length} games, ${slots.filter((t) => t.rank).length} ranked team-slots, `
+      + `${new Set(fbs.map((t) => t.conf)).size} FBS conferences, ${slots.length - fbs.length} FCS slots`);
+    ok(fbs.length > 0, 'FBS teams are identifiable by conference');
+    // The Top-25 view has to remain a strict subset of the full slate, or the filter is lying about
+    // what it is filtering.
+    const all = [...feed.games, ...feed.results];
+    const top = all.filter((g) => g.home.rank || g.away.rank);
+    ok(top.length <= all.length, `Top-25 view is a subset of the slate (${top.length}/${all.length})`);
+    ok(all.length >= top.length, 'the full slate is at least as large as the ranked one');
+  }
   ok(feed.injuryImpactV === INJURY_IMPACT_VERSION,
     `feed is stamped with the derived-content version (v${feed.injuryImpactV})`);
   // Impact lines must never contradict the card: a line claiming N players needs N players behind

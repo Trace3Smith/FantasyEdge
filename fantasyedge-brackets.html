@@ -244,6 +244,14 @@
   .tp-hedge b{color:var(--white);font-weight:600;}
   .tp-edge .te-of{color:var(--gray);font-size:10.5px;}
 
+  .slate-filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;}
+  .slate-filters button{background:var(--dark2);border:1px solid rgba(255,255,255,0.08);color:var(--gray-light);
+    font-family:inherit;font-size:11.5px;font-weight:600;padding:5px 11px;border-radius:14px;cursor:pointer;transition:all .15s;}
+  .slate-filters button:hover{border-color:rgba(255,255,255,0.2);color:var(--white);}
+  .slate-filters button.on{background:var(--gold);border-color:var(--gold);color:#1a1508;}
+  .slate-filters .fl-sep{width:1px;background:rgba(255,255,255,0.1);margin:2px 4px;}
+  .slate-filters .fl-count{font-size:10px;color:var(--gray);align-self:center;margin-left:4px;}
+
   .results-sec{margin-top:26px;}
   .results-hd{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gray);margin-bottom:10px;}
   .results-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;}
@@ -328,9 +336,10 @@
           <h2 id="cfbWeekTitle">CFB Week</h2>
           <span class="stamp" id="cfbWeekStamp"></span>
         </div>
-        <div class="nfl-sub">This week's ranked (AP/CFP Top-25) college-football games with each side's market win % and pick, from the current betting market, plus injuries. Ranked games only — the poll is set in-season. Informational — not betting advice.</div>
+        <div class="nfl-sub">This week's FBS college-football games with each side's market win % and pick, from the current betting market. Filter to the AP/CFP Top 25, the full FBS slate, or a single conference. Lines fill in as kickoff nears, so some games show a pick before others. Informational — not betting advice.</div>
+        <div class="slate-filters" id="cfbWeekFilters"></div>
         <div class="nfl-rails" id="cfbWeekRails"></div>
-        <div id="cfbWeekGames"><div class="nfl-loading">Loading this week's ranked games…</div></div>
+        <div id="cfbWeekGames"><div class="nfl-loading">Loading this week's FBS slate…</div></div>
       </div>
 
       <!-- MARCH MADNESS (premium; live feed: ESPN BPI + seed history via /api/sports?feed=march-madness) -->
@@ -421,6 +430,73 @@ function switchMode(mode) {
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 const SEASON_TYPE = { 1:'Preseason', 2:'', 3:'Postseason' };
 
+// ===== Slate filters (CFB Week) =====
+//
+// The feed ships the whole FBS slate and the page decides what to show, so Top 25 / All FBS /
+// per-conference are three views of one payload rather than three builds. Every team carries its
+// rank and conference id for exactly this.
+const CFB_CONF_NAMES = {
+  1: 'ACC', 4: 'Big 12', 5: 'Big Ten', 8: 'SEC', 9: 'Pac-12', 12: 'CUSA',
+  15: 'MAC', 17: 'Mountain West', 18: 'Independents', 37: 'Sun Belt', 151: 'American',
+};
+// An FBS team is one whose conference is in that map. FCS opponents carry conference ids too —
+// their own — so "has a conference id" does not mean FBS, and the map is what separates them.
+const isFbs = (t) => !!CFB_CONF_NAMES[t?.conf];
+
+function matchesFilter(g, f) {
+  if (f === 'all') return true;
+  if (f === 'top25') return !!(g.home.rank || g.away.rank);
+  const id = Number(f);
+  return g.home.conf === id || g.away.conf === id;
+}
+
+// Remembered per viewer so the filter doesn't reset on every visit. Storage can throw outright in
+// a private window, so every read and write is guarded and the default simply stands.
+function savedFilter(key, fallback) {
+  try { return localStorage.getItem(key) || fallback; } catch { return fallback; }
+}
+function saveFilter(key, val) { try { localStorage.setItem(key, val); } catch { /* not important */ } }
+
+function renderFilters(cfg, feed) {
+  const el = document.getElementById(cfg.filtersId);
+  if (!el) return;
+  const all = [...(feed.games || []), ...(feed.results || [])];
+  // Only offer conferences that actually have a game this week — a tab that shows nothing is worse
+  // than no tab, and the slate changes week to week.
+  const present = new Map();
+  for (const g of all) for (const t of [g.home, g.away]) if (isFbs(t)) present.set(t.conf, CFB_CONF_NAMES[t.conf]);
+  const confs = [...present.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const btn = (val, label) => {
+    const n = all.filter((g) => matchesFilter(g, val)).length;
+    return `<button class="${cfg._filter === val ? 'on' : ''}" onclick="setSlateFilter('${cfg.gamesId}','${val}')">${esc(label)} <span class="fl-count">${n}</span></button>`;
+  };
+  el.innerHTML = btn('top25', 'Top 25') + btn('all', 'All FBS')
+    + (confs.length ? '<div class="fl-sep"></div>' : '')
+    + confs.map(([id, name]) => btn(String(id), name)).join('');
+}
+
+// Rails are recomputed from the FILTERED games, not served pre-computed, so "highest-confidence
+// picks" means highest within what you're looking at. Same rule the builder uses.
+function railsFor(games) {
+  const picked = games.filter((g) => g.pick);
+  return {
+    games,
+    bestPicks: picked.slice().sort((a, b) => b.pick.winProb - a.pick.winProb).slice(0, 5)
+      .map((g) => ({ id: g.id, team: g.pick.team, winProb: g.pick.winProb, opp: g.pick.team === g.home.abbr ? g.away.abbr : g.home.abbr })),
+    upsetAlerts: picked.filter((g) => g.upsetAlert)
+      .map((g) => ({ id: g.id, underdog: g.pick.team === g.home.abbr ? g.away.abbr : g.home.abbr, favorite: g.pick.team, favWinProb: g.pick.winProb })),
+  };
+}
+
+const FEED_CFG = {};
+function setSlateFilter(gamesId, val) {
+  const cfg = FEED_CFG[gamesId];
+  if (!cfg) return;
+  cfg._filter = val;
+  saveFilter('slateFilter:' + gamesId, val);
+  renderSlate(cfg, FEEDS[gamesId]);
+}
+
 // Generic feed loader. `cfg`: { endpoint, gamesId, railsId, header(data), empty }.
 async function loadFeed(cfg) {
   if (cfg._loaded) return; cfg._loaded = true; // fetch once per page load (retry on error)
@@ -436,25 +512,43 @@ async function loadFeed(cfg) {
     const upcoming = (data.games||[]).filter(g => g.state !== 'post');
     const results = (data.results||[]).concat((data.games||[]).filter(g => g.state === 'post'))
       .sort((a,b) => Date.parse(b.date) - Date.parse(a.date));
-    const resultsHtml = results.length
-      ? `<div class="results-sec"><div class="results-hd">Final — already played this week</div>`+
-        `<div class="results-grid">${results.map(resultCard).join('')}</div></div>`
-      : '';
-    if (!upcoming.length) {
-      document.getElementById(cfg.railsId).innerHTML='';
-      wrap.innerHTML = `<div class="nfl-error">${results.length ? 'Every game in this window has been played — the next slate posts shortly.' : cfg.empty}</div>` + resultsHtml;
-      return;
-    }
-    renderRails({...data, games: upcoming}, cfg.railsId);
-    // Keep the slate so a team-row click can read its reports; a payload cached before team
-    // reports existed simply renders non-expandable cards.
-    FEEDS[cfg.gamesId] = {...data, games: upcoming};
-    const hasReports = !!(data.teamReports && data.teamReports.teams);
-    wrap.innerHTML = '<div class="games-grid">'+upcoming.map(g => gameCard(g, cfg.gamesId, hasReports)).join('')+'</div>' + resultsHtml;
+    // Keep the slate so a team-row click can read its reports, and so a filter change re-renders
+    // from memory instead of refetching.
+    FEEDS[cfg.gamesId] = {...data, games: upcoming, results};
+    FEED_CFG[cfg.gamesId] = cfg;
+    if (cfg.filtersId) cfg._filter = cfg._filter || savedFilter('slateFilter:' + cfg.gamesId, cfg.defaultFilter || 'all');
+    renderSlate(cfg, FEEDS[cfg.gamesId]);
   } catch (e) {
     cfg._loaded = false; // allow a retry on next tab switch
     wrap.innerHTML = '<div class="nfl-error">Couldn\'t load this slate. Try again shortly.</div>';
   }
+}
+
+// Draw a slate that's already in memory. Split out from loadFeed so switching filters is a
+// re-render, not a refetch — the whole point of shipping one payload and filtering the page.
+function renderSlate(cfg, feed) {
+  const wrap = document.getElementById(cfg.gamesId);
+  const f = cfg._filter;
+  const keep = (g) => !cfg.filtersId || matchesFilter(g, f);
+  const upcoming = (feed.games || []).filter(keep);
+  const results = (feed.results || []).filter(keep);
+  if (cfg.filtersId) renderFilters(cfg, feed);
+
+  const resultsHtml = results.length
+    ? `<div class="results-sec"><div class="results-hd">Final — already played this week</div>`+
+      `<div class="results-grid">${results.map(resultCard).join('')}</div></div>`
+    : '';
+  if (!upcoming.length) {
+    document.getElementById(cfg.railsId).innerHTML = '';
+    const msg = results.length
+      ? 'Every game in this view has been played — the next slate posts shortly.'
+      : (cfg.filtersId && f !== 'all' ? 'No games in this view — try All FBS.' : cfg.empty);
+    wrap.innerHTML = `<div class="nfl-error">${msg}</div>` + resultsHtml;
+    return;
+  }
+  renderRails(railsFor(upcoming), cfg.railsId);
+  const hasReports = !!(feed.teamReports && feed.teamReports.teams);
+  wrap.innerHTML = '<div class="games-grid">'+upcoming.map(g => gameCard(g, cfg.gamesId, hasReports)).join('')+'</div>' + resultsHtml;
 }
 
 const NFL_FEED = { endpoint:'/api/sports?feed=nfl-pickem', gamesId:'nflGames', railsId:'nflRails',
@@ -471,7 +565,8 @@ const CFB_FEED = { endpoint:'/api/sports?feed=cfb-bowl', gamesId:'cfbGames', rai
     document.getElementById('cfbStamp').textContent = stampText(d);
   } };
 const CFB_WEEK_FEED = { endpoint:'/api/sports?feed=cfb-week', gamesId:'cfbWeekGames', railsId:'cfbWeekRails',
-  empty:'Ranked (Top-25) matchups appear once the season’s poll is set (~mid-August) — check back in season.',
+  filtersId:'cfbWeekFilters', defaultFilter:'top25',
+  empty:'FBS matchups appear once the season is under way — check back in season.',
   header(d){
     const stype = SEASON_TYPE[d.seasonType] ? SEASON_TYPE[d.seasonType]+' · ' : '';
     document.getElementById('cfbWeekTitle').textContent = `CFB Week — ${stype}Week ${d.week ?? ''}`.trim();

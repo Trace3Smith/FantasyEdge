@@ -255,6 +255,11 @@ export async function buildPickem(cfg) {
       const teamOf = (t) => ({
         id: t.team.id,
         abbr: t.team.abbreviation,
+        // Rank and conference ride along so the page can filter a slate it already has, rather than
+        // the feed deciding for it. `rank` is ESPN's curatedRank (99 means unranked, so it's
+        // normalised to null); `conf` is the conference id, absent in leagues that have none.
+        rank: (() => { const r = t.curatedRank?.current; return typeof r === 'number' && r >= 1 && r <= 25 ? r : null; })(),
+        conf: t.team.conferenceId != null ? Number(t.team.conferenceId) : null,
         name: t.team.displayName,
         logo: t.team.logo || null,
         record: t.records?.[0]?.summary || null,
