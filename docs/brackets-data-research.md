@@ -482,6 +482,51 @@ elsewhere is discarded rather than overwriting what they chose.
 player row matching its column count — a mismatch there renders a silently shifted table) and the
 page's own renderer against it.
 
+## Addendum (2026-09-06) — live scores, polling only what's being played
+
+Cards for games under way now update in place with the score and game clock. The cost scales with
+games **being played**, not games scheduled — which is the whole reason the slate-wide approach was
+untenable for college football.
+
+**The core API exposes status and score as separate tiny documents**, and the team ids the feed
+already ships are enough to address them — no call is needed to discover competitor ids:
+
+```
+.../events/{id}/competitions/{id}/status                 329 bytes
+.../events/{id}/competitions/{id}/competitors/{teamId}/score   265 bytes
+```
+
+Note the **`/leagues/`** segment: the core path is `/v2/sports/{sport}/leagues/{league}/...`, unlike
+the site API's `/apis/site/v2/sports/{sport}/{league}/...`. Getting it wrong is a flat 404.
+
+**Measured against the alternatives**, at a real peak of 30 simultaneous CFB games (not 99 — kickoffs
+stagger across the day):
+
+| | per poll | 12h Saturday @ 60s |
+|---|---|---|
+| slate-wide scoreboard | 1,480KB | ~1,040MB |
+| `scoreboard/{id}` per game | 540KB | ~380MB |
+| **core status + 2 scores** | **26KB** | **~18MB** |
+
+**~58x cheaper than the slate**, and client-side, so it costs no function budget — Hobby caps crons
+at once a day so there is no server that could poll anyway, and the core API sends
+`access-control-allow-origin: *`.
+
+**Which games get polled cannot come from the feed's `state`.** The payload is built by a daily
+cron, so a game that kicked off an hour ago still says `pre`. Kickoff time is in the payload, so the
+rule is: past kickoff, not yet seen final, and less than six hours old — a game that long gone is
+over and its result arrives with the next build.
+
+**The `_` query parameter is a cache key, not a cache-buster.** It changes once per polling
+interval, so every viewer polling in the same window shares one CDN entry and ESPN sees one origin
+request rather than one per viewer, while nothing can be staler than a single interval. A true
+buster would force every poll to origin, which is how you get rate limited.
+
+**60s, with hard backoff.** Akamai answers a burst with 403 for a cooldown window — `espn.js`
+records a month of silent degradation from exactly that — so a 403/429 doubles the interval up to
+8 minutes and recovery resets it. Requests go out six at a time rather than all at once, and a
+hidden tab stops polling entirely and catches up on return.
+
 ## Bottom line for the build decision
 - **No recurring cost, no paid API, no new auth.** ESPN (free) + NWS (free) cover all four
   sections' data. Only *weather* needs the second source; only *March Madness history* needs

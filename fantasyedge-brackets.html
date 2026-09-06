@@ -174,7 +174,8 @@
   .gc-when{font-size:11px;color:var(--gray);}
   .gc-bowl{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gold-light);margin-bottom:8px;}
   .gc-upset{font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;background:rgba(255,152,0,0.14);color:var(--orange);padding:2px 8px;border-radius:4px;}
-  .gc-live{font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;background:rgba(244,67,54,0.16);color:#f3a1a1;padding:2px 8px;border-radius:4px;}
+  .gc-live{font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;background:rgba(244,67,54,0.16);color:#f3a1a1;padding:2px 8px;border-radius:4px;white-space:nowrap;}
+  .gc-live.final{background:rgba(136,136,136,0.16);color:#aaa;}
   .matchup{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;}
   .team-row{display:flex;align-items:center;gap:10px;}
   .team-row img{width:26px;height:26px;flex-shrink:0;}
@@ -579,6 +580,7 @@ function renderSlate(cfg, feed) {
   renderRails(railsFor(upcoming), cfg.railsId);
   const hasReports = !!(feed.teamReports && feed.teamReports.teams);
   wrap.innerHTML = '<div class="games-grid">'+upcoming.map(g => gameCard(g, cfg.gamesId, hasReports)).join('')+'</div>' + resultsHtml;
+  startLive(cfg);
 }
 
 const NFL_FEED = { endpoint:'/api/sports?feed=nfl-pickem', gamesId:'nflGames', railsId:'nflRails', sport:'nfl',
@@ -868,6 +870,135 @@ function resultCard(g, feedId, sport) {
   </div>`;
 }
 
+// ===== Live scores =====
+//
+// Polls only the games actually under way, one at a time, using ESPN's core API — where a game's
+// status and each side's score are separate tiny documents rather than a slice of the whole slate.
+// Measured: 329 bytes for status, 265 for a score, against 1,480KB for the CFB scoreboard. At a
+// realistic peak of 30 simultaneous games that is 26KB a poll instead of 1.5MB, so this scales with
+// what is being PLAYED rather than what is scheduled — which is the whole reason the slate-wide
+// approach was untenable for college football.
+//
+// Client-side by necessity: Hobby caps crons at once a day, so there is no server that could poll.
+// ESPN sends access-control-allow-origin:* on the core API, so the browser calls it directly and
+// this costs no function budget at all.
+// NOTE the /leagues/ segment: the core API path is /v2/sports/{sport}/leagues/{league}/..., unlike
+// the site API's /apis/site/v2/sports/{sport}/{league}/... Getting this wrong is a flat 404.
+const CORE_LEAGUE = { nfl: 'football/leagues/nfl', cfb: 'football/leagues/college-football' };
+const LIVE = {
+  base: 60000,        // 60s: conservative on purpose (see the backoff note below)
+  maxBackoff: 8 * 60000,
+  timer: null, cfg: null, delay: 60000, done: new Set(), scores: {},
+};
+
+// A game worth polling is one that has kicked off and hasn't been seen finished. The FEED's state
+// can't answer this — it was built by a daily cron, so a game that kicked off an hour ago still
+// says "pre" in the payload. Kickoff time is in the payload though, and that is enough.
+function liveTargets(feed) {
+  const now = Date.now();
+  return (feed.games || []).filter((g) => {
+    if (LIVE.done.has(g.id)) return false;
+    const t = Date.parse(g.date);
+    // Stop chasing anything more than six hours past kickoff that never reported in — a game that
+    // long gone is over, and its result will arrive with the next daily build.
+    return Number.isFinite(t) && t <= now && now - t < 6 * 3600e3;
+  });
+}
+
+// One game: status plus a score per side. The score URL is built from the team ids the feed already
+// carries, so there's no extra call to discover competitor ids.
+//
+// The `_` parameter is a cache key, not a cache-buster. It changes once per polling interval, so
+// every viewer polling in the same window shares one CDN entry — ESPN sees one origin request
+// instead of one per viewer — while nothing can be staler than a single interval. A true buster
+// would force every poll to origin, which is exactly how you get rate limited.
+async function pollGame(sport, g, bucket) {
+  const lg = CORE_LEAGUE[sport];
+  const base = `https://sports.core.api.espn.com/v2/sports/${lg}/events/${g.id}/competitions/${g.id}`;
+  const get = async (u) => {
+    const r = await fetch(`${u}${u.includes('?') ? '&' : '?'}_=${bucket}`);
+    if (!r.ok) { const e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+    return r.json();
+  };
+  const [st, away, home] = await Promise.all([
+    get(`${base}/status`),
+    get(`${base}/competitors/${g.away.id}/score`),
+    get(`${base}/competitors/${g.home.id}/score`),
+  ]);
+  return {
+    state: st?.type?.state || null,
+    detail: st?.type?.shortDetail || st?.type?.detail || '',
+    clock: st?.displayClock || '',
+    period: st?.period ?? null,
+    away: away?.value ?? null,
+    home: home?.value ?? null,
+  };
+}
+
+function paintLive(feedId, g, s) {
+  const el = document.getElementById(`lv-${feedId}-${g.id}`);
+  if (!el) return;
+  const score = (s.away != null && s.home != null) ? `${esc(g.away.abbr)} ${s.away} · ${esc(g.home.abbr)} ${s.home}` : '';
+  if (s.state === 'post') {
+    el.innerHTML = `<span class="gc-live final">Final${score ? ' · ' + score : ''}</span>`;
+  } else if (s.state === 'in') {
+    const when = s.clock && s.period ? `${ordPeriod(s.period)} ${esc(s.clock)}` : esc(s.detail || '');
+    el.innerHTML = `<span class="gc-live">● ${score}${when ? ' · ' + when : ''}</span>`;
+  }
+}
+const ordPeriod = (p) => (p > 4 ? 'OT' : ['', '1st', '2nd', '3rd', '4th'][p] || '');
+
+async function liveTick() {
+  const cfg = LIVE.cfg;
+  if (!cfg || document.hidden) return;
+  const feed = FEEDS[cfg.gamesId];
+  const targets = liveTargets(feed || {});
+  if (!targets.length) { stopLive(); return; }
+  const bucket = Math.floor(Date.now() / LIVE.delay);
+  let limited = false;
+  // Bounded concurrency: 90 tiny requests at peak is fine over HTTP/2, but firing them all at once
+  // is what a rate limiter notices.
+  for (let i = 0; i < targets.length; i += 6) {
+    const batch = targets.slice(i, i + 6);
+    const out = await Promise.all(batch.map(async (g) => {
+      try { return [g, await pollGame(cfg.sport, g, bucket)]; }
+      catch (e) { if (e.status === 403 || e.status === 429) limited = true; return null; }
+    }));
+    for (const r of out) {
+      if (!r) continue;
+      const [g, s] = r;
+      paintLive(cfg.gamesId, g, s);
+      // A finished game drops out of the poll set for good — that is what keeps the cost tied to
+      // games being played rather than games scheduled.
+      if (s.state === 'post') LIVE.done.add(g.id);
+    }
+    if (limited) break;
+  }
+  // Akamai answers a burst with 403 for a cooldown window, and espn.js records a month of silent
+  // degradation from exactly that. Back off hard and recover slowly rather than hammering through.
+  LIVE.delay = limited ? Math.min(LIVE.delay * 2, LIVE.maxBackoff) : LIVE.base;
+  schedule();
+}
+
+function schedule() {
+  clearTimeout(LIVE.timer);
+  LIVE.timer = setTimeout(liveTick, LIVE.delay);
+}
+function stopLive() { clearTimeout(LIVE.timer); LIVE.timer = null; }
+function startLive(cfg) {
+  stopLive();
+  if (!cfg.sport) return;
+  LIVE.cfg = cfg; LIVE.delay = LIVE.base;
+  if (!liveTargets(FEEDS[cfg.gamesId] || {}).length) return;
+  liveTick();
+}
+// A backgrounded tab polling for hours is the rude version of this. Stop when hidden, and catch up
+// immediately on return rather than waiting out the interval.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stopLive();
+  else if (LIVE.cfg) { LIVE.delay = LIVE.base; liveTick(); }
+});
+
 // ===== Box score =====
 //
 // Rendered full width UNDER the results grid rather than inside a card: a box score is a wide
@@ -991,7 +1122,7 @@ function gameCard(g, feedId, hasReports) {
   // CFB bowl/playoff games carry a bowl name; NFL games don't. `@`/`vs` for site type.
   const bowl = g.bowlName ? `<div class="gc-bowl">${esc(g.bowlName)}</div>` : '';
   return `<div class="gcard${g.upsetAlert?' upset':''}">
-    <div class="gc-top"><span class="gc-when">${esc(when)}</span><span>${live}${flag}</span></div>
+    <div class="gc-top"><span class="gc-when">${esc(when)}</span><span><span id="lv-${feedId}-${g.id}">${live}</span>${flag}</span></div>
     ${bowl}
     ${g.market ? '<div class="gc-market-hd" title="Market-implied win % per side, de-vigged from the DraftKings moneyline — the betting market\'s implied probability, not a public money/ticket split.">Market win %</div>' : ''}
     <div class="matchup">${teamRow(g.away, pickTeam===g.away.abbr, g.market?g.market.away:null, hasReports&&g.away.id?[feedId,g.id,'away']:null)}${teamRow(g.home, pickTeam===g.home.abbr, g.market?g.market.home:null, hasReports&&g.home.id?[feedId,g.id,'home']:null)}</div>

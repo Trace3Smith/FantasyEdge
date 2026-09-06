@@ -38,10 +38,15 @@ function loadPageScript() {
     classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
     querySelectorAll: () => [], closest: () => stubEl(), addEventListener() {},
   });
-  const document = { getElementById: stubEl, querySelectorAll: () => [], addEventListener() {} };
-  const exports = 'return { gameCard, resultCard, teamPanelHtml, edgeVerdict, boxScoreHtml, FEEDS };';
-  return new Function('document', 'window', 'requestAnimationFrame', 'fetch', src + '\n' + exports)(
-    document, {}, () => {}, () => Promise.reject(new Error('no network in renderer')),
+  const nodes = {};
+  const byId = (id) => nodes[id] || (nodes[id] = { ...stubEl(), id });
+  const document = { getElementById: byId, querySelectorAll: () => [], addEventListener() {}, hidden: false, _nodes: nodes };
+  const exports = 'return { gameCard, resultCard, teamPanelHtml, edgeVerdict, boxScoreHtml, '
+    + 'liveTargets, pollGame, paintLive, ordPeriod, LIVE, FEEDS, _nodes: document._nodes };';
+  return new Function('document', 'window', 'requestAnimationFrame', 'fetch', 'localStorage',
+    'setTimeout', 'clearTimeout', src + '\n' + exports)(
+    document, {}, () => {}, globalThis.fetch,
+    { getItem: () => null, setItem() {} }, () => 0, () => {},
   );
 }
 
@@ -190,6 +195,50 @@ async function checkBoxScore(name, feed, page) {
   ok(!/undefined|NaN/.test(html), 'rendered box score has no undefined/NaN');
   ok(/bx-line/.test(html) && /Team stats/.test(html), 'renders a linescore and team totals');
   ok(page.boxScoreHtml({ teams: [] }).includes('No box score'), 'an empty box score degrades to a message');
+}
+
+// Live scores. The selection rule and the rendering are pure and always testable; the fetch is
+// exercised against a real completed game, which proves the URL shape and the parse. What cannot be
+// checked here is a game genuinely in progress — there simply isn't one most of the time — so the
+// 'in' branch is covered by rendering it rather than by observing it.
+async function checkLive(feed, page) {
+  console.log('\n[synthetic] LIVE SCORES');
+  const now = Date.now();
+  const mk = (id, h) => ({ id, date: new Date(now + h * 3600e3).toISOString(), away: { id: '1' }, home: { id: '2' } });
+  page.FEEDS.chk = { games: [mk('future', 3), mk('started', -0.5), mk('mid', -2), mk('stale', -8)] };
+  const ids = page.liveTargets(page.FEEDS.chk).map((g) => g.id);
+  ok(!ids.includes('future'), 'a game that has not kicked off is never polled');
+  ok(ids.includes('started') && ids.includes('mid'), 'games past kickoff are polled');
+  ok(!ids.includes('stale'), 'a game six hours past kickoff is abandoned, not polled forever');
+  page.LIVE.done.add('mid');
+  ok(!page.liveTargets(page.FEEDS.chk).map((g) => g.id).includes('mid'),
+    'a game seen final drops out of the poll set for good');
+  page.LIVE.done.delete('mid');
+  ok(!page.liveTargets({}).length && !page.liveTargets({ games: [] }).length, 'an empty slate polls nothing');
+
+  // Rendering both branches. The in-progress one cannot be observed on demand — there is rarely a
+  // live game when the checks run — so it is rendered directly and asserted on.
+  const teams = { away: { abbr: 'UCLA' }, home: { abbr: 'CAL' } };
+  page.paintLive('chk', { id: 'a', ...teams }, { state: 'in', away: 21, home: 14, clock: '7:32', period: 2 });
+  page.paintLive('chk', { id: 'b', ...teams }, { state: 'post', away: 45, home: 24 });
+  const txt = (id) => (page._nodes[`lv-chk-${id}`]?.innerHTML || '').replace(/<[^>]+>/g, '');
+  ok(txt('a').includes('UCLA 21') && txt('a').includes('CAL 14') && txt('a').includes('2nd 7:32'),
+    `an in-progress game shows score and clock (${txt('a').trim()})`);
+  ok(txt('b').startsWith('Final') && txt('b').includes('45'), `a finished game shows Final (${txt('b').trim()})`);
+  ok(page.ordPeriod(2) === '2nd' && page.ordPeriod(5) === 'OT', 'period labels read 1st..4th then OT');
+
+  // The real fetch, against a finished game from this very slate: proves the core-API URL shape
+  // (which needs a /leagues/ segment the site API does not) and that scores parse.
+  const done = (feed.results || [])[0];
+  if (!done) { console.log('  SKIP  no completed game to exercise the fetch against'); return; }
+  try {
+    const s = await page.pollGame('cfb', done, Math.floor(Date.now() / 60000));
+    ok(s.state === 'post', `a finished game reports post (${done.shortName})`);
+    ok(s.away === done.away.score && s.home === done.home.score,
+      `polled scores match the feed (${s.away}-${s.home} vs ${done.away.score}-${done.home.score})`);
+  } catch (e) {
+    ok(false, `live poll reached ESPN's core API (${e.message})`);
+  }
 }
 
 function checkVenueTable() {
@@ -478,6 +527,7 @@ for (const name of (which.length ? which : ['cfbweek'])) {
   checkFeed(name, feed);
   if (feed.games.length) checkPage(name, feed, page);
   await checkBoxScore(name, feed, page);
+  if (name === 'cfbweek') await checkLive(feed, page);
 }
 checkVenueTable();
 checkInjuryGroups();
