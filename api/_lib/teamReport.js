@@ -59,10 +59,16 @@ const MIN_FIELD = 0.75; // share of the league that must be ON the leaderboard f
 const CONC = 6;         // parallel schedule fetches — same bounded-concurrency shape as nflDvp
 const SOFT_MS = 25000;  // soft budget; past it we stop fetching form and keep what we have
 
-// Bump when the teamReports payload SHAPE changes — api/sports.js treats a cached feed built
-// against an older version as stale and rebuilds it once, so a deploy self-heals rather than
-// feeding the new page an object it can't read.
-export const TEAM_REPORT_VERSION = 2;
+// Bump when the teamReports payload changes — its SHAPE, or the RULES that decide its contents.
+// api/sports.js treats a cached feed built against an older version as stale and rebuilds it once,
+// so a deploy self-heals instead of serving what the previous build decided.
+//
+// Shape alone is not enough, and that has now cost two deploys. A cached payload whose values are
+// wrong looks identical to a correct one: when the season-substitution fix landed, every field was
+// still present and correctly typed, so nothing rebuilt and production kept serving panels labelled
+// "2026 season · 17 games played" over 2025 numbers until the next daily cron. If a change would
+// make a fresh build disagree with the cached one, it needs a bump.
+export const TEAM_REPORT_VERSION = 3;
 
 async function mapLimit(items, limit, fn) {
   const out = [];
