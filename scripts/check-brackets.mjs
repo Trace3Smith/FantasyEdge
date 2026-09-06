@@ -251,6 +251,15 @@ function checkFeed(name, feed) {
   ok(rep.v === TEAM_REPORT_VERSION, `payload is at the current shape version (v${rep.v})`);
   ok(ids.every((id) => rep.teams[id]), 'every team on the slate has a report');
   ok(rep.priorSeason === rep.season - 1, `prior season is the one before (${rep.priorSeason} < ${rep.season})`);
+  // ESPN answers a request for a season it has no data for with the PREVIOUS season's numbers and
+  // no error. Before the NFL's Week 1 that meant 32 teams at 17 games each under the current
+  // season's year — which passes every sample gate and labels last year's stats as this year's. A
+  // team can only be read on the current season if the league genuinely has games in it.
+  ok(rep.ratedCounts[rep.season] === 0 || (rep.leagueSizes[rep.season] || 0) > 0,
+    'a rated current season is one the league actually has data for');
+  const curTeams = all => all.filter((t) => t.basisSeason === rep.season).length;
+  ok(!Object.values(rep.teams).some((t) => t.basisSeason === rep.season) || rep.ratedCounts[rep.season] > 0,
+    'no team is read on the current season while zero teams are rated in it');
 
   const all = Object.values(rep.teams);
   const mix = all.reduce((m, t) => { m[t.basis] = (m[t.basis]||0)+1; return m; }, {});

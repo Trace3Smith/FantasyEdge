@@ -160,6 +160,19 @@ async function fetchWeather(coords, indoor, kickoffIso) {
 // instead: when the feed is served, any game about to kick off whose forecast has gone stale is
 // re-read. That is deliberately narrow — only games inside TOPUP_WINDOW, only the second NWS call
 // (the gridpoint is cached), and only once per TOPUP_MAX_AGE across all requests.
+// Weather is fetched in a bounded-concurrency pass AFTER the slate is assembled, not inline while
+// building each game. Inline was fine at 25 ranked games; measured across a full 86-game FBS slate
+// it was ~40 of the build's 51 seconds, because every game waited on the one before it. Every other
+// multi-fetch path here already works this way (teamReport, nflDvp) — this one just never had
+// enough games for it to matter.
+const WX_CONC = 8;
+
+async function mapLimit(items, limit, fn) {
+  const out = [];
+  for (let i = 0; i < items.length; i += limit) out.push(...(await Promise.all(items.slice(i, i + limit).map(fn))));
+  return out;
+}
+
 const TOPUP_WINDOW = 24 * 3600 * 1000;  // only games about to be played
 const TOPUP_MAX_AGE = 30 * 60 * 1000;   // how stale a forecast may get inside that window
 const TOPUP_BUDGET_MS = 4000;           // hard ceiling: this runs on a user's request
@@ -280,8 +293,9 @@ export async function buildPickem(cfg) {
       const state = ev.status?.type?.state || 'pre';
       const indoor = c.venue?.indoor === true;
       const coords = cfg.coordsFor ? cfg.coordsFor(c, home, away) : null;
-      // A finished game gets no forecast — the weather already happened, and it saves the NWS calls.
-      const weather = state === 'post' ? null : await fetchWeather(coords, indoor, ev.date);
+      // Filled by the concurrent pass below. A finished game gets no forecast — the weather already
+      // happened — and neither does a dome or a venue with no coordinates, so those never queue.
+      const wanted = state !== 'post' && !!coords && !coords.dome && !indoor;
       const bowlName = cfg.nameOf ? cfg.nameOf(c) : null;
 
       games.push({
@@ -300,6 +314,7 @@ export async function buildPickem(cfg) {
         pick,
         market, // { home, away } implied win % (de-vigged moneyline); null when no line
         upsetAlert,
+        _wx: wanted ? { coords, indoor, date: ev.date } : null,
         injuries: {
           // The COMPLETE list, uncapped. It was trimmed to 6 while the card printed a few names
           // inline, but that made the card contradict itself: the impact lines count the whole
@@ -319,10 +334,18 @@ export async function buildPickem(cfg) {
           home: groupInjuries(injuries[home.team.id], starters[home.team.abbreviation]),
           away: groupInjuries(injuries[away.team.id], starters[away.team.abbreviation]),
         },
-        weather,
+        weather: null,
       });
     } catch { /* skip a single malformed event; keep the slate */ }
   }
+
+  // The concurrent weather pass. Failure-tolerant per game exactly as the inline version was: a
+  // game whose forecast fails keeps `weather: null` and renders without one.
+  const needsWx = games.filter((g) => g._wx);
+  await mapLimit(needsWx, WX_CONC, async (g) => {
+    g.weather = await fetchWeather(g._wx.coords, g._wx.indoor, g._wx.date);
+  });
+  for (const g of games) delete g._wx; // scratch field, never leaves the builder
 
   // A scoreboard "week" is a DATE RANGE, not a set of unplayed games: ESPN's CFB Week 1 spans
   // the Week-0 Saturday through the following Monday, so games already played sit in the same

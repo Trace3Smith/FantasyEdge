@@ -393,6 +393,34 @@ judgement; the names stay below for anyone who wants them.
 produces no lines and the section never renders. See the addendum above for what sourcing it would
 cost, and why we didn't.
 
+## Addendum (2026-09-06) — weather concurrency, and a season ESPN swapped under us
+
+**Weather is fetched concurrently now.** It ran inline in the per-game loop, where each game waited
+on the one before it. Fine at 25 ranked games; measured against a full 86-game FBS slate it was
+**~40 of the build's 51 seconds**. Moved to a bounded-concurrency pass (CONC 8) after the slate is
+assembled: **51.0s → 12.4s**, weather coverage unchanged at 85/85. Domes, finished games and venues
+with no coordinates never queue. This matters now because it is the one thing that would have
+blocked expanding CFB Week past the Top 25 — the remaining costs scale fine (172 team-schedule
+fetches = 11s, no team hitting the soft budget; payload 84KB → 252KB).
+
+**ESPN serves a different season than you ask for, silently.** Requesting a season it has no data
+for returns HTTP 200 with the PREVIOUS season's numbers and no error; only `requestedSeason.year`
+in the body says which season you actually got. On 2026-09-06 the NFL leaderboard answered
+`season=2026` with **32 teams at 17 games each, byte-identical to 2025** — four days before Week 1
+kicked off. Two days earlier the same request had returned an empty body, which the existing
+empty-answer fallback handled; this behaviour defeats it, because the data looks complete.
+
+The consequence was live: every gate passed (32 teams, all "rated"), the crossover fired, and the
+panel read **"2026 season · 17 games played"** over last season's numbers — precisely the
+mislabelling the crossover rule exists to prevent, and worse than the old behaviour, which at least
+said "2025 season stats — last year's roster" truthfully. CFB was unaffected: it has played 2026
+games, so `requestedSeason` matched.
+
+Fixed by taking ESPN at its word — `leagueStats` returns the season actually served, a mismatched
+response is dropped rather than trusted, and it is never written to the immutable cache (which
+would have pinned last season's numbers under this season's key permanently). `check:brackets`
+asserts no team is read on a current season the league has no data for.
+
 ## Bottom line for the build decision
 - **No recurring cost, no paid API, no new auth.** ESPN (free) + NWS (free) cover all four
   sections' data. Only *weather* needs the second source; only *March Madness history* needs
