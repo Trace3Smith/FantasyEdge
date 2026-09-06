@@ -453,6 +453,35 @@ slate). And pick coverage is thinner off the ranked slate: at ~4.5 days out, 40%
 have a spread against 70% of ranked ones, filling in as kickoff nears. The filter defaults to Top 25
 so the dense view stays the front door.
 
+## Addendum (2026-09-06) — historical box scores
+
+Clicking a finished game opens its full stat line: linescore by quarter, team totals, and every
+player group ESPN publishes (passing, rushing, receiving, defense, kicking, returns…). Served from
+`?feed=boxscore&sport=nfl|cfb&id=<event id>` on the existing dispatch — **no new function**.
+
+**The ids were already there.** Every game and result has carried its ESPN event id since the
+results split, so nothing extra is fetched to find them.
+
+**ESPN will not give you just the box score.** `?enable=boxscore` and
+`?disable=drives,news,...` are both ignored — byte-identical 552KB responses — and `drives` alone is
+69% of the payload. So the fetch is unavoidably heavy, and the answer is to do it once: trimmed to
+**~6.3KB** and cached without expiry, since a finished game's stat line never changes. **552KB in,
+6.3KB out, one time per game ever.** At ~7KB a game that is ~2MB per NFL season and ~3MB per CFB
+season, write-once.
+
+**Only FINAL games are cached.** An in-progress game's numbers are still moving, and pinning them
+under an immutable key would freeze a game at halftime forever — so those are served fresh.
+
+**Rendered full width under the results grid**, not inside the card. Result cards are a 280px grid
+and a box score is a wide table; expanding in place would squeeze it to nothing. One open at a time,
+fetched once per game per session, and a slow response that lands after the reader has clicked
+elsewhere is discarded rather than overwriting what they chose.
+
+`check:brackets` pulls a real completed game off the feed and asserts both halves: the payload
+(two teams, final flag, scores, a winner, team totals, passing/rushing/receiving present, and every
+player row matching its column count — a mismatch there renders a silently shifted table) and the
+page's own renderer against it.
+
 ## Bottom line for the build decision
 - **No recurring cost, no paid API, no new auth.** ESPN (free) + NWS (free) cover all four
   sections' data. Only *weather* needs the second source; only *March Madness history* needs

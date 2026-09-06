@@ -54,6 +54,11 @@ export const NWS_GRID_TTL = 90 * 24 * 3600; // 90 days
 // and a public URL can never be used to drive repeated upstream fetches.
 export const wxCooldownKey = (feedKey) => `wx:cooldown:${feedKey}`;
 
+// One completed game's trimmed box score, keyed by league and ESPN event id. Written without
+// expiry on purpose: a finished game's stat line never changes again, so this is fetched once per
+// game ever and read for free thereafter. Only FINAL games are stored — see boxScore.js.
+export const boxScoreKey = (leaguePath, id) => `box:${leaguePath}:${id}`;
+
 // NFL Pick'em weekly feed (Brackets & Bowls) — games + market-implied picks, injuries, and
 // outdoor weather, built daily by the refresh cron from free ESPN + NWS sources and served
 // via api/sports.js (?feed=nfl-pickem). Cached so requests make zero upstream calls.

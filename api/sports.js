@@ -13,6 +13,7 @@ import { buildCfbBowl } from './_lib/cfbBowl.js';
 import { buildCfbWeek } from './_lib/cfbWeek.js';
 import { TEAM_REPORT_VERSION } from './_lib/teamReport.js';
 import { topUpWeather, FEED_CONTENT_VERSION } from './_lib/pickem.js';
+import { getBoxScore } from './_lib/boxScore.js';
 import { buildMarchMadness } from './_lib/marchMadness.js';
 import { requirePremium, sendError } from './_lib/auth.js';
 import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NFL_DVP_KEY, DATASET_VERSION } from './_lib/kv.js';
@@ -102,6 +103,28 @@ export default async function handler(req, res) {
       return res.json(dvp || { season: null, week: null, builtAt: null, rated: false, teams: {}, counts: { games: 0, teams: 0 } });
     } catch (err) {
       return res.status(500).json({ error: err.message, rated: false, teams: {} });
+    }
+  }
+
+  // Box score for one completed game (?feed=boxscore&sport=nfl|cfb&id=<espn event id>). Rides this
+  // same function like the feeds below — no dedicated endpoint. The game ids come straight off the
+  // Pick'em cards, which have carried them since the results split, so nothing extra is fetched to
+  // find them.
+  //
+  // Unlike the DvP endpoint above, an inline build here is safe to expose: it is one upstream call
+  // for one game, the result is immutable and cached forever, and the id is bounded to digits so
+  // the URL can't be pointed at anything else.
+  if (req.query.feed === 'boxscore') {
+    const LEAGUES = { nfl: 'football/nfl', cfb: 'football/college-football' };
+    const leaguePath = LEAGUES[req.query.sport];
+    const id = String(req.query.id || '');
+    if (!leaguePath || !/^\d{1,12}$/.test(id)) {
+      return res.status(400).json({ error: 'boxscore needs sport=nfl|cfb and a numeric id', teams: [] });
+    }
+    try {
+      return res.json(await getBoxScore(leaguePath, id));
+    } catch (err) {
+      return res.status(502).json({ error: err.message, teams: [] });
     }
   }
 
