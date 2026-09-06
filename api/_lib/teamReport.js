@@ -138,14 +138,28 @@ async function leagueStats(leaguePath, season) {
       defense: readSide(cats, glossary, 'opponent'),
     };
   }
-  // `count` is the league size ESPN ranked against — the denominator the UI shows a rank out of.
-  return { teams, count: Object.keys(teams).length, rated };
+  // `season` is the season ESPN ACTUALLY SERVED, which is not always the one we asked for — see
+  // the note on leagueStatsCached. `count` is the league size ESPN ranked against, the denominator
+  // the UI shows a rank out of.
+  return {
+    season: j.requestedSeason?.year ?? null,
+    teams,
+    count: Object.keys(teams).length,
+    rated,
+  };
 }
 
 // leagueStats for a season, through the cache when the season is over. A finished season is
 // immutable, so it is fetched once per league and then read from Redis forever after; the
 // in-progress season always goes to the network. Cache failures are non-fatal in both
 // directions — a miss just costs the fetch we were going to make anyway.
+//
+// ESPN SERVES A DIFFERENT SEASON THAN YOU ASK FOR, silently. Requesting a season it has no data
+// for returns 200 with the PREVIOUS season's numbers and no error — only `requestedSeason.year` in
+// the body says which season you actually got. On 2026-09-06 the NFL leaderboard answered
+// `season=2026` with 32 teams at 17 games each, byte-identical to 2025, four days before Week 1
+// kicked off. So a mismatched response is never cached: caching it would pin last season's numbers
+// under this season's key, permanently.
 async function leagueStatsCached(leaguePath, season, { immutable }) {
   if (!immutable) return leagueStats(leaguePath, season);
   const key = byteamKey(leaguePath, season);
@@ -154,8 +168,10 @@ async function leagueStatsCached(leaguePath, season, { immutable }) {
     if (hit?.count) return hit;
   } catch { /* fall through to the network */ }
   const fresh = await leagueStats(leaguePath, season);
-  // Never cache an empty answer — that would pin a transient ESPN failure in place for good.
-  if (fresh.count) { try { await redis.set(key, fresh); } catch { /* serving it matters, storing it doesn't */ } }
+  // Never cache an empty answer (that would pin a transient ESPN failure in place for good), and
+  // never cache a season ESPN substituted for the one requested.
+  const trustworthy = fresh.count && (fresh.season == null || fresh.season === season);
+  if (trustworthy) { try { await redis.set(key, fresh); } catch { /* serving it matters, storing it doesn't */ } }
   return fresh;
 }
 
@@ -239,10 +255,16 @@ export async function buildTeamReports({ leaguePath, season, teamIds }) {
   // Both seasons, independently best-effort. The prior one is the fallback AND the shared basis
   // for a mixed matchup, so it is worth having even when the current season is healthy; it comes
   // from cache after its first fetch, so asking for it every build is close to free.
-  const [cur, prev] = await Promise.all([
+  let [cur, prev] = await Promise.all([
     leagueStatsCached(leaguePath, season, { immutable: false }).catch(() => null),
     leagueStatsCached(leaguePath, prior, { immutable: true }).catch(() => null),
   ]);
+  // Take ESPN at its word about which season it served. Before Week 1 the NFL leaderboard answers a
+  // request for the current season with last season's full 17 games — which sails through every
+  // gate below (32 teams, all "rated") and would label last year's numbers as this year's. An
+  // out-of-date answer is no answer: drop it and let the prior-season path do its job honestly.
+  if (cur && cur.season != null && cur.season !== season) cur = null;
+  if (prev && prev.season != null && prev.season !== prior) prev = null;
   // `leagueSizes` is the denominator a rank is shown against (ESPN ranks across everyone listed);
   // `ratedCounts` is how many of those have actually played, which is what gates the crossover and
   // what makes a stalled build legible in the cron summary.
