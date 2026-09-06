@@ -22,6 +22,7 @@ import { CFB_CONFERENCES } from '../api/_lib/cfbWeek.js';
 import { staleWeatherGames } from '../api/_lib/pickem.js';
 import { groupInjuries } from '../api/_lib/injuryGroups.js';
 import { FEED_CONTENT_VERSION } from '../api/_lib/pickem.js';
+import { getBoxScore } from '../api/_lib/boxScore.js';
 
 const FEEDS = { cfbweek: buildCfbWeek, nfl: buildNflPickem, bowl: buildCfbBowl };
 let failures = 0;
@@ -38,7 +39,7 @@ function loadPageScript() {
     querySelectorAll: () => [], closest: () => stubEl(), addEventListener() {},
   });
   const document = { getElementById: stubEl, querySelectorAll: () => [], addEventListener() {} };
-  const exports = 'return { gameCard, resultCard, teamPanelHtml, edgeVerdict, FEEDS };';
+  const exports = 'return { gameCard, resultCard, teamPanelHtml, edgeVerdict, boxScoreHtml, FEEDS };';
   return new Function('document', 'window', 'requestAnimationFrame', 'fetch', src + '\n' + exports)(
     document, {}, () => {}, () => Promise.reject(new Error('no network in renderer')),
   );
@@ -157,6 +158,38 @@ function checkInjuryGroups() {
   ok(mixed.length <= 4, `lines are capped so a card stays glanceable (${mixed.length})`);
   ok(mixed.every((l) => l.impact && l.label), 'every line carries both a label and a consequence');
   ok(!labels([]).length && !labels(null).length, 'empty or missing injuries produce nothing');
+}
+
+// Box scores, against a real completed game taken from the feed itself — which is the point: the
+// ids the page clicks are the ids the feed already ships, so nothing extra is fetched to find them.
+async function checkBoxScore(name, feed, page) {
+  const g = (feed.results || [])[0];
+  if (!g) { console.log('\n[' + name + '] BOX SCORE\n  SKIP  no completed game on this slate'); return; }
+  console.log(`\n[${name}] BOX SCORE — game ${g.id} (${g.shortName})`);
+  const league = name === 'nfl' ? 'football/nfl' : 'football/college-football';
+  let box;
+  try { box = await getBoxScore(league, g.id); }
+  catch (e) { ok(false, `box score fetched (${e.message})`); return; }
+
+  ok(box.teams.length === 2, `two teams (${box.teams.map((t) => t.abbr).join(' vs ')})`);
+  ok(box.final === true, 'a completed game reports final — the flag that makes it cacheable forever');
+  ok(box.teams.every((t) => t.score != null), 'both scores present');
+  ok(box.teams.some((t) => t.winner), 'a winner is marked');
+  ok(box.teams.every((t) => t.totals.length > 0), `team totals present (${box.teams[0].totals.length} categories)`);
+  const groups = box.teams[0].groups;
+  ok(groups.some((x) => x.name === 'passing') && groups.some((x) => x.name === 'rushing')
+    && groups.some((x) => x.name === 'receiving'), 'passing, rushing and receiving all present');
+  // Every row must line up with its header, or the table renders shifted and silently wrong.
+  const bad = box.teams.flatMap((t) => t.groups.flatMap((x) => x.rows.filter((r) => r.length !== x.labels.length + 1)
+    .map((r) => `${t.abbr}/${x.name}: ${r.length - 1} stats vs ${x.labels.length} labels`)));
+  ok(!bad.length, `every player row matches its column count${bad.length ? ` (${bad[0]})` : ''}`);
+  const kb = (JSON.stringify(box).length / 1024).toFixed(1);
+  ok(Number(kb) < 40, `trimmed payload stays small (${kb}KB, from a ~550KB summary)`);
+
+  const html = page.boxScoreHtml(box);
+  ok(!/undefined|NaN/.test(html), 'rendered box score has no undefined/NaN');
+  ok(/bx-line/.test(html) && /Team stats/.test(html), 'renders a linescore and team totals');
+  ok(page.boxScoreHtml({ teams: [] }).includes('No box score'), 'an empty box score degrades to a message');
 }
 
 function checkVenueTable() {
@@ -444,6 +477,7 @@ for (const name of (which.length ? which : ['cfbweek'])) {
   const feed = await FEEDS[name]();
   checkFeed(name, feed);
   if (feed.games.length) checkPage(name, feed, page);
+  await checkBoxScore(name, feed, page);
 }
 checkVenueTable();
 checkInjuryGroups();
