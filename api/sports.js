@@ -12,8 +12,7 @@ import { buildNflPickem } from './_lib/nflPickem.js';
 import { buildCfbBowl } from './_lib/cfbBowl.js';
 import { buildCfbWeek } from './_lib/cfbWeek.js';
 import { TEAM_REPORT_VERSION } from './_lib/teamReport.js';
-import { topUpWeather } from './_lib/pickem.js';
-import { INJURY_IMPACT_VERSION } from './_lib/injuryGroups.js';
+import { topUpWeather, FEED_CONTENT_VERSION } from './_lib/pickem.js';
 import { buildMarchMadness } from './_lib/marchMadness.js';
 import { requirePremium, sendError } from './_lib/auth.js';
 import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NFL_DVP_KEY, DATASET_VERSION } from './_lib/kv.js';
@@ -135,11 +134,10 @@ export default async function handler(req, res) {
       // every forecast a build produces carries both fields.
       const staleWeather = (feed?.games || []).some((g) => g.weather && !g.weather.fetchedAt);
       // Derived-content version. Presence checks like the two above only work while a change ADDS a
-      // field; they cannot see a change that adds new VALUES to a field already there. Starter
-      // injury lines were exactly that — a cached payload already had `injuryImpact`, so it looked
-      // current, and the new lines stayed invisible until the next daily cron. An explicit version
-      // catches every such change. A payload built before versioning has none, so it rebuilds once.
-      const staleImpact = feed?.injuryImpactV !== INJURY_IMPACT_VERSION;
+      // field; they cannot see a change that alters VALUES in a field already there, or which games
+      // land on the slate at all. Both have shipped invisibly before. A payload built before
+      // versioning carries none, so it rebuilds once.
+      const staleImpact = feed?.contentV !== FEED_CONTENT_VERSION;
       let built = false;
       if (!feed || !Array.isArray(feed.games) || staleReports || staleWeather || staleImpact) {
         feed = await build();

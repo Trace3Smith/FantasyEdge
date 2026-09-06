@@ -10,7 +10,7 @@
 
 import { buildTeamReports } from './teamReport.js';
 import { redis, redisConfigured, nwsGridKey, NWS_GRID_TTL, wxCooldownKey } from './kv.js';
-import { groupInjuries, INJURY_IMPACT_VERSION } from './injuryGroups.js';
+import { groupInjuries } from './injuryGroups.js';
 
 const UA = 'FantasyEdge/1.0 (brackets pickem; contact via app)';
 
@@ -165,6 +165,18 @@ async function fetchWeather(coords, indoor, kickoffIso) {
 // it was ~40 of the build's 51 seconds, because every game waited on the one before it. Every other
 // multi-fetch path here already works this way (teamReport, nflDvp) — this one just never had
 // enough games for it to matter.
+// Version of everything this builder DERIVES — the injury lines, which games are on the slate, the
+// fields each team carries. api/sports.js treats a cached feed at an older version as stale and
+// rebuilds it once, so a deploy self-heals instead of serving what the previous build decided.
+//
+// It lives here, named for the feed rather than for any one feature, because that is what it is.
+// It was previously INJURY_IMPACT_VERSION over in injuryGroups.js, and the name cost a deploy: when
+// CFB Week widened from the ranked slate to the full FBS field, nothing bumped it — the change had
+// nothing to do with injuries — so production kept serving 25 cached games with no rank or
+// conference on them. Shape is not the trigger and neither is any one feature: if a change would
+// make a fresh build disagree with the cached one, bump this.
+export const FEED_CONTENT_VERSION = 5;
+
 const WX_CONC = 8;
 
 async function mapLimit(items, limit, fn) {
@@ -228,7 +240,7 @@ export async function topUpWeather(feed, feedKey) {
 //   starters()                  — optional async () => { [teamAbbr]: { QB|RB|WR|TE: 'Name' } };
 //                                 enables the starter injury lines (see injuryGroups.js). Omit and
 //                                 they never fire — only the position-group counts do.
-// Returns { injuryImpactV, season, seasonType, week, games, results, teamReports, bestPicks,
+// Returns { contentV, season, seasonType, week, games, results, teamReports, bestPicks,
 // upsetAlerts, builtAt }, where
 // `games` is the still-to-play slate and `results` holds any game in the same window that's
 // already final (see the split below). Failure-tolerant per game so one bad event can't drop
@@ -385,9 +397,9 @@ export async function buildPickem(cfg) {
   }
 
   return {
-    // Version of the derived content in this payload, so a server that has moved on can tell a
-    // cached feed is behind WITHOUT having to infer it from which optional fields happen to be set.
-    injuryImpactV: INJURY_IMPACT_VERSION,
+    // See FEED_CONTENT_VERSION: lets a server that has moved on tell a cached feed is behind,
+    // without having to infer it from which optional fields happen to be set.
+    contentV: FEED_CONTENT_VERSION,
     season: sb.season?.year ?? null,
     seasonType: sb.season?.type ?? null,
     week: sb.week?.number ?? null,

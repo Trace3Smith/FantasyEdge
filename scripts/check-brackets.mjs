@@ -20,7 +20,8 @@ import { currentSeasonRankable, TEAM_REPORT_VERSION } from '../api/_lib/teamRepo
 import { CFB_VENUES } from '../api/_lib/cfbVenues.js';
 import { CFB_CONFERENCES } from '../api/_lib/cfbWeek.js';
 import { staleWeatherGames } from '../api/_lib/pickem.js';
-import { groupInjuries, INJURY_IMPACT_VERSION } from '../api/_lib/injuryGroups.js';
+import { groupInjuries } from '../api/_lib/injuryGroups.js';
+import { FEED_CONTENT_VERSION } from '../api/_lib/pickem.js';
 
 const FEEDS = { cfbweek: buildCfbWeek, nfl: buildNflPickem, bowl: buildCfbBowl };
 let failures = 0;
@@ -203,8 +204,8 @@ function checkFeed(name, feed) {
     ok(top.length <= all.length, `Top-25 view is a subset of the slate (${top.length}/${all.length})`);
     ok(all.length >= top.length, 'the full slate is at least as large as the ranked one');
   }
-  ok(feed.injuryImpactV === INJURY_IMPACT_VERSION,
-    `feed is stamped with the derived-content version (v${feed.injuryImpactV})`);
+  ok(feed.contentV === FEED_CONTENT_VERSION,
+    `feed is stamped with the derived-content version (v${feed.contentV})`);
   // Impact lines must never contradict the card: a line claiming N players needs N players behind
   // it, and must never rest on Injured Reserve, which is what makes it read as this week's news.
   const impacts = feed.games.flatMap((g) => [...(g.injuryImpact?.home || []), ...(g.injuryImpact?.away || [])]);
