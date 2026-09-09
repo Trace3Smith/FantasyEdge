@@ -253,6 +253,20 @@
   .slate-filters .fl-sep{width:1px;background:rgba(255,255,255,0.1);margin:2px 4px;}
   .slate-filters .fl-count{font-size:10px;color:var(--gray);align-self:center;margin-left:4px;}
 
+  /* Week selector. Numbers rather than labels: a full season is up to 20 of them, and at that
+     count a row of digits is scannable where a row of "Week 12" chips is a wall. */
+  .week-strip{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-bottom:14px;}
+  .week-strip .wk-lbl{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;
+    letter-spacing:1.5px;text-transform:uppercase;color:var(--gray);margin-right:2px;}
+  .week-strip button{background:var(--dark2);border:1px solid rgba(255,255,255,0.08);color:var(--gray-light);
+    font-family:inherit;font-size:11.5px;font-weight:600;min-width:30px;padding:4px 7px;border-radius:6px;
+    cursor:pointer;transition:all .15s;}
+  .week-strip button:hover{border-color:rgba(255,255,255,0.2);color:var(--white);}
+  /* The live week keeps a standing outline even when you're looking at an older one, so the way
+     back to the games that haven't been played yet is always visible. */
+  .week-strip button.cur{border-color:rgba(212,175,55,0.45);color:var(--white);}
+  .week-strip button.on{background:var(--gold);border-color:var(--gold);color:#1a1508;}
+
   .rcard.clickable{cursor:pointer;transition:border-color .15s,background .15s;}
   .rcard.clickable:hover{border-color:rgba(255,255,255,0.18);}
   .rcard.on{border-color:var(--gold);background:rgba(212,175,55,0.06);}
@@ -356,6 +370,7 @@
           <span class="stamp" id="nflStamp"></span>
         </div>
         <div class="nfl-sub">Every game's pick and win probability, derived from the current betting market, plus injuries and (game-week) weather. Highest-confidence picks and upset alerts are flagged. Informational — not betting advice.</div>
+        <div class="week-strip" id="nflWeeks"></div>
         <div class="nfl-rails" id="nflRails"></div>
         <div id="nflGames"><div class="nfl-loading">Loading this week's games…</div></div>
       </div>
@@ -367,6 +382,7 @@
           <span class="stamp" id="cfbWeekStamp"></span>
         </div>
         <div class="nfl-sub">This week's FBS college-football games with each side's market win % and pick, from the current betting market. Filter to the AP/CFP Top 25, the full FBS slate, or a single conference. Lines fill in as kickoff nears, so some games show a pick before others. Informational — not betting advice.</div>
+        <div class="week-strip" id="cfbWeekWeeks"></div>
         <div class="slate-filters" id="cfbWeekFilters"></div>
         <div class="nfl-rails" id="cfbWeekRails"></div>
         <div id="cfbWeekGames"><div class="nfl-loading">Loading this week's FBS slate…</div></div>
@@ -528,30 +544,97 @@ function setSlateFilter(gamesId, val) {
 }
 
 // Generic feed loader. `cfg`: { endpoint, gamesId, railsId, header(data), empty }.
-async function loadFeed(cfg) {
-  if (cfg._loaded) return; cfg._loaded = true; // fetch once per page load (retry on error)
+//
+// `week` picks an ARCHIVED week off the strip; omitted, it loads the live feed the tab opens on.
+// Each week is kept once fetched, so paging back through a season re-renders from memory rather
+// than refetching — the same bargain shipping one payload and filtering the page already makes.
+async function loadFeed(cfg, week) {
+  const wk = week == null ? 'cur' : String(week);
+  cfg._cache = cfg._cache || {};
+  cfg._week = wk;
+  FEED_CFG[cfg.gamesId] = cfg;
   const wrap = document.getElementById(cfg.gamesId);
+  if (cfg._cache[wk]) { showFeed(cfg, cfg._cache[wk]); return; }
+  if (cfg._loading === wk) return; // already in flight for this week
+  cfg._loading = wk;
+  renderWeeks(cfg); // move the highlight now, so the click registers before the fetch lands
+  wrap.innerHTML = '<div class="nfl-loading">Loading…</div>';
   try {
-    const r = await fetch(cfg.endpoint);
+    // The season and season type come from the LIVE feed, not from the browser's clock: the page
+    // asks for a week of the season it is actually looking at, so a request made in January can't
+    // drift into the neighbouring season.
+    const url = week == null ? cfg.endpoint
+      : `${cfg.endpoint}&week=${encodeURIComponent(week)}`
+        + (cfg._season ? `&season=${encodeURIComponent(cfg._season)}` : '')
+        + (cfg._seasonType ? `&seasontype=${encodeURIComponent(cfg._seasonType)}` : '');
+    const r = await fetch(url);
     if (!r.ok) throw new Error('HTTP '+r.status);
     const data = await r.json();
-    cfg.header(data);
     // A scoreboard week is a date range, so a completed game can arrive in `games`. The feed
     // now splits those into `results`, but a KV payload cached by an earlier build won't have —
     // so re-split client-side too and the page is correct the moment it deploys, not a cron later.
     const upcoming = (data.games||[]).filter(g => g.state !== 'post');
     const results = (data.results||[]).concat((data.games||[]).filter(g => g.state === 'post'))
       .sort((a,b) => Date.parse(b.date) - Date.parse(a.date));
-    // Keep the slate so a team-row click can read its reports, and so a filter change re-renders
-    // from memory instead of refetching.
-    FEEDS[cfg.gamesId] = {...data, games: upcoming, results};
-    FEED_CFG[cfg.gamesId] = cfg;
-    if (cfg.filtersId) cfg._filter = cfg._filter || savedFilter('slateFilter:' + cfg.gamesId, cfg.defaultFilter || 'all');
-    renderSlate(cfg, FEEDS[cfg.gamesId]);
+    // Keep the slate so a team-row click can read its reports, and so a filter or week change
+    // re-renders from memory instead of refetching.
+    const feed = {...data, games: upcoming, results};
+    cfg._cache[wk] = feed;
+    // Only the live feed can say which week it is and which season — the strip is drawn from that.
+    if (week == null && data.week) {
+      cfg._season = data.season; cfg._seasonType = data.seasonType || 2; cfg._maxWeek = data.week;
+    }
+    cfg._loading = null;
+    if (cfg._week !== wk) return; // stepped to another week while this was in flight
+    showFeed(cfg, feed);
   } catch (e) {
-    cfg._loaded = false; // allow a retry on next tab switch
+    cfg._loading = null;
+    if (cfg._week !== wk) return; // a stale failure must not clobber the week now on screen
     wrap.innerHTML = '<div class="nfl-error">Couldn\'t load this slate. Try again shortly.</div>';
   }
+}
+
+// Draw a feed already in hand — header, week strip, slate. Split out from loadFeed so a cached
+// week and a freshly fetched one go through exactly the same render.
+function showFeed(cfg, feed) {
+  cfg.header(feed);
+  FEEDS[cfg.gamesId] = feed;
+  FEED_CFG[cfg.gamesId] = cfg;
+  if (cfg.filtersId) cfg._filter = cfg._filter || savedFilter('slateFilter:' + cfg.gamesId, cfg.defaultFilter || 'all');
+  renderWeeks(cfg);
+  renderSlate(cfg, feed);
+}
+
+// ===== Week selector =====
+//
+// The live feed is what says which week it is, so the strip can only be drawn once that has
+// landed — and it then offers every week from 1 to the current one. Stepping back hits the archive
+// endpoint (results only, one upstream call); the current week is the feed the page already holds,
+// so coming back to it costs nothing.
+//
+// Within ONE season type. During the regular season that is the whole season to date, which is
+// what the strip is for; in the postseason it becomes the playoff rounds. Either way it matches
+// what the live feed is showing, which is why the season type rides in the URL rather than being
+// assumed at the far end.
+function renderWeeks(cfg) {
+  const el = cfg.weeksId && document.getElementById(cfg.weeksId);
+  if (!el) return;
+  if (!cfg._maxWeek) { el.innerHTML = ''; return; } // pre-season, or the live feed hasn't landed
+  let html = '<span class="wk-lbl">Week</span>';
+  for (let w = 1; w <= cfg._maxWeek; w++) {
+    const isCur = w === cfg._maxWeek;
+    const on = cfg._week === String(w) || (cfg._week === 'cur' && isCur);
+    html += `<button class="${on?'on ':''}${isCur?'cur':''}" onclick="setWeek('${cfg.gamesId}',${w})">${w}</button>`;
+  }
+  el.innerHTML = html;
+}
+
+// The current week is the LIVE feed, not an archived copy of it: a week still being played has
+// picks, weather and moving scores, and routing it through the archive would drop all three.
+function setWeek(gamesId, w) {
+  const cfg = FEED_CFG[gamesId];
+  if (!cfg) return;
+  loadFeed(cfg, w === cfg._maxWeek ? undefined : w);
 }
 
 // Draw a slate that's already in memory. Split out from loadFeed so switching filters is a
@@ -571,23 +654,30 @@ function renderSlate(cfg, feed) {
     : '';
   if (!upcoming.length) {
     document.getElementById(cfg.railsId).innerHTML = '';
+    stopLive();
+    // An archived week having nothing left to play is the normal case, not a notice worth
+    // printing — the results grid right below already says it. Only the live feed explains itself.
     const msg = results.length
-      ? 'Every game in this view has been played — the next slate posts shortly.'
+      ? (feed.past ? '' : 'Every game in this view has been played — the next slate posts shortly.')
       : (cfg.filtersId && f !== 'all' ? 'No games in this view — try All FBS.' : cfg.empty);
-    wrap.innerHTML = `<div class="nfl-error">${msg}</div>` + resultsHtml;
+    wrap.innerHTML = (msg ? `<div class="nfl-error">${msg}</div>` : '') + resultsHtml;
     return;
   }
   renderRails(railsFor(upcoming), cfg.railsId);
   const hasReports = !!(feed.teamReports && feed.teamReports.teams);
   wrap.innerHTML = '<div class="games-grid">'+upcoming.map(g => gameCard(g, cfg.gamesId, hasReports)).join('')+'</div>' + resultsHtml;
-  startLive(cfg);
+  // An archived week has nothing in progress to poll for. Only the live feed arms the ticker.
+  if (feed.past) stopLive(); else startLive(cfg);
 }
 
 const NFL_FEED = { endpoint:'/api/sports?feed=nfl-pickem', gamesId:'nflGames', railsId:'nflRails', sport:'nfl',
+  weeksId:'nflWeeks',
   empty:'No games scheduled right now — check back closer to game week.',
   header(d){
     const stype = SEASON_TYPE[d.seasonType] ? SEASON_TYPE[d.seasonType]+' · ' : '';
-    document.getElementById('nflWeekTitle').textContent = `NFL Pick'em — ${stype}Week ${d.week ?? ''}`.trim();
+    // A played week is titled for what it is. Calling it Pick'em would promise picks the card
+    // deliberately no longer carries.
+    document.getElementById('nflWeekTitle').textContent = `NFL ${d.past?'Results':"Pick'em"} — ${stype}Week ${d.week ?? ''}`.trim();
     document.getElementById('nflStamp').textContent = stampText(d);
   } };
 const CFB_FEED = { endpoint:'/api/sports?feed=cfb-bowl', gamesId:'cfbGames', railsId:'cfbRails', sport:'cfb',
@@ -597,18 +687,25 @@ const CFB_FEED = { endpoint:'/api/sports?feed=cfb-bowl', gamesId:'cfbGames', rai
     document.getElementById('cfbStamp').textContent = stampText(d);
   } };
 const CFB_WEEK_FEED = { endpoint:'/api/sports?feed=cfb-week', gamesId:'cfbWeekGames', railsId:'cfbWeekRails', sport:'cfb',
-  filtersId:'cfbWeekFilters', defaultFilter:'top25',
+  filtersId:'cfbWeekFilters', defaultFilter:'top25', weeksId:'cfbWeekWeeks',
   empty:'FBS matchups appear once the season is under way — check back in season.',
   header(d){
     const stype = SEASON_TYPE[d.seasonType] ? SEASON_TYPE[d.seasonType]+' · ' : '';
-    document.getElementById('cfbWeekTitle').textContent = `CFB Week — ${stype}Week ${d.week ?? ''}`.trim();
+    document.getElementById('cfbWeekTitle').textContent = `CFB ${d.past?'Results':'Week'} — ${stype}Week ${d.week ?? ''}`.trim();
     document.getElementById('cfbWeekStamp').textContent = stampText(d);
   } };
-function loadNfl(){ loadFeed(NFL_FEED); }
+// Re-entering a tab returns you to the week you were reading, not to the top of the season.
+function weekOf(cfg){ return cfg._week && cfg._week !== 'cur' ? Number(cfg._week) : undefined; }
+function loadNfl(){ loadFeed(NFL_FEED, weekOf(NFL_FEED)); }
 function loadCfb(){ loadFeed(CFB_FEED); }
-function loadCfbWeek(){ loadFeed(CFB_WEEK_FEED); }
+function loadCfbWeek(){ loadFeed(CFB_WEEK_FEED, weekOf(CFB_WEEK_FEED)); }
 
-function stampText(d){ const w = d.builtAt ? new Date(d.builtAt) : null; return w ? 'Updated '+w.toLocaleDateString([], {month:'short',day:'numeric'}) : ''; }
+// An archived week is a result, not a cache: "Updated Sep 3" on a week that finished in September
+// tells the reader nothing. Say whether it's done instead.
+function stampText(d){
+  if (d.past) return d.complete ? 'Final' : 'In progress';
+  const w = d.builtAt ? new Date(d.builtAt) : null; return w ? 'Updated '+w.toLocaleDateString([], {month:'short',day:'numeric'}) : '';
+}
 
 function renderRails(d, railsId) {
   const live = new Set((d.games||[]).map(g => g.id));
@@ -1117,7 +1214,7 @@ function gameCard(g, feedId, hasReports) {
     + injuryResidual(t.abbr, g.injuryImpact?.[s], g.injuries?.[s], hasReports && !!t.id);
   const impact = side(g.away, 'away') + side(g.home, 'home');
   const wx = g.weather
-    ? `<div class="gc-wx">🌦 <span>${g.weather.tempF!=null?g.weather.tempF+'°F':''} ${esc(g.weather.condition||'')}${g.weather.windMph?' · wind '+g.weather.windMph+'mph':''}${g.weather.precipPct!=null?' · '+g.weather.precipPct+'% precip':''}<span class="wx-age">${forecastAge(g.weather.fetchedAt)}</span></span></div>`
+    ? `<div class="gc-wx">🌦 <span>${g.weather.tempF!=null?g.weather.tempF+'°F':''} ${esc(g.weather.condition||'')}${g.weather.windMph?' · wind '+g.weather.windMph+'mph':''}${g.weather.precipPct!=null?' · '+g.weather.precipPct+'% precip':''}${g.weather.covered?' · roof over the field':''}<span class="wx-age">${forecastAge(g.weather.fetchedAt)}</span></span></div>`
     : '';
   // CFB bowl/playoff games carry a bowl name; NFL games don't. `@`/`vs` for site type.
   const bowl = g.bowlName ? `<div class="gc-bowl">${esc(g.bowlName)}</div>` : '';

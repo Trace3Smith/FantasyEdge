@@ -20,7 +20,7 @@
 // Weather comes from the generated FBS stadium table (cfbVenues.js) — ESPN publishes no
 // coordinates, so it is built by `node scripts/gen-cfb-venues.mjs` from venue zip codes and
 // committed. Injuries reuse the CFB injuries endpoint.
-import { buildPickem, winProbFromSpread } from './pickem.js';
+import { buildPickem, buildPastWeek, winProbFromSpread } from './pickem.js';
 import { CFB_VENUES } from './cfbVenues.js';
 
 export { winProbFromSpread };
@@ -51,4 +51,16 @@ export function buildCfbWeek({ week } = {}) {
     // US) resolves to null and simply gets no weather — the same graceful degrade as the bowls.
     coordsFor: (comp) => CFB_VENUES[String(comp.venue?.id)] || null,
   });
+}
+
+// One PAST week's finished FBS slate — scores only, no pre-game reads. See buildPastWeek.
+//
+// `seasontype` and `dates` are both pinned rather than left to the scoreboard's defaults. Without
+// them ESPN answers `week=7` relative to whatever part of whatever season is current, so the same
+// URL would mean the regular season's Week 7 in October and the postseason's seventh window in
+// January — and the archive would cache one under the other's key.
+export function buildCfbWeekPast({ week, season, seasonType = 2 }) {
+  const q = [FBS, `week=${encodeURIComponent(week)}`, `seasontype=${encodeURIComponent(seasonType)}`];
+  if (season) q.push(`dates=${encodeURIComponent(season)}`);
+  return buildPastWeek({ scoreboardUrl: `${SB}?${q.join('&')}` });
 }

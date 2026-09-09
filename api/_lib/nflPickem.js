@@ -2,7 +2,7 @@
 // Pick'em pipeline (api/_lib/pickem.js); this file only supplies NFL-specific config: the
 // scoreboard/injuries endpoints and the stadium coordinates for weather. See pickem.js for
 // the win-probability-from-spread derivation, injuries, and weather logic.
-import { buildPickem, winProbFromSpread } from './pickem.js';
+import { buildPickem, buildPastWeek, winProbFromSpread } from './pickem.js';
 import { redis, NFL_DATASET_KEY } from './kv.js';
 import { getJson } from './espn.js';
 
@@ -12,9 +12,20 @@ export { winProbFromSpread };
 const SB = 'https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
 const INJ = 'https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/injuries';
 
-// Static stadium coordinates + dome flag for weather, keyed by home team abbrev (stable).
+// Static stadium coordinates + roof state for weather, keyed by home team abbrev (stable).
 // The ESPN venue indoor flag is the authoritative dome override at build time.
-const STADIUMS = {
+//
+// THREE roof states, not two, because SoFi is neither. `dome: true` is a sealed, climate-controlled
+// building — no forecast is fetched at all. `dome: false` is open sky. SoFi (LAC and LAR) is the
+// third: a fixed translucent canopy roofs the bowl, but the sides are open and it is not
+// climate-controlled, so ambient temperature and wind reach the field and rain does not. It was
+// carried here as a dome, which disagreed with ESPN — the card read "☁ Outdoor" from ESPN's flag
+// and then showed no forecast at all, the one combination that is wrong either way you read it.
+// Flipping it to a plain outdoor venue would have traded that for a fresh inaccuracy: a precip
+// percentage on a field rain cannot reach. So `covered` fetches the forecast and reports what is
+// actually true there — temperature and wind — and drops the precipitation figure (see
+// fetchWeather). SoFi is currently the only such venue in the league.
+export const STADIUMS = {
   ARI: { lat: 33.5277, lon: -112.2626, dome: true }, ATL: { lat: 33.7554, lon: -84.4008, dome: true },
   BAL: { lat: 39.2780, lon: -76.6227, dome: false }, BUF: { lat: 42.7738, lon: -78.7870, dome: false },
   CAR: { lat: 35.2258, lon: -80.8528, dome: false }, CHI: { lat: 41.8623, lon: -87.6167, dome: false },
@@ -23,8 +34,8 @@ const STADIUMS = {
   DET: { lat: 42.3400, lon: -83.0456, dome: true }, GB: { lat: 44.5013, lon: -88.0622, dome: false },
   HOU: { lat: 29.6847, lon: -95.4107, dome: true }, IND: { lat: 39.7601, lon: -86.1639, dome: true },
   JAX: { lat: 30.3239, lon: -81.6373, dome: false }, KC: { lat: 39.0489, lon: -94.4839, dome: false },
-  LV: { lat: 36.0909, lon: -115.1833, dome: true }, LAC: { lat: 33.9535, lon: -118.3392, dome: true },
-  LAR: { lat: 33.9535, lon: -118.3392, dome: true }, MIA: { lat: 25.9580, lon: -80.2389, dome: false },
+  LV: { lat: 36.0909, lon: -115.1833, dome: true }, LAC: { lat: 33.9535, lon: -118.3392, dome: false, covered: true },
+  LAR: { lat: 33.9535, lon: -118.3392, dome: false, covered: true }, MIA: { lat: 25.9580, lon: -80.2389, dome: false },
   MIN: { lat: 44.9736, lon: -93.2575, dome: true }, NE: { lat: 42.0909, lon: -71.2643, dome: false },
   NO: { lat: 29.9509, lon: -90.0812, dome: true }, NYG: { lat: 40.8135, lon: -74.0745, dome: false },
   NYJ: { lat: 40.8135, lon: -74.0745, dome: false }, PHI: { lat: 39.9008, lon: -75.1675, dome: false },
@@ -164,4 +175,13 @@ export function buildNflPickem({ week } = {}) {
     // involve teams whose home stadium is a dome, so the dome check swallowed the wrong lookup.
     coordsFor: (comp, home) => (comp.neutralSite === true ? null : STADIUMS[home.team.abbreviation] || null),
   });
+}
+
+// One PAST week's finished NFL slate — scores only, no pre-game reads. See buildPastWeek, and
+// buildCfbWeekPast for why the season and season type are pinned into the URL rather than left
+// to the scoreboard's idea of "now".
+export function buildNflPickemPast({ week, season, seasonType = 2 }) {
+  const q = [`week=${encodeURIComponent(week)}`, `seasontype=${encodeURIComponent(seasonType)}`];
+  if (season) q.push(`dates=${encodeURIComponent(season)}`);
+  return buildPastWeek({ scoreboardUrl: `${SB}?${q.join('&')}` });
 }
