@@ -315,7 +315,7 @@
   const SPORTS = {
     mlb:  { label: 'MLB',  active: true },
     wnba: { label: 'WNBA', active: true },
-    nfl:  { label: 'NFL',  active: false, coming: 'September' },
+    nfl:  { label: 'NFL',  active: true },
     nba:  { label: 'NBA',  active: false, coming: 'October' },
     nhl:  { label: 'NHL',  active: false, coming: 'October' },
   };
@@ -602,6 +602,7 @@
       ${renderScoring(lg)}
       ${renderCallUps(lg)}
       ${renderSuggestions(lg.suggestions, lg)}
+      ${renderEngineNote()}
       ${renderControls(lg)}
       <table class="roster">
         <thead><tr><th style="width:64px">Slot</th><th>Player</th><th style="width:110px">Pos · Team</th></tr></thead>
@@ -689,6 +690,12 @@
 
   // Per-league controls: one-tap apply + the autopilot toggle. MLB (roto) and WNBA
   // (H2H Points) have the full engine; other sports show rosters only.
+  //
+  // MUST TRACK api/espn/index.js's ENGINE_SPORTS. This list decides whether the controls are
+  // drawn; that one decides whether the server will honour them. The server now refuses a sport
+  // it has no engine for rather than substituting MLB, so the two disagreeing surfaces as a
+  // visible error instead of a wrong lineup written to someone's real team — but they should not
+  // disagree, and NFL is switched on by adding it to BOTH.
   const ENGINE_SPORTS = { mlb: 1, wnba: 1 };
   function renderControls(lg) {
     if (!ENGINE_SPORTS[currentSport]) return '';
@@ -836,6 +843,17 @@
     const weighted = (c.weightedNet != null && Math.round(c.weightedNet) !== c.net)
       ? ` (standings-weighted +${c.weightedNet})` : '';
     return `<span class="cat-impact">${chips} <span class="sugg-meta">= net ${n} ${word}${weighted} · do this on ESPN</span></span>`;
+  }
+
+  // A sport whose leagues load but whose lineup engine is not switched on yet. Without this the
+  // card just ends after the roster — renderSuggestions returns '' for an absent suggestion set
+  // and renderControls returns '' for an engine-less sport — so the reader cannot tell whether we
+  // are still thinking, broken, or simply not offering it. Say which.
+  function renderEngineNote() {
+    if (ENGINE_SPORTS[currentSport]) return '';
+    const label = (SPORTS[currentSport] && SPORTS[currentSport].label) || currentSport.toUpperCase();
+    return `<div class="sugg sugg-ok">Your ${escapeHtml(label)} roster and the AI Coach are live. `
+      + `Start/sit, one-tap lineups and Autopilot aren't switched on for ${escapeHtml(label)} yet.</div>`;
   }
 
   // Start/sit suggestions for one league (computed server-side from our values).
