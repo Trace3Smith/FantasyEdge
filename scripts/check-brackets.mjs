@@ -14,7 +14,7 @@
 // Exits non-zero on any failure, so it can gate CI or a pre-push hook. Needs network (ESPN).
 import { readFileSync } from 'node:fs';
 import { buildCfbWeek, buildCfbWeekPast } from '../api/_lib/cfbWeek.js';
-import { buildNflPickem, buildNflPickemPast } from '../api/_lib/nflPickem.js';
+import { buildNflPickem, buildNflPickemPast, STADIUMS } from '../api/_lib/nflPickem.js';
 import { buildCfbBowl } from '../api/_lib/cfbBowl.js';
 import { currentSeasonRankable, TEAM_REPORT_VERSION } from '../api/_lib/teamReport.js';
 import { CFB_VENUES } from '../api/_lib/cfbVenues.js';
@@ -342,6 +342,18 @@ function checkFeed(name, feed) {
       'every forecast keeps the NWS url it can be refreshed from');
   }
 
+  // A covered venue — roofed but open-sided, SoFi being the league's only one — reports what is
+  // actually true there and nothing more: temperature and wind reach the field, rain does not.
+  // Both halves matter. No forecast at all was the old bug; a precipitation figure would be the
+  // new one.
+  const covered = feed.games.filter((g) => g.weather?.covered);
+  if (covered.length) {
+    ok(covered.every((g) => g.weather.precipPct == null),
+      `a covered venue carries no precipitation figure (${covered.length} game(s))`);
+    ok(covered.every((g) => g.weather.tempF != null || g.weather.windMph != null),
+      'and still reports the conditions that do reach the field');
+  }
+
   const ids = feed.games.flatMap((g) => [g.home.id, g.away.id]);
   ok(ids.every(Boolean), 'every team on the slate carries an ESPN id');
   const railIds = [...feed.bestPicks, ...feed.upsetAlerts].map((x) => x.id);
@@ -629,6 +641,56 @@ async function checkPastWeek(name, live) {
   ok(afterArchive - beforeArchive === 1, 'stepping to a week costs exactly one request');
 }
 
+// The NFL stadium table's roof state, against what ESPN says about the same venues. This is the
+// check that was missing when SoFi sat in the table as a dome while ESPN called it outdoor: the
+// card printed "Outdoor" from ESPN's flag and then showed no forecast, because the table's flag is
+// what suppresses the fetch. Nothing compared the two, so the disagreement was invisible.
+//
+// It also catches a stadium CHANGING under the table, which is not hypothetical — Buffalo moved
+// into a new Highmark Stadium this season and ESPN issued it a fresh venue id. The table is keyed
+// by team, so that particular move stayed correct by luck (the new building is across the street
+// from the old one, inside the same NWS grid cell). A relocation would not be so kind, and the
+// venue ids printed here are how it would show up.
+async function checkNflRoofs() {
+  console.log('\n[nfl] STADIUM ROOF STATE vs ESPN');
+  const SB = 'https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
+  const seen = {};
+  try {
+    // Two weeks covers all 32 home teams; a bye or a neutral site in one is picked up by the other.
+    for (const w of [1, 2, 3]) {
+      const r = await fetch(`${SB}?week=${w}&seasontype=2`, { headers: { 'User-Agent': 'FantasyEdge/1.0 (brackets check)' } });
+      if (!r.ok) continue;
+      for (const ev of ((await r.json()).events || [])) {
+        const c = ev.competitions?.[0];
+        if (!c || c.neutralSite === true) continue; // an international game is not a team's home roof
+        const ab = c.competitors.find((t) => t.homeAway === 'home')?.team?.abbreviation;
+        if (ab && !seen[ab]) seen[ab] = { indoor: c.venue?.indoor === true, id: c.venue?.id, name: c.venue?.fullName };
+      }
+    }
+  } catch (e) { ok(false, `ESPN venue flags fetched (${e.message})`); return; }
+
+  const teams = Object.keys(seen);
+  if (teams.length < 20) { console.log(`  SKIP  only ${teams.length} home venues visible (out of season)`); return; }
+
+  const missing = teams.filter((ab) => !STADIUMS[ab]);
+  ok(!missing.length, `every home team is in the stadium table${missing.length ? ` (missing: ${missing.join(', ')})` : ` (${teams.length} seen)`}`);
+
+  // A sealed dome and ESPN's indoor flag must agree. A `covered` venue is deliberately NOT a dome —
+  // it is roofed but open-sided, so ESPN calls it outdoor and so do we.
+  const disagree = teams.filter((ab) => STADIUMS[ab] && STADIUMS[ab].dome !== seen[ab].indoor)
+    .map((ab) => `${ab} ${seen[ab].name}: table dome=${STADIUMS[ab].dome}, ESPN indoor=${seen[ab].indoor}`);
+  ok(!disagree.length, `every roof state agrees with ESPN${disagree.length ? ` (${disagree.join('; ')})` : ''}`);
+
+  const covered = teams.filter((ab) => STADIUMS[ab]?.covered);
+  ok(covered.every((ab) => seen[ab].indoor === false && STADIUMS[ab].dome === false),
+    `a covered venue is outdoor, never a dome (${covered.join(', ') || 'none'})`);
+  // A dome needs no coordinate; anything that will be forecast does.
+  const noCoords = teams.filter((ab) => STADIUMS[ab] && !STADIUMS[ab].dome
+    && !(Number.isFinite(STADIUMS[ab].lat) && Number.isFinite(STADIUMS[ab].lon)));
+  ok(!noCoords.length, `every venue that gets a forecast has coordinates${noCoords.length ? ` (${noCoords.join(', ')})` : ''}`);
+  console.log(`  INFO  home venue ids: ${teams.slice().sort().map((ab) => `${ab}:${seen[ab].id}`).join(' ')}`);
+}
+
 const which = process.argv.slice(2).filter((a) => FEEDS[a]);
 const page = loadPageScript();
 for (const name of (which.length ? which : ['cfbweek'])) {
@@ -642,6 +704,7 @@ for (const name of (which.length ? which : ['cfbweek'])) {
   if (name === 'cfbweek') await checkLive(feed, page);
 }
 checkVenueTable();
+await checkNflRoofs();
 checkInjuryGroups();
 checkTopUp();
 checkCrossover(page);

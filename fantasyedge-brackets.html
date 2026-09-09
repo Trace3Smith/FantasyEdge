@@ -1214,7 +1214,7 @@ function gameCard(g, feedId, hasReports) {
     + injuryResidual(t.abbr, g.injuryImpact?.[s], g.injuries?.[s], hasReports && !!t.id);
   const impact = side(g.away, 'away') + side(g.home, 'home');
   const wx = g.weather
-    ? `<div class="gc-wx">🌦 <span>${g.weather.tempF!=null?g.weather.tempF+'°F':''} ${esc(g.weather.condition||'')}${g.weather.windMph?' · wind '+g.weather.windMph+'mph':''}${g.weather.precipPct!=null?' · '+g.weather.precipPct+'% precip':''}<span class="wx-age">${forecastAge(g.weather.fetchedAt)}</span></span></div>`
+    ? `<div class="gc-wx">🌦 <span>${g.weather.tempF!=null?g.weather.tempF+'°F':''} ${esc(g.weather.condition||'')}${g.weather.windMph?' · wind '+g.weather.windMph+'mph':''}${g.weather.precipPct!=null?' · '+g.weather.precipPct+'% precip':''}${g.weather.covered?' · roof over the field':''}<span class="wx-age">${forecastAge(g.weather.fetchedAt)}</span></span></div>`
     : '';
   // CFB bowl/playoff games carry a bowl name; NFL games don't. `@`/`vs` for site type.
   const bowl = g.bowlName ? `<div class="gc-bowl">${esc(g.bowlName)}</div>` : '';

@@ -138,7 +138,7 @@ async function readForecast(url, kick) {
   };
 }
 
-// NWS forecast nearest kickoff for an outdoor venue. `coords` = { lat, lon, dome } or null.
+// NWS forecast nearest kickoff for an outdoor venue. `coords` = { lat, lon, dome, covered } or null.
 // Only works within the forecast window (~7 days) and only for the US and its territories (NWS
 // covers nothing else), so anything else returns null and populates as the game nears.
 // Best-effort — any failure returns null.
@@ -148,7 +148,13 @@ async function fetchWeather(coords, indoor, kickoffIso) {
   if (Number.isFinite(kick) && kick - Date.now() > 7 * 86400000) return null; // beyond NWS window
   try {
     const url = await nwsForecastUrl(coords.lat, coords.lon);
-    return url ? await readForecast(url, kick) : null;
+    const wx = url ? await readForecast(url, kick) : null;
+    // A roofed but open-sided venue (SoFi — see the stadium table in nflPickem.js). Temperature and
+    // wind are real there and stay; the precipitation figure is dropped rather than shown, because
+    // the canopy is over the field and rain does not reach it. Reporting "40% precip" for a game
+    // played dry would be exactly the kind of confident wrong number this feed avoids elsewhere.
+    if (wx && coords.covered) return { ...wx, precipPct: null, covered: true };
+    return wx;
   } catch { return null; }
 }
 
@@ -175,7 +181,7 @@ async function fetchWeather(coords, indoor, kickoffIso) {
 // nothing to do with injuries — so production kept serving 25 cached games with no rank or
 // conference on them. Shape is not the trigger and neither is any one feature: if a change would
 // make a fresh build disagree with the cached one, bump this.
-export const FEED_CONTENT_VERSION = 5;
+export const FEED_CONTENT_VERSION = 6;
 
 const WX_CONC = 8;
 
@@ -224,7 +230,12 @@ export async function topUpWeather(feed, feedKey) {
     if (Date.now() > deadline) return;
     try {
       const fresh = await readForecast(g.weather.url, Date.parse(g.date));
-      if (fresh) { g.weather = fresh; changed = true; }
+      // A covered venue keeps its treatment across a top-up. The roof is a property of the
+      // stadium, not of the forecast, and this path re-reads NWS directly rather than going back
+      // through fetchWeather — so without this the precipitation figure fetchWeather deliberately
+      // dropped would quietly reappear in the last half hour before kickoff, which is precisely
+      // when the card is being read.
+      if (fresh) { g.weather = g.weather.covered ? { ...fresh, precipPct: null, covered: true } : fresh; changed = true; }
     } catch { /* keep the forecast we already have */ }
   }));
   return { feed, changed };
