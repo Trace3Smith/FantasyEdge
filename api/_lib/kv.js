@@ -71,6 +71,14 @@ export const CFB_BOWL_KEY = 'pickem:cfb';
 // college-football games, built from the same ESPN scoreboard pipeline as NFL Pick'em and served
 // via api/sports.js (?feed=cfb-week). Empty before the poll drops (~mid-August) and out of season.
 export const CFB_WEEK_KEY = 'pickem:cfbweek';
+
+// One PAST week's finished slate (the week selector's archive), keyed by feed, season, season type
+// and week number. Written WITHOUT EXPIRY, and only once every game in the window is final: a
+// played week's scores never change again, so it is built once ever and read for free thereafter —
+// the same bargain boxScoreKey strikes for a box score. The week is a bounded small integer, so the
+// number of keys this can ever create is the number of weeks in a season, per feed, per season.
+export const pastWeekKey = (feed, season, seasonType, week) =>
+  `pastweek:${feed}:${season}:${seasonType}:${week}`;
 // March Madness bracket optimizer feed (Brackets & Bowls, premium) — the full men's tournament
 // bracket with per-game model picks, round-by-round advancement probabilities, national title
 // odds, and a recommended optimal fill. Built daily from free ESPN sources (scoreboard field +

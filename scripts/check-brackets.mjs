@@ -13,15 +13,15 @@
 //
 // Exits non-zero on any failure, so it can gate CI or a pre-push hook. Needs network (ESPN).
 import { readFileSync } from 'node:fs';
-import { buildCfbWeek } from '../api/_lib/cfbWeek.js';
-import { buildNflPickem } from '../api/_lib/nflPickem.js';
+import { buildCfbWeek, buildCfbWeekPast } from '../api/_lib/cfbWeek.js';
+import { buildNflPickem, buildNflPickemPast } from '../api/_lib/nflPickem.js';
 import { buildCfbBowl } from '../api/_lib/cfbBowl.js';
 import { currentSeasonRankable, TEAM_REPORT_VERSION } from '../api/_lib/teamReport.js';
 import { CFB_VENUES } from '../api/_lib/cfbVenues.js';
 import { CFB_CONFERENCES } from '../api/_lib/cfbWeek.js';
 import { staleWeatherGames } from '../api/_lib/pickem.js';
 import { groupInjuries } from '../api/_lib/injuryGroups.js';
-import { FEED_CONTENT_VERSION } from '../api/_lib/pickem.js';
+import { FEED_CONTENT_VERSION, PAST_WEEK_VERSION } from '../api/_lib/pickem.js';
 import { getBoxScore } from '../api/_lib/boxScore.js';
 
 const FEEDS = { cfbweek: buildCfbWeek, nfl: buildNflPickem, bowl: buildCfbBowl };
@@ -30,7 +30,7 @@ const ok = (cond, msg) => { console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${msg}`); 
 
 // The page's own renderers, pulled out of the HTML and evaluated against a stub DOM. The
 // script's top-level work is all cursor/tab wiring, which the stubs absorb.
-function loadPageScript() {
+function loadPageScript(fetchImpl = globalThis.fetch) {
   const html = readFileSync(new URL('../fantasyedge-brackets.html', import.meta.url), 'utf8');
   const src = html.match(/<script>([\s\S]*?)<\/script>/)[1];
   const stubEl = () => ({
@@ -42,10 +42,12 @@ function loadPageScript() {
   const byId = (id) => nodes[id] || (nodes[id] = { ...stubEl(), id });
   const document = { getElementById: byId, querySelectorAll: () => [], addEventListener() {}, hidden: false, _nodes: nodes };
   const exports = 'return { gameCard, resultCard, teamPanelHtml, edgeVerdict, boxScoreHtml, '
-    + 'liveTargets, pollGame, paintLive, ordPeriod, LIVE, FEEDS, _nodes: document._nodes };';
+    + 'liveTargets, pollGame, paintLive, ordPeriod, LIVE, FEEDS, '
+    + 'loadFeed, showFeed, renderWeeks, setWeek, stampText, FEED_CFG, NFL_FEED, CFB_WEEK_FEED, '
+    + '_nodes: document._nodes };';
   return new Function('document', 'window', 'requestAnimationFrame', 'fetch', 'localStorage',
     'setTimeout', 'clearTimeout', src + '\n' + exports)(
-    document, {}, () => {}, globalThis.fetch,
+    document, {}, () => {}, fetchImpl,
     { getItem: () => null, setItem() {} }, () => 0, () => {},
   );
 }
@@ -520,6 +522,113 @@ function checkCrossover(page) {
   ok(!both.includes("last year's roster"), 'and the stale-data caveat disappears');
 }
 
+// Past weeks — the week selector's archive. Two halves like everything else here: the BUILDER
+// against a real completed week out of ESPN, and the PAGE driven through the whole selector flow
+// against that same payload, with a recording fetch standing in for the network.
+//
+// What this is really guarding is the bargain the archive is built on: a played week costs one
+// scoreboard call and carries none of the pre-game apparatus. If a future change quietly routes it
+// back through buildPickem, the size and the absent-fields assertions below are what notice.
+async function checkPastWeek(name, live) {
+  const build = name === 'nfl' ? buildNflPickemPast : buildCfbWeekPast;
+  // The week before the live one, or — in Week 1, when there is no such thing — a week deep in
+  // last season, which is finished for certain.
+  const [season, week] = live.week > 1 ? [live.season, live.week - 1] : [live.season - 1, 15];
+  const seasonType = live.week > 1 ? (live.seasonType || 2) : 2;
+  console.log(`\n[${name}] PAST WEEK — ${season} week ${week} (seasontype ${seasonType})`);
+
+  let past;
+  const t0 = Date.now();
+  try { past = await build({ week, season, seasonType }); }
+  catch (e) { ok(false, `past week built (${e.message})`); return; }
+  const ms = Date.now() - t0;
+
+  ok(past.past === true && past.pastV === PAST_WEEK_VERSION, 'flagged as a past week, with its shape version');
+  ok(past.season === season && past.week === week && past.seasonType === seasonType,
+    `echoes the week asked for (${past.season} wk${past.week} type${past.seasonType})`);
+  ok(past.results.length > 0, `the week has results (${past.results.length} games)`);
+  ok(past.games.length === 0, 'nothing left to play in a finished week');
+  ok(past.complete === true, 'marked complete — the one condition under which it may be cached');
+  ok(past.results.every((g) => g.id && g.date && g.home.name && g.away.name), 'every result identifies its game');
+  ok(past.results.every((g) => g.home.score != null && g.away.score != null), 'every result carries both scores');
+  ok(past.results.every((g) => g.home.winner || g.away.winner || g.home.score === g.away.score),
+    'every result names a winner (or is a tie)');
+  ok(past.results.every((g) => g.home.rank === null || (g.home.rank >= 1 && g.home.rank <= 25)),
+    'ranks stay in bounds, so the Top 25 filter can trust them');
+  // Newest first, the same ordering the live feed's results section uses.
+  const dates = past.results.map((g) => Date.parse(g.date));
+  ok(dates.every((d, i) => i === 0 || dates[i - 1] >= d), 'results are ordered newest first');
+
+  // The whole point of the separate builder: none of the pre-game apparatus is fetched or carried.
+  const leaked = ['odds', 'pick', 'market', 'weather', 'injuries', 'injuryImpact', 'upsetAlert']
+    .filter((k) => past.results.some((g) => k in g));
+  ok(!leaked.length, `no pre-game fields on a played game${leaked.length ? ` (leaked: ${leaked.join(', ')})` : ''}`);
+  ok(past.teamReports === null && !past.bestPicks.length && !past.upsetAlerts.length,
+    'no team reports and empty rails — all three are forward-looking');
+  const kb = JSON.stringify(past).length / 1024;
+  const liveKb = JSON.stringify(live).length / 1024;
+  ok(kb < liveKb, `payload is far lighter than the live week (${kb.toFixed(1)}KB vs ${liveKb.toFixed(1)}KB, ${ms}ms)`);
+
+  // An unfinished week must NOT be marked complete, or sports.js would freeze it into the cache
+  // mid-Saturday and serve those half-played scores for the rest of the season.
+  let ahead;
+  try { ahead = await build({ week: Math.min(live.week + 1, 20), season: live.season, seasonType: live.seasonType || 2 }); }
+  catch { ahead = null; }
+  if (ahead && ahead.games.length) ok(ahead.complete === false, 'a week still to be played is never marked complete');
+  else console.log('  SKIP  no unplayed week available to test the complete flag against');
+
+  // --- the page, driven through the selector the way a reader drives it ---
+  const urls = [];
+  const stub = async (url) => {
+    urls.push(url);
+    const body = url.includes('week=') ? past : live;
+    return { ok: true, json: async () => body };
+  };
+  const pg = loadPageScript(stub);
+  const cfg = name === 'nfl' ? pg.NFL_FEED : pg.CFB_WEEK_FEED;
+  cfg._filter = 'all';
+  const node = (id) => pg._nodes[id] || { innerHTML: '', textContent: '' };
+
+  // The page bootstraps by loading NFL Pick'em on open (it is the default tab), so for that feed a
+  // request is already in flight against the stub by the time we get here. Let it land first: the
+  // de-dupe guard in loadFeed would otherwise — correctly — turn our own first call into a no-op.
+  for (let i = 0; i < 50 && cfg._loading; i++) await new Promise((r) => setImmediate(r));
+
+  await pg.loadFeed(cfg);                       // the live week, as the tab opens
+  const stripHtml = node(cfg.weeksId).innerHTML;
+  const buttons = (stripHtml.match(/<button/g) || []).length;
+  ok(buttons === live.week, `the strip offers every week of the season to date (${buttons} of ${live.week})`);
+  ok(/class="on cur"/.test(stripHtml), 'the live week is both selected and marked as current');
+  ok(!node(cfg.railsId).innerHTML.includes('undefined'), 'the live week still renders its rails');
+
+  const beforeArchive = urls.length;
+  await pg.loadFeed(cfg, week);                 // step back to the archived week
+  const archiveUrl = urls[urls.length - 1];
+  ok(/[?&]week=/.test(archiveUrl) && /[?&]season=/.test(archiveUrl) && /[?&]seasontype=/.test(archiveUrl),
+    `the archive request pins week, season and season type (${archiveUrl})`);
+  const games = node(cfg.gamesId).innerHTML;
+  ok(games.includes('results-grid'), 'the archived week renders its results grid');
+  ok(games.includes('openBoxScore'), 'and every result still opens its box score — the ids are already on the cards');
+  ok(!/undefined|NaN/.test(games), 'no undefined/NaN in the rendered archive');
+  ok(node(cfg.railsId).innerHTML === '', 'the rails are cleared — there is nothing left to pick');
+  ok(!games.includes('posts shortly'), 'no "next slate posts shortly" notice on a week that is simply over');
+  // Only when the archived week is one of THIS season's — in Week 1 there is no earlier week to
+  // step back to, so the check reaches into last season for a finished one and the strip, which
+  // only ever offers the current season, rightly does not list it.
+  ok(node(cfg.weeksId).innerHTML.includes(live.week > 1 ? `>${week}<` : `>${live.week}<`),
+    live.week > 1 ? 'the strip still lists the week being read'
+                  : 'the strip lists the only week this season has (nothing earlier to step back to)');
+  ok(pg.stampText(past) === 'Final', 'the stamp reports the week as final rather than as a cache time');
+
+  const afterArchive = urls.length;
+  await pg.loadFeed(cfg, week);                 // and back to it again
+  ok(urls.length === afterArchive, 'a week already read is re-rendered from memory, not refetched');
+  await pg.loadFeed(cfg);                       // back to the live week
+  ok(!urls.slice(afterArchive).some((u) => u.includes('week=')),
+    'returning to the current week uses the live feed, never an archived copy of it');
+  ok(afterArchive - beforeArchive === 1, 'stepping to a week costs exactly one request');
+}
+
 const which = process.argv.slice(2).filter((a) => FEEDS[a]);
 const page = loadPageScript();
 for (const name of (which.length ? which : ['cfbweek'])) {
@@ -527,6 +636,9 @@ for (const name of (which.length ? which : ['cfbweek'])) {
   checkFeed(name, feed);
   if (feed.games.length) checkPage(name, feed, page);
   await checkBoxScore(name, feed, page);
+  // The bowl feed is the postseason itself, not a week of one, so it has no archive to page back
+  // through — and sports.js gives it no `past` builder for the same reason.
+  if (name !== 'bowl') await checkPastWeek(name, feed);
   if (name === 'cfbweek') await checkLive(feed, page);
 }
 checkVenueTable();

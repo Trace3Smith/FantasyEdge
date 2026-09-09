@@ -8,15 +8,15 @@ import { buildNbaDataset, buildWnbaDataset } from './_lib/buildNbaDataset.js';
 import { buildNhlDataset } from './_lib/buildNhlDataset.js';
 import { buildNflDataset } from './_lib/buildNflDataset.js';
 import { buildPgaDataset } from './_lib/buildPgaDataset.js';
-import { buildNflPickem } from './_lib/nflPickem.js';
+import { buildNflPickem, buildNflPickemPast } from './_lib/nflPickem.js';
 import { buildCfbBowl } from './_lib/cfbBowl.js';
-import { buildCfbWeek } from './_lib/cfbWeek.js';
+import { buildCfbWeek, buildCfbWeekPast } from './_lib/cfbWeek.js';
 import { TEAM_REPORT_VERSION } from './_lib/teamReport.js';
-import { topUpWeather, FEED_CONTENT_VERSION } from './_lib/pickem.js';
+import { topUpWeather, footballSeason, FEED_CONTENT_VERSION, PAST_WEEK_VERSION } from './_lib/pickem.js';
 import { getBoxScore } from './_lib/boxScore.js';
 import { buildMarchMadness } from './_lib/marchMadness.js';
 import { requirePremium, sendError } from './_lib/auth.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NFL_DVP_KEY, DATASET_VERSION } from './_lib/kv.js';
+import { redis, redisConfigured, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NFL_DVP_KEY, DATASET_VERSION, pastWeekKey } from './_lib/kv.js';
 
 // Per-sport dataset wiring: which KV key holds it and how to (re)build it on a
 // cold-start cache miss. Add a sport here + a frontend tab to light it up. A
@@ -132,11 +132,63 @@ export default async function handler(req, res) {
   // serverless-function budget — no dedicated endpoint. NFL Pick'em is a free, read-only
   // feed of public data (like the rankings), served from the daily-cached KV payload with a
   // cold-start inline build so it self-heals before the first cron run.
+  //
+  // `past` + `maxWeek` mark a feed the week selector can page back through. The bowl feed has
+  // neither: its slate is the postseason itself, not a week of one, so there is nothing to step
+  // through and `?week=` on it stays unrecognised rather than half-working.
   const PICKEM_FEEDS = {
-    'nfl-pickem': { key: NFL_PICKEM_KEY, build: buildNflPickem },
+    'nfl-pickem': { key: NFL_PICKEM_KEY, build: buildNflPickem, past: buildNflPickemPast, maxWeek: 22 },
     'cfb-bowl': { key: CFB_BOWL_KEY, build: buildCfbBowl },
-    'cfb-week': { key: CFB_WEEK_KEY, build: buildCfbWeek },
+    'cfb-week': { key: CFB_WEEK_KEY, build: buildCfbWeek, past: buildCfbWeekPast, maxWeek: 20 },
   };
+
+  // One SPECIFIC week (?feed=cfb-week&week=N[&season=YYYY][&seasontype=2]) — the week selector's
+  // archive path, and deliberately not the same build as the current week below: it is the
+  // scoreboard call alone (see buildPastWeek), so ~1s and a few KB against the ~12s and 252KB a
+  // live CFB week costs. That is what makes an inline build safe to expose here in the way it is
+  // for a box score and is not for DvP, and what lets the whole season stay free and un-gated.
+  //
+  // Every parameter is bounded before it reaches a key or a URL, so a public URL can neither point
+  // the fetch somewhere else nor mint unbounded cache keys: at most `maxWeek` x 3 season types per
+  // season, per feed.
+  const weekly = PICKEM_FEEDS[req.query.feed];
+  if (weekly?.past && req.query.week != null) {
+    const week = Number(req.query.week);
+    const seasonType = req.query.seasontype != null ? Number(req.query.seasontype) : 2;
+    const season = req.query.season != null ? Number(req.query.season) : footballSeason();
+    const thisYear = new Date().getFullYear();
+    if (!Number.isInteger(week) || week < 1 || week > weekly.maxWeek
+      || ![1, 2, 3].includes(seasonType)
+      || !Number.isInteger(season) || season < 2000 || season > thisYear + 1) {
+      return res.status(400).json({ error: 'week must be 1..' + weekly.maxWeek + ' with seasontype 1|2|3 and a real season', games: [], results: [] });
+    }
+    const key = pastWeekKey(req.query.feed, season, seasonType, week);
+    try {
+      // A cached week is only ever a COMPLETE one (see the write below), so a hit needs no
+      // freshness test — only a shape test, so a payload from an older shape rebuilds once.
+      //
+      // The cache is an OPTIMISATION here, not the source of truth, so neither the read nor the
+      // write can fail the request: a KV outage degrades to building the week, which is one
+      // upstream call. `redisConfigured` is tested first because an unconfigured client retries
+      // internally for ~4.3s before it throws — see kv.js.
+      if (redisConfigured) {
+        try {
+          const hit = await redis.get(key);
+          if (hit?.complete && hit.pastV === PAST_WEEK_VERSION) return res.json(hit);
+        } catch { /* build it instead */ }
+      }
+      const feed = await weekly.past({ week, season, seasonType });
+      // Only a week with nothing left to play is immutable. A week still in progress — including
+      // the current one, which the selector routes here the moment you step off it and back — is
+      // served fresh every time rather than frozen mid-Saturday.
+      if (feed.complete && redisConfigured) {
+        try { await redis.set(key, feed); } catch { /* serving it matters, storing it doesn't */ }
+      }
+      return res.json(feed);
+    } catch (err) {
+      return res.status(502).json({ error: err.message, games: [], results: [] });
+    }
+  }
   if (PICKEM_FEEDS[req.query.feed]) {
     const { key, build } = PICKEM_FEEDS[req.query.feed];
     try {

@@ -411,3 +411,103 @@ export async function buildPickem(cfg) {
     builtAt: new Date().toISOString(),
   };
 }
+
+// ===== Past weeks (the week selector's archive) =====
+
+// Shape version for a cached past-week payload. DELIBERATELY SEPARATE from FEED_CONTENT_VERSION:
+// that one tracks the pre-game product — weather fields, impact lines, which games make the slate —
+// and bumps for reasons a finished scoreline could not care less about. Coupling to it would
+// re-fetch every archived week in the season each time a forecast detail changed. This moves only
+// when the shape below does.
+export const PAST_WEEK_VERSION = 1;
+
+// The season a football date belongs to. Both leagues label a season by the calendar year it
+// STARTS in and both run August through January, so a January game belongs to the previous year's
+// season. Used only to default the season when a week request doesn't name one — the page always
+// names it, because the live feed told it which season it's in.
+export function footballSeason(now = new Date()) {
+  return now.getUTCMonth() >= 6 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
+}
+
+// One PAST week: the finished slate, and nothing that only means something before kickoff.
+//
+// buildPickem above is the PRE-GAME product — market pick, win %, injuries, weather, team reports —
+// and every one of those is a forward-looking read. For a week already played, none of them belong
+// on the card (resultCard renders the score and nothing else) and the two rails are built from the
+// still-to-play games, so a finished week's rails are empty by construction. Building them anyway
+// would spend the ~12s, 172 team reports and ~40 forecast round-trips a live CFB week costs, in
+// order to render a scoreline.
+//
+// So this is the scoreboard call and nothing else — one request in, result cards out. That is what
+// makes a full-season week selector cheap enough to leave un-gated, and it is why exposing an
+// inline build on a public URL is safe here in the way it is for a box score and is NOT for DvP.
+export async function buildPastWeek(cfg) {
+  const r = await fetch(cfg.scoreboardUrl, { headers: { 'User-Agent': UA } });
+  if (!r.ok) throw new Error(`ESPN scoreboard HTTP ${r.status}`);
+  const sb = await r.json();
+
+  const all = [];
+  for (const ev of (sb.events || [])) {
+    try {
+      const c = ev.competitions?.[0];
+      if (!c) continue;
+      if (cfg.includeEvent && !cfg.includeEvent(c, ev)) continue;
+      const home = c.competitors.find((t) => t.homeAway === 'home');
+      const away = c.competitors.find((t) => t.homeAway === 'away');
+      if (!home || !away) continue;
+      // Only the fields a result card and the slate filters actually read: who played, the score,
+      // who won, and the rank/conference the Top-25 and per-conference filters key on. Everything
+      // buildPickem carries for a pre-game card — odds, market %, injuries, weather — is absent
+      // rather than null-filled, because a played game has no such thing to report.
+      const teamOf = (t) => ({
+        id: t.team.id,
+        abbr: t.team.abbreviation,
+        rank: (() => { const k = t.curatedRank?.current; return typeof k === 'number' && k >= 1 && k <= 25 ? k : null; })(),
+        conf: t.team.conferenceId != null ? Number(t.team.conferenceId) : null,
+        name: t.team.displayName,
+        logo: t.team.logo || null,
+        record: t.records?.[0]?.summary || null,
+        score: t.score != null && t.score !== '' ? Number(t.score) : null,
+        winner: t.winner === true,
+      });
+      const bowlName = cfg.nameOf ? cfg.nameOf(c) : null;
+      all.push({
+        id: ev.id,
+        date: ev.date,
+        shortName: ev.shortName,
+        state: ev.status?.type?.state || 'pre',
+        ...(bowlName ? { bowlName } : {}),
+        neutralSite: c.neutralSite === true,
+        home: teamOf(home),
+        away: teamOf(away),
+      });
+    } catch { /* skip a single malformed event; keep the slate */ }
+  }
+
+  // Same split and same ordering as the live feed, so the page's renderer needs no special case.
+  const results = all.filter((g) => g.state === 'post')
+    .sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+  const games = all.filter((g) => g.state !== 'post');
+
+  return {
+    // The page reads this to drop the rails, leave live polling off, and stamp the header as a
+    // result rather than a freshness time.
+    past: true,
+    pastV: PAST_WEEK_VERSION,
+    season: sb.season?.year ?? null,
+    seasonType: sb.season?.type ?? null,
+    week: sb.week?.number ?? null,
+    games,
+    results,
+    // Present and explicitly empty rather than omitted: every reader of a Pick'em payload looks
+    // for these, and a missing key reads as "never built" to the staleness checks in sports.js.
+    teamReports: null,
+    bestPicks: [],
+    upsetAlerts: [],
+    // True only when the window holds games and none of them are still to play — the one condition
+    // under which this payload can never change again, and so the only one under which it gets
+    // cached. Same rule, for the same reason, as boxScore.js's `final`.
+    complete: all.length > 0 && games.length === 0,
+    builtAt: new Date().toISOString(),
+  };
+}

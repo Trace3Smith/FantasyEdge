@@ -2,7 +2,7 @@
 // Pick'em pipeline (api/_lib/pickem.js); this file only supplies NFL-specific config: the
 // scoreboard/injuries endpoints and the stadium coordinates for weather. See pickem.js for
 // the win-probability-from-spread derivation, injuries, and weather logic.
-import { buildPickem, winProbFromSpread } from './pickem.js';
+import { buildPickem, buildPastWeek, winProbFromSpread } from './pickem.js';
 import { redis, NFL_DATASET_KEY } from './kv.js';
 import { getJson } from './espn.js';
 
@@ -164,4 +164,13 @@ export function buildNflPickem({ week } = {}) {
     // involve teams whose home stadium is a dome, so the dome check swallowed the wrong lookup.
     coordsFor: (comp, home) => (comp.neutralSite === true ? null : STADIUMS[home.team.abbreviation] || null),
   });
+}
+
+// One PAST week's finished NFL slate — scores only, no pre-game reads. See buildPastWeek, and
+// buildCfbWeekPast for why the season and season type are pinned into the URL rather than left
+// to the scoreboard's idea of "now".
+export function buildNflPickemPast({ week, season, seasonType = 2 }) {
+  const q = [`week=${encodeURIComponent(week)}`, `seasontype=${encodeURIComponent(seasonType)}`];
+  if (season) q.push(`dates=${encodeURIComponent(season)}`);
+  return buildPastWeek({ scoreboardUrl: `${SB}?${q.join('&')}` });
 }
