@@ -16,7 +16,7 @@ import {
   fetchFanLeagues, fetchLeaguesWithRosters, fetchLeagueRoster, fetchLeagueByOwner, fetchLeagueAllTeams, fetchFreeAgents, setLineup,
   getAutopilot, setAutopilotLeague, leagueKeyOf,
   getManualLeagues, addManualLeague, removeManualLeague,
-  maskSwid, credsShape, EspnAuthError,
+  maskSwid, credsShape, EspnAuthError, fetchNflByes,
 } from '../_lib/espnFantasy.js';
 import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
 import { parseScoringSettings, scoringKey, categoryRanks } from '../_lib/espnScoring.js';
@@ -31,9 +31,26 @@ export const maxDuration = 60;
 // Sport → cached ranked-player dataset (for trade value grounding).
 const DATASET_BY_SPORT = { mlb: DATASET_KEY, nba: NBA_DATASET_KEY, wnba: WNBA_DATASET_KEY, nhl: NHL_DATASET_KEY, nfl: NFL_DATASET_KEY };
 const TRADE_SPORTS = new Set(['mlb', 'wnba', 'nfl', 'nba', 'nhl']);
-// Sports with the full lineup engine (suggestions + apply + autopilot): MLB (roto z)
-// and WNBA (H2H Points). Others show rosters only until an engine is wired for them.
-const ENGINE_SPORTS = new Set(['mlb', 'wnba']);
+// Sports with the full lineup engine (suggestions + apply + autopilot): MLB (roto z),
+// WNBA (H2H Points) and NFL (per-game projected points). Others show rosters only until an
+// engine is wired for them.
+//
+// NFL's engine landed in #75/#76 — slot map, value index, bye weeks, thresholds derived from
+// the real rosterable scale — and api/cron/autopilot.js has been able to drive it since. It was
+// never reachable, because this set is what the REQUEST path reads: without it the leagues call
+// computed no suggestions, and a pref saved from the UI was tagged with the fallback sport, so
+// the cron's NFL branches could not fire either.
+const ENGINE_SPORTS = new Set(['mlb', 'wnba', 'nfl']);
+
+// A bye is not an injury: a healthy player on bye scores nothing and must not start, but must
+// never be sent to IR for it (see suggestLineup). The cron has always passed this; the request
+// path never did, so a lineup suggested here would have started a player on bye. Fetched once per
+// request and only for NFL — ESPN's proTeamSchedules feed needs no league or cookies. A failure
+// yields null, which suggestLineup reads as UNKNOWN and flags nobody, rather than as "no byes".
+async function byeWeeksFor(sport, season) {
+  if (sport !== 'nfl') return null;
+  try { return await fetchNflByes(Number(season)); } catch { return null; }
+}
 
 // Per-sport ROTO scoring categories: [z-block key, display label], in display order.
 // NFL is points-based (no categories) and handled via PPR weighting instead.
@@ -301,6 +318,8 @@ async function leagues(req, res, userId) {
       if (players.length) {
         // Leagues on default scoring share one cached index; each detected custom
         // weighting builds its own (keyed by weight signature).
+        // One bye lookup for every league in the response; null for non-NFL sports.
+        const byes = await byeWeeksFor(sport, result.leagues?.[0]?.season);
         const idxCache = new Map();
         const indexFor = (w) => {
           const sig = w ? JSON.stringify(w) : 'default';
@@ -324,7 +343,8 @@ async function leagues(req, res, userId) {
           // Rank the user in each scored category (from mStandings) to weight waiver
           // category impact — gaining a category they trail in matters more than one they lead.
           const ranks = categoryRanks(lg.standings, lg.teamId, sport);
-          lg.suggestions = suggestLineup(lg, indexFor(scoring?.weights || null), sport, { freeAgents, cats: scoring?.cats || null, ranks });
+          lg.suggestions = suggestLineup(lg, indexFor(scoring?.weights || null), sport,
+            { freeAgents, cats: scoring?.cats || null, ranks, byeWeeks: byes });
         }));
 
         // Prospect call-up monitoring (MLB only): track stashed prospects, detect
@@ -389,7 +409,15 @@ async function applyLineup(req, res, userId) {
   if (!creds) throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
 
   const { leagueId, season, teamId } = req.body || {};
-  const sport = ENGINE_SPORTS.has(req.body?.sport) ? req.body.sport : 'mlb';
+  // REFUSED, not silently substituted. This used to fall back to 'mlb' for any sport without an
+  // engine — so a request naming a sport we cannot value would fetch that sport's roster, value it
+  // with MLB's dataset and slot rules, and WRITE the result to the user's real ESPN team. A wrong
+  // lineup posted under someone's name is not a degraded answer, it is a destructive one, and this
+  // is the last gate before setLineup.
+  const sport = req.body?.sport || 'mlb';
+  if (!ENGINE_SPORTS.has(sport)) {
+    throw new HttpError(400, `No lineup engine for ${sport}`, { error: 'no_engine', sport });
+  }
   if (!leagueId || !season || teamId == null) {
     throw new HttpError(400, 'Missing league', { error: 'missing_league' });
   }
@@ -411,7 +439,8 @@ async function applyLineup(req, res, userId) {
 
   const scoring = parseScoringSettings(league.scoringRaw, sport);
   if (scoring) redis.set(scoringKey(sport, season, leagueId), scoring).catch(() => {});
-  const sugg = suggestLineup(league, buildValueIndex(players, sport, scoring?.weights || null), sport);
+  const sugg = suggestLineup(league, buildValueIndex(players, sport, scoring?.weights || null), sport,
+    { byeWeeks: await byeWeeksFor(sport, season) });
   if (!sugg.plan.length) return res.json({ applied: 0, moves: [], message: 'Lineup already optimal' });
 
   let result;
@@ -476,7 +505,14 @@ async function nflForm(req, res, userId) {
 // teamId}, on } toggles; omitting `on` just returns the current prefs map.
 async function autopilotPref(req, res, userId) {
   const { league, on } = req.body || {};
-  const sport = ENGINE_SPORTS.has(req.body?.sport) ? req.body.sport : 'mlb';
+  // Refused rather than substituted, for the same reason as applyLineup: the sport recorded here
+  // is what the nightly cron later reads back to decide which dataset and slot rules to value a
+  // roster under. Storing the wrong one hands an unattended job the same destructive write, with
+  // nobody watching it happen.
+  const sport = req.body?.sport || 'mlb';
+  if (!ENGINE_SPORTS.has(sport)) {
+    throw new HttpError(400, `No lineup engine for ${sport}`, { error: 'no_engine', sport });
+  }
   if (typeof on === 'boolean') {
     if (!league || !league.leagueId || !league.season || league.teamId == null) {
       throw new HttpError(400, 'Missing league', { error: 'missing_league' });

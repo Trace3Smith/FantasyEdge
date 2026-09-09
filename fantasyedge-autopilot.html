@@ -315,7 +315,7 @@
   const SPORTS = {
     mlb:  { label: 'MLB',  active: true },
     wnba: { label: 'WNBA', active: true },
-    nfl:  { label: 'NFL',  active: false, coming: 'September' },
+    nfl:  { label: 'NFL',  active: true },
     nba:  { label: 'NBA',  active: false, coming: 'October' },
     nhl:  { label: 'NHL',  active: false, coming: 'October' },
   };
@@ -687,9 +687,14 @@
     return ` ${ctx} ${btn}`;
   }
 
-  // Per-league controls: one-tap apply + the autopilot toggle. MLB (roto) and WNBA
-  // (H2H Points) have the full engine; other sports show rosters only.
-  const ENGINE_SPORTS = { mlb: 1, wnba: 1 };
+  // Per-league controls: one-tap apply + the autopilot toggle. MLB (roto), WNBA (H2H Points)
+  // and NFL (per-game projected points) have the full engine; other sports show rosters only.
+  //
+  // MUST TRACK api/espn/index.js's ENGINE_SPORTS. This list decides whether the controls are
+  // drawn; that one decides whether the server will honour them. The server refuses a sport it
+  // has no engine for rather than substituting one, so the two disagreeing is now a visible
+  // error instead of a wrong lineup — but they should not disagree.
+  const ENGINE_SPORTS = { mlb: 1, wnba: 1, nfl: 1 };
   function renderControls(lg) {
     if (!ENGINE_SPORTS[currentSport]) return '';
     const teamId = lg.teamId != null ? lg.teamId : (lg.team && lg.team.id);
