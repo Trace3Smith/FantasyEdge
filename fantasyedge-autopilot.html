@@ -699,7 +699,7 @@
   //   APPLY     — one-tap apply (writes the lineup)
   //   AUTOPILOT — the daily unattended write
   const ENGINE_SPORTS = { mlb: 1, wnba: 1, nfl: 1 };
-  const APPLY_SPORTS = { mlb: 1, wnba: 1 };
+  const APPLY_SPORTS = { mlb: 1, wnba: 1, nfl: 1 };
   const AUTOPILOT_SPORTS = { mlb: 1, wnba: 1 };
   function renderControls(lg) {
     if (!ENGINE_SPORTS[currentSport]) return '';
@@ -708,9 +708,11 @@
     const data = `data-league-id="${escapeHtml(String(lg.leagueId))}" data-season="${escapeHtml(String(lg.season))}" data-team-id="${escapeHtml(String(teamId))}"`;
     const hasMoves = lg.suggestions && lg.suggestions.moves && lg.suggestions.moves.length;
     const canApply = !!APPLY_SPORTS[currentSport];
-    // A sport without the write yet still gets the preview: exactly what apply would send, sent nowhere.
+    // Preview is exactly what apply would send, sent nowhere. It stays next to Apply so the moves
+    // can be checked before they're written; a sport without the write gets the preview alone.
     const apply = !hasMoves ? ''
       : canApply ? `<button class="btn btn-gold apply-btn" ${data}>Apply optimal lineup</button>`
+        + ` <button class="btn preview-btn" ${data}>Preview</button>`
       : `<button class="btn btn-gold preview-btn" ${data}>Preview lineup changes</button>`;
     const autopilot = AUTOPILOT_SPORTS[currentSport]
       ? `<label class="switch" title="Automatically set your optimal lineup every morning">
@@ -718,7 +720,7 @@
           <span class="switch-track"></span>
           <span class="switch-label">Autopilot${lg.autopilot ? ' on' : ''}</span>
         </label>`
-      : `<span class="sugg-meta">${canApply ? '' : 'One-tap apply and '}Autopilot aren't switched on for this sport yet.</span>`;
+      : `<span class="sugg-meta">${canApply ? 'Autopilot isn\'t' : 'One-tap apply and Autopilot aren\'t'} switched on for this sport yet.</span>`;
     return `<div class="lc-controls">
       ${apply}
       ${autopilot}
@@ -770,10 +772,10 @@
     const locked = (data.locked && data.locked.length)
       ? `<div class="sugg-meta">Locked on ESPN (left where they are): ${escapeHtml(data.locked.join(', '))}</div>` : '';
     box.innerHTML = `<div class="sugg-head">Preview — ${changes.length ? `apply would send ${changes.length} change${changes.length > 1 ? 's' : ''}` : 'nothing to change'}`
-      + `${data.scoringPeriodId != null ? ` for week ${escapeHtml(String(data.scoringPeriodId))}` : ''}</div>`
+      + `${data.scoringPeriodId != null ? ` for ${currentSport === 'nfl' ? 'week' : 'scoring period'} ${escapeHtml(String(data.scoringPeriodId))}` : ''}</div>`
       + (rows ? `<ul class="sugg-list">${rows}</ul>` : '')
       + locked
-      + `<div class="sugg-meta">Nothing was sent to ESPN. Make these moves on ESPN, or use one-tap apply once it's switched on.</div>`;
+      + `<div class="sugg-meta">Nothing was sent to ESPN. ${APPLY_SPORTS[currentSport] ? 'Apply optimal lineup sends exactly these.' : 'Make these moves on ESPN, or use one-tap apply once it\'s switched on.'}</div>`;
     box.hidden = false;
   }
 

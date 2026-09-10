@@ -37,14 +37,14 @@ const TRADE_SPORTS = new Set(['mlb', 'wnba', 'nfl', 'nba', 'nhl']);
 //   AUTOPILOT_SPORTS — the same write, made unattended by the daily cron.
 // Others show rosters only.
 //
-// NFL has suggestions and the dry-run, and NOT YET the write. Its engine (#75/#76) has never
-// posted to a real ESPN NFL league, and deferIl is still PROVISIONAL pending the per-player lock
-// model (NFL locks per player across Thu/Sun/Mon) — until then a locked player is only caught by
-// ESPN's 409, which setLineup drops and reports as skippedLocked. The dry-run shows exactly what
-// apply would post, so the write is switched on after one has been checked against a real team,
-// and autopilot after one manual apply has actually landed.
+// NFL has suggestions, the dry-run and the one-tap write, switched on after a dry-run was checked
+// against a real ESPN NFL team. NOT YET autopilot: that waits for one manual apply to actually land.
+// deferIl is still PROVISIONAL pending the per-player lock model (NFL locks per player across
+// Thu/Sun/Mon): a player ESPN's roster read flags as locked is pinned by the engine, and one it
+// doesn't flag is caught by ESPN's 409, which setLineup drops and reports as skippedLocked. A 409
+// it cannot attribute to a named player aborts the whole write, and ESPN applies nothing partial.
 const ENGINE_SPORTS = new Set(['mlb', 'wnba', 'nfl']);
-const WRITE_SPORTS = new Set(['mlb', 'wnba']);
+const WRITE_SPORTS = new Set(['mlb', 'wnba', 'nfl']);
 const AUTOPILOT_SPORTS = new Set(['mlb', 'wnba']);
 
 // A bye is not an injury: a healthy player on bye scores nothing and must not start, but must
