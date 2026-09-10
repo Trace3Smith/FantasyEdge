@@ -176,6 +176,7 @@
   .ap-msg { font-size: 12px; }
   .ap-msg.ok { color: #9bdc9e; }
   .ap-msg.err { color: #f3a1a1; }
+  .ap-preview { margin: -4px 0 14px; padding: 10px 12px; border: 1px dashed rgba(255,255,255,0.18); border-radius: 8px; }
   .add-league summary { cursor: pointer; font-weight: 600; color: var(--gold); font-size: 14px; }
   .add-league .row { margin-top: 12px; gap: 10px; align-items: center; }
   .add-league .hint { margin-top: 10px; }
@@ -691,28 +692,39 @@
   // Per-league controls: one-tap apply + the autopilot toggle. MLB (roto) and WNBA
   // (H2H Points) have the full engine; other sports show rosters only.
   //
-  // MUST TRACK api/espn/index.js's ENGINE_SPORTS. This list decides whether the controls are
-  // drawn; that one decides whether the server will honour them. The server now refuses a sport
-  // it has no engine for rather than substituting MLB, so the two disagreeing surfaces as a
-  // visible error instead of a wrong lineup written to someone's real team — but they should not
-  // disagree, and NFL is switched on by adding it to BOTH.
-  const ENGINE_SPORTS = { mlb: 1, wnba: 1 };
+  // MUST TRACK api/espn/index.js's ENGINE_SPORTS / WRITE_SPORTS / AUTOPILOT_SPORTS. These decide
+  // what is drawn; those decide what the server will honour. The server refuses rather than
+  // substitutes, so a disagreement surfaces as a visible error, not a wrong lineup on a real team.
+  //   ENGINE    — suggestions + a dry-run preview (read-only against ESPN)
+  //   APPLY     — one-tap apply (writes the lineup)
+  //   AUTOPILOT — the daily unattended write
+  const ENGINE_SPORTS = { mlb: 1, wnba: 1, nfl: 1 };
+  const APPLY_SPORTS = { mlb: 1, wnba: 1 };
+  const AUTOPILOT_SPORTS = { mlb: 1, wnba: 1 };
   function renderControls(lg) {
     if (!ENGINE_SPORTS[currentSport]) return '';
     const teamId = lg.teamId != null ? lg.teamId : (lg.team && lg.team.id);
     if (teamId == null) return '';
     const data = `data-league-id="${escapeHtml(String(lg.leagueId))}" data-season="${escapeHtml(String(lg.season))}" data-team-id="${escapeHtml(String(teamId))}"`;
     const hasMoves = lg.suggestions && lg.suggestions.moves && lg.suggestions.moves.length;
-    const apply = hasMoves ? `<button class="btn btn-gold apply-btn" ${data}>Apply optimal lineup</button>` : '';
+    const canApply = !!APPLY_SPORTS[currentSport];
+    // A sport without the write yet still gets the preview: exactly what apply would send, sent nowhere.
+    const apply = !hasMoves ? ''
+      : canApply ? `<button class="btn btn-gold apply-btn" ${data}>Apply optimal lineup</button>`
+      : `<button class="btn btn-gold preview-btn" ${data}>Preview lineup changes</button>`;
+    const autopilot = AUTOPILOT_SPORTS[currentSport]
+      ? `<label class="switch" title="Automatically set your optimal lineup every morning">
+          <input type="checkbox" class="ap-toggle" ${lg.autopilot ? 'checked' : ''} ${data}>
+          <span class="switch-track"></span>
+          <span class="switch-label">Autopilot${lg.autopilot ? ' on' : ''}</span>
+        </label>`
+      : `<span class="sugg-meta">${canApply ? '' : 'One-tap apply and '}Autopilot aren't switched on for this sport yet.</span>`;
     return `<div class="lc-controls">
       ${apply}
-      <label class="switch" title="Automatically set your optimal lineup every morning">
-        <input type="checkbox" class="ap-toggle" ${lg.autopilot ? 'checked' : ''} ${data}>
-        <span class="switch-track"></span>
-        <span class="switch-label">Autopilot${lg.autopilot ? ' on' : ''}</span>
-      </label>
+      ${autopilot}
       <span class="ap-msg"></span>
-    </div>`;
+    </div>
+    <div class="ap-preview" hidden></div>`;
   }
 
   async function applyLineupClick(btn) {
@@ -733,6 +745,36 @@
       else { msg.textContent = '✗ ' + ((data && (data.detail || data.error)) || 'Could not apply lineup'); }
       msg.className = 'ap-msg err';
     }
+  }
+
+  // Dry run of apply: the server re-fetches the roster and recomputes the plan exactly as apply
+  // would, then returns the transaction items instead of posting them. Nothing reaches ESPN.
+  async function previewLineupClick(btn) {
+    const { leagueId, season, teamId } = btn.dataset;
+    const controls = btn.closest('.lc-controls');
+    const msg = controls.querySelector('.ap-msg');
+    const box = controls.nextElementSibling;
+    btn.disabled = true; const old = btn.textContent; btn.textContent = 'Checking…';
+    msg.textContent = '';
+    const { ok, data } = await api('/api/espn', { action: 'apply', dryRun: true, sport: currentSport, leagueId, season: Number(season), teamId: Number(teamId) });
+    btn.disabled = false; btn.textContent = old;
+    if (!ok) {
+      if (data && data.error === 'espn_auth') { msg.textContent = '✗ Cookies expired — reconnect.'; show('connectedWrap', false); show('connectPanel', true); }
+      else { msg.textContent = '✗ ' + ((data && (data.detail || data.error)) || 'Could not preview lineup'); }
+      msg.className = 'ap-msg err';
+      return;
+    }
+    const changes = data.changes || [];
+    const rows = changes.map((c) => `<li><b>${escapeHtml(c.name)}</b>${c.injury ? ` <span class="inj">${escapeHtml(c.injury)}</span>` : ''}`
+      + ` <span class="sugg-meta">${escapeHtml(c.from)}</span> <span class="sugg-arrow">→</span> <b>${escapeHtml(c.to)}</b></li>`).join('');
+    const locked = (data.locked && data.locked.length)
+      ? `<div class="sugg-meta">Locked on ESPN (left where they are): ${escapeHtml(data.locked.join(', '))}</div>` : '';
+    box.innerHTML = `<div class="sugg-head">Preview — ${changes.length ? `apply would send ${changes.length} change${changes.length > 1 ? 's' : ''}` : 'nothing to change'}`
+      + `${data.scoringPeriodId != null ? ` for week ${escapeHtml(String(data.scoringPeriodId))}` : ''}</div>`
+      + (rows ? `<ul class="sugg-list">${rows}</ul>` : '')
+      + locked
+      + `<div class="sugg-meta">Nothing was sent to ESPN. Make these moves on ESPN, or use one-tap apply once it's switched on.</div>`;
+    box.hidden = false;
   }
 
   async function toggleAutopilot(input) {
@@ -815,7 +857,7 @@
   function fmtVal(v, known) {
     if (v == null || known === false) return 'unranked';
     const n = Math.round(v * 10) / 10;
-    return currentSport === 'wnba' ? `${n} pts/game` : `${n} value`;
+    return (currentSport === 'wnba' || currentSport === 'nfl') ? `${n} pts/game` : `${n} value`;
   }
 
   // Ordinal for a standings rank: 1 → "1st", 12 → "12th".
@@ -862,7 +904,7 @@
   function renderSuggestions(s, lg) {
     if (!s) return ''; // dataset unavailable / no engine for this sport — show nothing
     if (!s.moves || !s.moves.length) {
-      const tail = currentSport === 'wnba' ? 'every best available starter is in.' : 'every best available bat & arm is in.';
+      const tail = currentSport === 'mlb' ? 'every best available bat & arm is in.' : 'every best available starter is in.';
       return `<div class="sugg sugg-ok">✓ Your lineup looks optimal — ${tail}</div>`;
     }
     const il = (s.summary && s.summary.ilMoves) || 0;
@@ -967,6 +1009,8 @@
   $('leaguesArea').addEventListener('click', (e) => {
     const applyBtn = e.target.closest('.apply-btn');
     if (applyBtn) { applyLineupClick(applyBtn); return; }
+    const previewBtn = e.target.closest('.preview-btn');
+    if (previewBtn) { previewLineupClick(previewBtn); return; }
     const watchBtn = e.target.closest('.watch-btn');
     if (watchBtn) { toggleWatch(watchBtn); return; }
     const dismiss = e.target.closest('[data-callup-dismiss]');
