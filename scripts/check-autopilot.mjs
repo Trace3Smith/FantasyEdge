@@ -54,5 +54,17 @@ console.log('offline — Autopilot apply-outcome accounting');
   check('an undefined result is handled', s.moves === 0 && s.lockedSkipped === 0 && s.noopLeagues === 1);
 }
 
+console.log('\noffline — every Autopilot sport can actually run');
+{
+  // The toggle and the cron are gated in different files. A sport switched on in AUTOPILOT_SPORTS
+  // with no cron dataset saves the pref and then silently never sets a lineup (noData every run) —
+  // NFL's exact state before it was wired in. This pins the two lists together.
+  const { AUTOPILOT_SPORTS } = await import('../api/espn/index.js');
+  const { DATASET_BY_SPORT } = await import('../api/cron/autopilot.js');
+  const missing = [...AUTOPILOT_SPORTS].filter((s) => !DATASET_BY_SPORT[s]);
+  check('every Autopilot sport has a cron dataset', !missing.length, missing.length ? `missing: ${missing.join(', ')}` : '');
+  check('NFL is one of them', AUTOPILOT_SPORTS.has('nfl') && DATASET_BY_SPORT.nfl === 'dataset:nfl');
+}
+
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nall checks passed');
 process.exit(failed ? 1 : 0);

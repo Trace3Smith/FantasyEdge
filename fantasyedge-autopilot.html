@@ -700,7 +700,7 @@
   //   AUTOPILOT — the daily unattended write
   const ENGINE_SPORTS = { mlb: 1, wnba: 1, nfl: 1 };
   const APPLY_SPORTS = { mlb: 1, wnba: 1, nfl: 1 };
-  const AUTOPILOT_SPORTS = { mlb: 1, wnba: 1 };
+  const AUTOPILOT_SPORTS = { mlb: 1, wnba: 1, nfl: 1 };
   function renderControls(lg) {
     if (!ENGINE_SPORTS[currentSport]) return '';
     const teamId = lg.teamId != null ? lg.teamId : (lg.team && lg.team.id);

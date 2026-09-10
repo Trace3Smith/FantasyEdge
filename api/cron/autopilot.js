@@ -8,7 +8,7 @@
 // Defensive by design: a single league failing never aborts the run, and if a
 // user's cookies have died we disable their autopilot (so we stop hammering a
 // broken account) until they reconnect. Protected by CRON_SECRET like the refresh cron.
-import { redis, DATASET_KEY, WNBA_DATASET_KEY, NBA_DATASET_KEY } from '../_lib/kv.js';
+import { redis, DATASET_KEY, WNBA_DATASET_KEY, NBA_DATASET_KEY, NFL_DATASET_KEY } from '../_lib/kv.js';
 import {
   getCreds, getAutopilot, listAutopilotUsers, setAutopilotLeague,
   fetchLeagueRoster, setLineup, autopilotSportOf, EspnAuthError, fetchNflByes,
@@ -19,7 +19,10 @@ import { getWatch, setWatch, prospectIndex, reconcileWatch } from '../_lib/prosp
 
 export const maxDuration = 60;
 
-const DATASET_BY_SPORT = { mlb: DATASET_KEY, wnba: WNBA_DATASET_KEY, nba: NBA_DATASET_KEY };
+// Every sport api/espn/index.js lets a user switch Autopilot on for MUST have an entry here. A
+// missing one is silent: playersFor returns null, the league counts as noData, and the lineup is
+// simply never set — which is how NFL sat before it was added. check:autopilot enforces this.
+export const DATASET_BY_SPORT = { mlb: DATASET_KEY, wnba: WNBA_DATASET_KEY, nba: NBA_DATASET_KEY, nfl: NFL_DATASET_KEY };
 
 // Fold one setLineup result into the run summary.
 //
