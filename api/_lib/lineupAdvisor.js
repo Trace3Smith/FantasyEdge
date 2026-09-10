@@ -14,6 +14,7 @@
 import { normName } from './golf.js';
 import { slotLabel, isActiveSlot } from './espnFantasy.js';
 import { nflRankValue } from '../../nflScoring.js';
+import { nflPosCaps } from '../../draftRoster.js';
 
 // --- per-sport tuning ------------------------------------------------------------
 // Because the two valuations live on different scales, every threshold (injury
@@ -544,14 +545,52 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
   // the FA with the best weighted net (aggregate value breaks ties) and attach the per-
   // category up/down breakdown (with the user's rank per cat) so the UI can show why.
   // WNBA (H2H Points) has no categories, so it keeps the scalar points-gain gate.
+  //
+  // NFL does NOT use that scalar gate, because raw per-game points don't compare across positions:
+  // QBs outscore everyone, so any startable free-agent QB cleared it over a bench WR — which is how a
+  // team with Hurts starting and Mahomes behind him was told to drop Jakobi Meyers for Jordan Love, a
+  // QB3 with no path to the field. An NFL swap is instead scored by what it does to the OPTIMAL
+  // STARTING LINEUP (the add replaces the drop, the lineup is re-solved on the post-IR roster), so a
+  // player who can't crack a filled position adds nothing. Behind that, the Draft Coach's own soft
+  // position caps (nflPosCaps — QB/TE get one backup, one K, one D/ST) refuse an add at a position
+  // already full, so even a free agent who WOULD start can't be suggested as a third QB. The drop is
+  // the weakest bench player by season value, not this week's: a star on bye or questionable is
+  // penalized this week and would otherwise read as the most droppable body on the roster.
   if (freeAgents.length && dropPool.length) {
-    const wb = roster[dropPool[0]]; // weakest remaining droppable bench player
     const roto = sport === 'mlb';
+    const nfl = sport === 'nfl';
+    const wbIdx = nfl ? [...dropPool].sort((a, b) => roster[a]._v.z - roster[b]._v.z)[0] : dropPool[0];
+    const wb = roster[wbIdx]; // weakest remaining droppable bench player
+    let lineupValue, base, without, caps, counts;
+    const posKey = (p) => (p === 'D/ST' ? 'DST' : p);
+    if (nfl) {
+      lineupValue = (list) => {
+        let v = 0;
+        for (const i of assignOptimal(list, activeOpenings(league.slotCounts, list, sport, benchId, ilSlotId), ilSlotId).keys()) v += list[i]._v.adjZ;
+        return v;
+      };
+      base = lineupValue(work);
+      without = work.filter((_, i) => i !== wbIdx);
+      const sc = league.slotCounts || {};
+      const n = (id) => Number(sc[id]) || 0;
+      caps = nflPosCaps({ QB: n(0), RB: n(2), WR: n(4), TE: n(6), K: n(17), DST: n(16), FLEX: n(23) + n(3) + n(5) });
+      caps.QB += n(7); // a superflex/OP slot makes another QB startable
+      counts = {};
+      for (const rp of without) if (rp.slotId !== ilSlotId) counts[posKey(rp.pos)] = (counts[posKey(rp.pos)] || 0) + 1;
+    }
     let best = null;
     for (const fa of freeAgents) {
       const rec = idx.get(normName(fa.name));
       if (!rec || typeof rec.z !== 'number') continue;       // only suggest a free agent we can value
-      if (roto) {
+      if (nfl) {
+        const pk = posKey(fa.pos);
+        if (caps[pk] != null && (counts[pk] || 0) >= caps[pk]) continue; // position already full
+        const cand = { ...fa, slotId: benchId, starter: false, locked: false, onBye: byeOf(fa) };
+        cand._v = valueOf(cand, idx, cfg);
+        const gain = lineupValue([...without, cand]) - base;
+        if (gain < cfg.waiverGain) continue;                  // must actually improve the starting lineup
+        if (!best || gain > best.gain) best = { name: fa.name, pos: fa.pos, proTeam: fa.proTeam, z: rec.z, gain };
+      } else if (roto) {
         const impact = rotoCategoryImpact(rec.zc, wb._v.zc, cats, ranks);
         if (impact.net <= 0 || impact.weightedNet <= 0) continue; // must gain more cats than it loses AND be standings-positive
         if (!best || impact.weightedNet > best.impact.weightedNet
@@ -568,7 +607,7 @@ export function suggestLineup(league, idx, sport = 'mlb', { freeAgents = [], ilW
         reason: 'waiver', waiver: true,
         add: best.name, addMeta: `${best.pos}${best.proTeam ? ' · ' + best.proTeam : ''}`,
         drop: wb.name, dropMeta: meta(wb),
-        gain: Math.round((best.z - wb._v.z) * 10) / 10,
+        gain: Math.round((best.gain ?? (best.z - wb._v.z)) * 10) / 10,
         cats: best.impact || null,   // { up, down, net, weightedNet } for roto; null for points
       });
     }
