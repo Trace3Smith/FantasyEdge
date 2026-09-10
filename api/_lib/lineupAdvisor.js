@@ -252,13 +252,25 @@ export function buildNflValueIndex(players = [], scoring = 'ppr') {
   return idx;
 }
 
+// The NFL value model takes a PPR type, but every caller hands it what parseScoringSettings
+// returns: a per-stat POINTS map, where `rec` is the league's points per reception. Reading only a
+// string meant that map always fell through to 'ppr', so a half-PPR or standard league was valued
+// as full PPR. A recognized map with no `rec` scores receptions at nothing, i.e. standard. No map at
+// all (scoring not confidently parsed) keeps the PPR default.
+export function nflScoringOf(weights) {
+  if (typeof weights === 'string') return weights;
+  if (!weights || typeof weights !== 'object') return 'ppr';
+  const rec = Number(weights.rec) || 0;
+  return rec >= 0.75 ? 'ppr' : rec >= 0.25 ? 'half' : 'standard';
+}
+
 // Build the right value index for a sport from that sport's cached dataset players,
 // optionally under the user's custom scoring weights (per-league; null = defaults).
 export function buildValueIndex(players, sport = 'mlb', weights = null) {
   // NBA and WNBA share one hoops points model: both datasets carry the same per-game shape
   // (n.pts/reb/ast/stl/blk/tpm/to), so the index is identical — only the SPORT_CFG thresholds differ.
-  // NFL needs its own (no per-game stats); `weights` there is the league's scoring string.
-  if (sport === 'nfl') return buildNflValueIndex(players, typeof weights === 'string' ? weights : 'ppr');
+  // NFL needs its own (no per-game stats), valued under the league's PPR type.
+  if (sport === 'nfl') return buildNflValueIndex(players, nflScoringOf(weights));
   return (sport === 'wnba' || sport === 'nba') ? buildHoopsValueIndex(players, weights) : buildMlbValueIndex(players, weights);
 }
 

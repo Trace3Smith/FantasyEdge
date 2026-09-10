@@ -7,7 +7,7 @@
 //
 // Usage:  npm run check:espn      Exit: 0 clean · 1 a check failed
 import { slotLabel, isActiveSlot, parse409Names } from '../api/_lib/espnFantasy.js';
-import { buildValueIndex, suggestLineup } from '../api/_lib/lineupAdvisor.js';
+import { buildValueIndex, suggestLineup, nflScoringOf } from '../api/_lib/lineupAdvisor.js';
 
 let failed = 0;
 const check = (n, ok, d) => { if (!ok) failed++; console.log(`   ${ok ? '✅' : '❌'} ${n}${d ? ` — ${d}` : ''}`); };
@@ -74,6 +74,20 @@ console.log('\noffline — NFL value index and bye handling');
   check('no bye map means unknown, so nobody is benched for a bye', !s2.plan.some((x) => x.playerId === 'Elite RB'));
   s2 = suggestLineup(league(9, 12), ppr, 'nfl', { byeWeeks: byes });
   check('a non-bye week leaves the same player alone', !s2.plan.some((x) => x.playerId === 'Elite RB'));
+}
+
+console.log('\noffline — NFL league scoring reaches the value model');
+{
+  // parseScoringSettings hands the engine a per-stat POINTS map, not a PPR string. Reading only a
+  // string sent every NFL league down the full-PPR path, whatever it actually scored receptions at.
+  const pool = [{ name: 'Slot WR', pos: 'WR', fpPpr: 200, fpStd: 120, rank: 30 }];
+  const base = { passYds: 0.04, passTD: 4, rushYds: 0.1, rushTD: 6, recYds: 0.1, recTD: 6 };
+  const z = (w) => buildValueIndex(pool, 'nfl', w).get('slot wr').z;
+  check('rec 1 is full PPR', nflScoringOf({ ...base, rec: 1 }) === 'ppr' && Math.abs(z({ ...base, rec: 1 }) - 200 / 17) < 0.01);
+  check('rec 0.5 is half PPR', nflScoringOf({ ...base, rec: 0.5 }) === 'half' && Math.abs(z({ ...base, rec: 0.5 }) - 160 / 17) < 0.01);
+  check('no reception scoring is standard', nflScoringOf(base) === 'standard' && Math.abs(z(base) - 120 / 17) < 0.01);
+  check('unparsed scoring keeps the PPR default', nflScoringOf(null) === 'ppr');
+  check('a PPR string still passes straight through', nflScoringOf('half') === 'half');
 }
 
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nall checks passed');

@@ -16,7 +16,7 @@ import {
   fetchFanLeagues, fetchLeaguesWithRosters, fetchLeagueRoster, fetchLeagueByOwner, fetchLeagueAllTeams, fetchFreeAgents, setLineup,
   getAutopilot, setAutopilotLeague, leagueKeyOf,
   getManualLeagues, addManualLeague, removeManualLeague,
-  maskSwid, credsShape, EspnAuthError, fetchNflByes,
+  maskSwid, credsShape, EspnAuthError, fetchNflByes, slotLabel,
 } from '../_lib/espnFantasy.js';
 import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
 import { parseScoringSettings, scoringKey, categoryRanks } from '../_lib/espnScoring.js';
@@ -31,27 +31,29 @@ export const maxDuration = 60;
 // Sport → cached ranked-player dataset (for trade value grounding).
 const DATASET_BY_SPORT = { mlb: DATASET_KEY, nba: NBA_DATASET_KEY, wnba: WNBA_DATASET_KEY, nhl: NHL_DATASET_KEY, nfl: NFL_DATASET_KEY };
 const TRADE_SPORTS = new Set(['mlb', 'wnba', 'nfl', 'nba', 'nhl']);
-// Sports with the full lineup engine (suggestions + apply + autopilot): MLB (roto z)
-// and WNBA (H2H Points). Others show rosters only until an engine is wired for them.
+// The lineup engine has three separately-gated surfaces, because they carry different risk:
+//   ENGINE_SPORTS    — start/sit suggestions, and a dry-run of apply. Read-only against ESPN.
+//   WRITE_SPORTS     — one-tap apply: POSTs a lineup transaction to the user's real team.
+//   AUTOPILOT_SPORTS — the same write, made unattended by the daily cron.
+// Others show rosters only.
 //
-// NFL IS DELIBERATELY NOT HERE YET, and it is the one entry worth explaining. Its engine landed
-// in #75/#76 — slot map, value index, bye weeks, thresholds derived from the real rosterable
-// scale — and api/cron/autopilot.js has been able to drive it since; adding 'nfl' to this set is
-// the whole of what switches it on. It is held back because nothing has yet run it against a real
-// ESPN NFL league, no test suite covers this path, and deferIl is still PROVISIONAL pending the
-// per-player lock model (step 2 — NFL locks per player across Thu/Sun/Mon). Turning it on is a
-// deliberate act with a real lineup write behind it, not a flag to flip in passing.
-const ENGINE_SPORTS = new Set(['mlb', 'wnba']);
+// NFL has suggestions and the dry-run, and NOT YET the write. Its engine (#75/#76) has never
+// posted to a real ESPN NFL league, and deferIl is still PROVISIONAL pending the per-player lock
+// model (NFL locks per player across Thu/Sun/Mon) — until then a locked player is only caught by
+// ESPN's 409, which setLineup drops and reports as skippedLocked. The dry-run shows exactly what
+// apply would post, so the write is switched on after one has been checked against a real team,
+// and autopilot after one manual apply has actually landed.
+const ENGINE_SPORTS = new Set(['mlb', 'wnba', 'nfl']);
+const WRITE_SPORTS = new Set(['mlb', 'wnba']);
+const AUTOPILOT_SPORTS = new Set(['mlb', 'wnba']);
 
 // A bye is not an injury: a healthy player on bye scores nothing and must not start, but must
 // never be sent to IR for it (see suggestLineup). The cron has always passed this; the request
 // path never did, so a lineup suggested here would have started a player on bye.
 //
-// INERT while NFL sits outside ENGINE_SPORTS above — it is the only sport with byes, and the two
-// call sites are both engine-gated. It is here rather than deferred because it is the missing
-// half of that switch: without it, adding 'nfl' to the set would silently start benched-on-bye
-// players from week 5. A failure yields null, which suggestLineup reads as UNKNOWN and flags
-// nobody, rather than as "not on bye".
+// NFL is the only sport with byes; without this, suggestions would start benched-on-bye players
+// from week 5. A failure yields null, which suggestLineup reads as UNKNOWN and flags nobody,
+// rather than as "not on bye".
 async function byeWeeksFor(sport, season) {
   if (sport !== 'nfl') return null;
   try { return await fetchNflByes(Number(season)); } catch { return null; }
@@ -389,12 +391,14 @@ async function leagues(req, res, userId) {
       }
     } catch { /* suggestions are optional */ }
 
-    try {
-      const prefs = await getAutopilot(redis, userId);
-      for (const lg of (result.leagues || [])) {
-        if (lg && lg.team) lg.autopilot = !!prefs[leagueKeyOf(lg)];
-      }
-    } catch { /* toggle state is optional */ }
+    if (AUTOPILOT_SPORTS.has(sport)) {
+      try {
+        const prefs = await getAutopilot(redis, userId);
+        for (const lg of (result.leagues || [])) {
+          if (lg && lg.team) lg.autopilot = !!prefs[leagueKeyOf(lg)];
+        }
+      } catch { /* toggle state is optional */ }
+    }
   }
 
   // Don't ship ESPN's raw scoring blob or the standings stat totals to the client (we've
@@ -409,11 +413,16 @@ async function leagues(req, res, userId) {
 // Apply the optimal lineup to ESPN for one league (the manual one-tap path). We
 // re-fetch the roster server-side and recompute the plan (never trust a client
 // plan), then POST the lineup transaction. Returns what changed.
+//
+// `dryRun: true` runs every step up to the POST — the same roster fetch, scoring, bye weeks and
+// plan — and returns the exact transaction items instead of sending them, so a sport can be
+// checked against a real team before its write is switched on.
 async function applyLineup(req, res, userId) {
   const creds = await getCreds(redis, userId);
   if (!creds) throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
 
   const { leagueId, season, teamId } = req.body || {};
+  const dryRun = req.body?.dryRun === true;
   // REFUSED, not silently substituted. This used to fall back to 'mlb' for any sport without an
   // engine — so a request naming a sport we cannot value would fetch that sport's roster, value it
   // with MLB's dataset and slot rules, and WRITE the result to the user's real ESPN team. A wrong
@@ -422,6 +431,9 @@ async function applyLineup(req, res, userId) {
   const sport = req.body?.sport || 'mlb';
   if (!ENGINE_SPORTS.has(sport)) {
     throw new HttpError(400, `No lineup engine for ${sport}`, { error: 'no_engine', sport });
+  }
+  if (!dryRun && !WRITE_SPORTS.has(sport)) {
+    throw new HttpError(400, `Lineup apply isn't switched on for ${sport} yet`, { error: 'apply_not_enabled', sport });
   }
   if (!leagueId || !season || teamId == null) {
     throw new HttpError(400, 'Missing league', { error: 'missing_league' });
@@ -446,6 +458,25 @@ async function applyLineup(req, res, userId) {
   if (scoring) redis.set(scoringKey(sport, season, leagueId), scoring).catch(() => {});
   const sugg = suggestLineup(league, buildValueIndex(players, sport, scoring?.weights || null), sport,
     { byeWeeks: await byeWeeksFor(sport, season) });
+  if (dryRun) {
+    const byId = new Map(league.roster.map((rp) => [rp.id, rp]));
+    return res.json({
+      dryRun: true,
+      scoringPeriodId: league.scoringPeriodId,
+      // What would be POSTed, item for item, with labels. Nothing here was sent to ESPN.
+      changes: sugg.plan.map((it) => ({
+        playerId: it.playerId, name: it.name, il: !!it.il,
+        from: slotLabel(it.fromLineupSlotId, sport), to: slotLabel(it.toLineupSlotId, sport),
+        fromLineupSlotId: it.fromLineupSlotId, toLineupSlotId: it.toLineupSlotId,
+        injury: byId.get(it.playerId)?.injury || '',
+      })),
+      // Players ESPN's roster read already reports as locked. The engine pins these and never
+      // moves them; anything locked that ESPN does NOT flag here is caught later by its 409.
+      locked: league.roster.filter((rp) => rp.locked).map((rp) => rp.name),
+      moves: sugg.moves,
+      summary: sugg.summary,
+    });
+  }
   if (!sugg.plan.length) return res.json({ applied: 0, moves: [], message: 'Lineup already optimal' });
 
   let result;
@@ -515,8 +546,8 @@ async function autopilotPref(req, res, userId) {
   // roster under. Storing the wrong one hands an unattended job the same destructive write, with
   // nobody watching it happen.
   const sport = req.body?.sport || 'mlb';
-  if (!ENGINE_SPORTS.has(sport)) {
-    throw new HttpError(400, `No lineup engine for ${sport}`, { error: 'no_engine', sport });
+  if (!AUTOPILOT_SPORTS.has(sport)) {
+    throw new HttpError(400, `Autopilot isn't switched on for ${sport}`, { error: 'no_autopilot', sport });
   }
   if (typeof on === 'boolean') {
     if (!league || !league.leagueId || !league.season || league.teamId == null) {
