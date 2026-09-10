@@ -90,5 +90,54 @@ console.log('\noffline — NFL league scoring reaches the value model');
   check('a PPR string still passes straight through', nflScoringOf('half') === 'half');
 }
 
+console.log('\noffline — NFL waiver adds respect position need');
+{
+  // The reported case: Hurts starts, Mahomes backs him up, 1-QB league. The waiver engine compared
+  // raw per-game points only, so free-agent QB Jordan Love (+5.4 over bench WR Jakobi Meyers) was
+  // suggested as an add — a QB3 who never sees the field. The IR move and the empty-slot start on
+  // the same roster were right and must stay exactly as they were.
+  const pool = [
+    ['Jalen Hurts', 'QB', 400], ['Patrick Mahomes', 'QB', 370], ['Jordan Love', 'QB', 300],
+    ['Zach Charbonnet', 'RB', 200], ['Bijan Robinson', 'RB', 340], ['James Conner', 'RB', 230],
+    ['Jaylen Waddle', 'WR', 240], ['Jakobi Meyers', 'WR', 190], ['Amon-Ra St. Brown', 'WR', 330],
+    ['Tee Higgins', 'WR', 230], ['Sam LaPorta', 'TE', 200], ['Brandon Aubrey', 'K', 150], ['Ravens D/ST', 'D/ST', 130],
+    ['Waiver WR', 'WR', 290], ['Waiver TE', 'TE', 120],
+  ].map(([name, pos, fp], i) => ({ name, pos, fpPpr: fp, fpStd: fp * 0.75, rank: i + 1 }));
+  const idx = buildValueIndex(pool, 'nfl', 'ppr');
+  const E = { QB: [0, 7, 20, 21], RB: [2, 23, 7, 20, 21], WR: [4, 23, 7, 20, 21], TE: [6, 23, 7, 20, 21], K: [17, 20, 21], 'D/ST': [16, 20, 21] };
+  let nid = 1;
+  const pl = (name, pos, slotId, injury = '') => ({ id: nid++, name, pos, slotId, starter: ![20, 21].includes(slotId),
+    eligibleSlots: E[pos], injury, locked: false, proTeamId: nid });
+  const fa = (name, pos) => ({ id: 900 + nid++, name, pos, eligibleSlots: E[pos], injury: '', proTeamId: 99 });
+  const lg = () => ({ scoringPeriodId: 1, slotCounts: { 0: 1, 2: 2, 4: 2, 6: 1, 23: 1, 16: 1, 17: 1, 20: 6, 21: 1 },
+    roster: [pl('Jalen Hurts', 'QB', 0), pl('Bijan Robinson', 'RB', 2), pl('Zach Charbonnet', 'RB', 2, 'O'),
+      pl('Amon-Ra St. Brown', 'WR', 4), pl('Tee Higgins', 'WR', 23), pl('Sam LaPorta', 'TE', 6),
+      pl('Brandon Aubrey', 'K', 17), pl('Ravens D/ST', 'D/ST', 16),
+      pl('Patrick Mahomes', 'QB', 20), pl('James Conner', 'RB', 20), pl('Jaylen Waddle', 'WR', 20), pl('Jakobi Meyers', 'WR', 20)] });
+  // WR slot 2 is empty (only St. Brown at slot 4), so Waddle should start there.
+  const waivers = (s) => s.moves.filter((m) => m.waiver);
+
+  let s = suggestLineup(lg(), idx, 'nfl', { freeAgents: [fa('Jordan Love', 'QB')] });
+  check('a third QB is not suggested behind an established starter', !waivers(s).length,
+    waivers(s).map((m) => `${m.add} for ${m.drop}`).join(', '));
+  check('...the IR move for the OUT starter is unchanged', s.moves.some((m) => m.il && m.action === 'to_il' && m.out === 'Zach Charbonnet'));
+  check('...and the empty-slot start is unchanged', s.moves.some((m) => m.reason === 'empty_slot' && m.in === 'Jaylen Waddle')
+    || s.plan.some((x) => x.name === 'Jaylen Waddle' && x.toLineupSlotId !== 20));
+
+  // A free agent who genuinely improves the starting lineup is still suggested.
+  s = suggestLineup(lg(), idx, 'nfl', { freeAgents: [fa('Jordan Love', 'QB'), fa('Waiver WR', 'WR')] });
+  check('a free agent who would start is still suggested', waivers(s).some((m) => m.add === 'Waiver WR'));
+  check('...with the gain measured on the lineup, not raw points', waivers(s).every((m) => m.gain > 0 && m.gain < 290 / 17));
+
+  // A position-full backstop even when the add WOULD start: a QB better than both rostered QBs.
+  const idxElite = buildValueIndex([...pool.filter((p) => p.name !== 'Jordan Love'), { name: 'Jordan Love', pos: 'QB', fpPpr: 480, fpStd: 360, rank: 0 }], 'nfl', 'ppr');
+  s = suggestLineup(lg(), idxElite, 'nfl', { freeAgents: [fa('Jordan Love', 'QB')] });
+  check('a third QB is refused at the QB cap even when he would start', !waivers(s).length);
+
+  // A bench player who adds nothing this week (TE behind a starter) is not a reason to churn.
+  s = suggestLineup(lg(), idx, 'nfl', { freeAgents: [fa('Waiver TE', 'TE')] });
+  check('a bench-only add is not suggested', !waivers(s).length);
+}
+
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nall checks passed');
 process.exit(failed ? 1 : 0);
