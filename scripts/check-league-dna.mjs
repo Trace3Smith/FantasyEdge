@@ -209,11 +209,23 @@ console.log('\noffline — the daily sweep, run by the Autopilot cron');
     : stub(url, opts));
   const mark = espnCalls.length;
 
+  // Capture the cron's console output: a cron's response body isn't visible in production, so its
+  // log line is the only place the sweep's result can be read.
+  const logged = [];
+  const log = console.log;
+  console.log = (...a) => { logged.push(a.join(' ')); };
   const r = await call(cron, { headers: { authorization: 'Bearer offline-cron' } });
+  console.log = log;
   globalThis.fetch = stub;
   const sw = r.body?.summary?.sweep || {};
   const calls = espnCalls.slice(mark);
   check('the cron runs the sweep and reports it', r.statusCode === 200 && typeof sw.visited === 'number', JSON.stringify(sw));
+  const PREFIX = '[autopilot] summary ';
+  const line = logged.find((l) => l.startsWith(PREFIX));
+  const fromLog = line ? JSON.parse(line.slice(PREFIX.length)) : null;
+  check("the run logs its summary, sweep included, for Vercel's logs",
+    fromLog?.sweep?.visited === sw.visited && fromLog.sweep.recorded === sw.recorded && fromLog.users === r.body.summary.users,
+    line ? line.slice(0, 100) : 'no log line');
   check("opted-in users' leagues are captured", captured('sweepA') && captured('sweepB'));
   check('a user whose answer predates the current notice is skipped, though still in the set',
     !captured('sweepStale') && sw.skippedConsent === 1 && !calls.some((c) => c.user === 'sweepStale'));

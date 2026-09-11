@@ -169,8 +169,12 @@ export default async function handler(req, res) {
     } catch (err) {
       summary.sweep = { error: String(err.message || err) };
     }
+    // One line per run, so the result shows up in Vercel's logs: a cron's response body isn't shown
+    // anywhere. The summary is counts and error messages only, with no user ids or cookies.
+    console.log(`[autopilot] summary ${JSON.stringify(summary)}`);
     return res.json({ ok: true, summary });
   } catch (err) {
+    console.error(`[autopilot] failed: ${String(err.message || err)} summary ${JSON.stringify(summary)}`);
     return res.status(500).json({ ok: false, error: String(err.message || err), summary });
   }
 }
