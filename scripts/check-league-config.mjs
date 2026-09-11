@@ -7,9 +7,10 @@
 //
 // Usage:  npm run check:league-config      Exit: 0 clean · 1 a check failed
 import {
-  leagueConfigKey, validateLeagueConfig, saveLeagueConfig, getLeagueConfig, isoFromMs, LEAGUE_CONFIG_VERSION,
+  leagueConfigKey, validateLeagueConfig, saveLeagueConfig, getLeagueConfig, recordLeagueConfig, isoFromMs, LEAGUE_CONFIG_VERSION,
 } from '../api/_lib/leagueConfig.js';
 import { espnLeagueConfig, espnScoringFormat, espnPpr } from '../api/_lib/espnLeagueConfig.js';
+import { discoverFanLeagues, fetchLeagueRoster, fetchAllLeagueConfigs } from '../api/_lib/espnFantasy.js';
 
 let failed = 0;
 const check = (n, ok, d) => { if (!ok) failed++; console.log(`   ${ok ? '✅' : '❌'} ${n}${d ? ` — ${d}` : ''}`); };
@@ -138,6 +139,73 @@ console.log('\noffline — Redis round trip (in-memory stand-in)');
   let threw = false;
   try { await saveLeagueConfig(fake, { ...mlb, scoring: { ...mlb.scoring, ppr: 1 } }); } catch { threw = true; }
   check('an invalid config is never written', threw);
+}
+
+console.log('\noffline — recording: League DNA sports only, never golf');
+{
+  const store = new Map();
+  const fake = { set: async (k, v) => { store.set(k, structuredClone(v)); }, get: async (k) => store.get(k) ?? null };
+  const warn = console.warn; console.warn = () => {}; // the invalid case warns by design
+  check('a valid MLB config is recorded', await recordLeagueConfig(fake, mlb) === true && store.has(leagueConfigKey(mlb)));
+  for (const sp of ['golf', 'pga']) {
+    const g = { ...mlb, sport: sp };
+    check(`a ${sp} config is never recorded`, await recordLeagueConfig(fake, g) === false && !store.has(leagueConfigKey(g)));
+  }
+  const broken = { ...mlb, leagueId: '777', trade: { ...mlb.trade, deadline: 21 } };
+  check('an invalid config is skipped, not thrown', await recordLeagueConfig(fake, broken) === false && !store.has(leagueConfigKey(broken)));
+  check('a missing config is skipped', await recordLeagueConfig(fake, null) === false && await recordLeagueConfig(fake, undefined) === false);
+  console.warn = warn;
+}
+
+console.log('\noffline — ESPN wiring (fetch stubbed, no network)');
+{
+  const creds = { espn_s2: 'x', swid: '{00000000-0000-0000-0000-000000000000}' };
+  const entry = (abbrev, groupId, entryId, groupName) =>
+    ({ type: { type: 'x' }, metaData: { entry: { abbrev, seasonId: 2026, entryId, groups: [{ groupId, groupName }] } } });
+  const fan = { preferences: [
+    entry('FLB', 18491, 3, 'Superstars League AL'),
+    entry('FFL', 555, 7, 'Sunday League'),
+    entry('PGA', 999, 1, "Golf Pick'em"), // anything outside the five sports
+    entry('', 888, 2, 'Unlabelled'),
+  ] };
+  const nflSettings = { settings: { name: 'Sunday League', size: 10,
+    scoringSettings: { scoringType: 'H2H_POINTS', scoringItems: [{ statId: 53, points: 0.5 }] } } };
+  const mlbLeague = { ...superstars, teams: [{ id: 3, location: 'Team', nickname: 'Three', roster: { entries: [] } }] };
+  const seen = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    seen.push(u);
+    const body = u.includes('fan.api') ? fan : u.includes('/games/ffl/') ? nflSettings : mlbLeague;
+    return { ok: true, status: 200, json: async () => structuredClone(body), text: async () => '' };
+  };
+  try {
+    const { leagues } = await discoverFanLeagues(creds, 'all');
+    check('all-sport discovery tags each league with its sport',
+      leagues.length === 2 && leagues.some((l) => l.sport === 'mlb' && l.leagueId === '18491')
+        && leagues.some((l) => l.sport === 'nfl' && l.leagueId === '555'),
+      JSON.stringify(leagues.map((l) => [l.sport, l.leagueId])));
+    check('...and drops anything outside the five sports, unlabelled entries included',
+      !leagues.some((l) => ['999', '888'].includes(l.leagueId)));
+    // Single-sport mode keeps its old behaviour: an unlabelled entry is tolerated, other games are not.
+    const mlbOnly = (await discoverFanLeagues(creds, 'mlb')).leagues.map((l) => l.leagueId).sort().join(',');
+    check('single-sport discovery is unchanged', mlbOnly === '18491,888', mlbOnly);
+
+    const configs = await fetchAllLeagueConfigs(creds);
+    check('connect-time capture builds a valid config per league',
+      configs.length === 2 && configs.every((c) => validateLeagueConfig(c).length === 0));
+    check("...each read from its own sport's ESPN game, settings only",
+      configs.find((c) => c.sport === 'nfl')?.scoring.ppr === 0.5
+        && seen.some((u) => u.endsWith('/games/ffl/seasons/2026/segments/0/leagues/555?view=mSettings')));
+    check('...and none for golf', !configs.some((c) => c.leagueId === '999') && !seen.some((u) => u.includes('/leagues/999')));
+
+    const lg = await fetchLeagueRoster(creds, { leagueId: '18491', seasonId: 2026, teamId: 3 }, 'mlb');
+    check('a roster fetch carries its league config',
+      lg.leagueConfig?.sport === 'mlb' && lg.leagueConfig.trade.deadline === '2026-08-31T16:00:00.000Z'
+        && validateLeagueConfig(lg.leagueConfig).length === 0);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 }
 
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nall checks passed');

@@ -12,6 +12,7 @@
     "check:autopilot": "node scripts/check-autopilot.mjs",
     "check:espn": "node scripts/check-espn-fantasy.mjs",
     "check:league-config": "node scripts/check-league-config.mjs",
+    "check:league-dna": "node --experimental-test-module-mocks scripts/check-league-dna.mjs",
     "check:brackets": "node scripts/check-brackets.mjs cfbweek nfl bowl"
   },
   "dependencies": {

@@ -12,6 +12,7 @@
 // connected boolean and a masked SWID at most. Every caller is premium-gated.
 
 import { normName } from './golf.js';
+import { espnLeagueConfig } from './espnLeagueConfig.js';
 
 const credsKey = (userId) => `espn:creds:${userId}`;
 
@@ -176,6 +177,8 @@ const SPORTS = {
   nhl: { game: 'fhl', abbrev: 'FHL', slots: {}, positions: {}, bench: new Set([], []), slotOrder: [], teams: {} },
 };
 const sportCfg = (sport) => SPORTS[sport] || SPORTS.mlb;
+// Fan-API abbreviation → our sport key ('FFL' → 'nfl'), for discovery across every game at once.
+const SPORT_OF_ABBREV = Object.fromEntries(Object.entries(SPORTS).map(([sport, c]) => [c.abbrev, sport]));
 
 const INJURY_LABEL = {
   ACTIVE: '', NORMAL: '', QUESTIONABLE: 'Q', DOUBTFUL: 'D', OUT: 'O',
@@ -273,8 +276,12 @@ const FAN_PARAM_VARIANTS = [
 // describing what the fan API actually returned (preference count, sport abbrevs +
 // seasons seen, why entries were skipped, any transport error). No cookies or tokens
 // are included — safe to surface to the client to debug "no leagues found".
+//
+// sport 'all' keeps every league in the five ESPN games we support, each tagged with its sport, and
+// drops any entry it can't classify. In single-sport mode an unlabelled entry is still kept, as before.
 export async function discoverFanLeagues(creds, sport = 'mlb') {
-  const wantAbbrev = sportCfg(sport).abbrev;
+  const all = sport === 'all';
+  const wantAbbrev = all ? null : sportCfg(sport).abbrev;
   const diag = { ok: false, prefCount: 0, abbrevs: [], seasons: [], types: [], entryKeys: [], responseKeys: [], skipped: { abbrev: 0, ids: 0, noEntry: 0 }, kept: 0, variants: 0, error: null };
   const out = [];
   const seen = new Set();
@@ -308,18 +315,22 @@ export async function discoverFanLeagues(creds, sport = 'mlb') {
       addUnique(diag.abbrevs, abbrev || '(none)');
       addUnique(diag.seasons, e.seasonId);
       // Keep the requested sport only (all share the fan API). Tolerate a missing
-      // abbrev rather than dropping a league we can't classify.
-      if (abbrev && abbrev !== wantAbbrev) { diag.skipped.abbrev++; continue; }
+      // abbrev rather than dropping a league we can't classify — except in 'all' mode,
+      // where an unclassified entry has no sport to be recorded under.
+      const entrySport = all ? SPORT_OF_ABBREV[abbrev] : sport;
+      if (all ? !entrySport : (abbrev && abbrev !== wantAbbrev)) { diag.skipped.abbrev++; continue; }
 
       const group = (Array.isArray(e.groups) && e.groups[0]) || {};
       const leagueId = String(group.groupId ?? e.groupId ?? e.leagueId ?? '');
       const teamId = e.entryId ?? e.teamId ?? group.groupManagerTeamId;
       if (!leagueId || teamId == null) { diag.skipped.ids++; continue; }
 
-      const key = `${e.seasonId}:${leagueId}:${teamId}`;
+      // Sport in the key: in 'all' mode two games can use the same league id.
+      const key = `${entrySport}:${e.seasonId}:${leagueId}:${teamId}`;
       if (seen.has(key)) continue;
       seen.add(key);
       out.push({
+        sport: entrySport,
         leagueId,
         seasonId: e.seasonId || new Date().getFullYear(),
         teamId,
@@ -414,7 +425,7 @@ function parseRoster(entries = [], cfg = SPORTS.mlb) {
 }
 
 // Shape one league + the user's team into our result object.
-function buildLeagueResult(data, team, { leagueId, seasonId, cfg = SPORTS.mlb }) {
+function buildLeagueResult(data, team, { leagueId, seasonId, cfg = SPORTS.mlb, sport = 'mlb' }) {
   const teams = Array.isArray(data?.teams) ? data.teams : [];
   const name = (t) => `${t.location || ''} ${t.nickname || ''}`.trim() || t.name || t.abbrev || `Team ${t.id}`;
   return {
@@ -450,6 +461,10 @@ function buildLeagueResult(data, team, { leagueId, seasonId, cfg = SPORTS.mlb })
         }
       : null,
     roster: team ? parseRoster(team.roster?.entries || [], cfg) : [],
+    // Platform-neutral settings for League DNA (leagueConfig.js). Built from the mSettings view this
+    // fetch already requests, so it costs no extra ESPN call. Callers record it, then strip it before
+    // anything is sent to the browser.
+    leagueConfig: espnLeagueConfig(data, { sport, leagueId, season: seasonId }),
   };
 }
 
@@ -463,13 +478,31 @@ export async function fetchLeagueSettings(creds, { leagueId, seasonId }, sport =
   return espnGet(`${v3Read(cfg.game)}/${seasonId}/segments/0/leagues/${leagueId}?view=mSettings`, creds);
 }
 
+// Every league the account holds across the five ESPN games, as leagueConfig records: the capture
+// that runs when an account is linked. One fan call finds them all (the fan API is shared across ESPN's
+// games), then one settings-only read per league. A league that fails to load is skipped, not fatal;
+// dead cookies still throw EspnAuthError. Golf never appears: discovery only classifies the five games.
+export async function fetchAllLeagueConfigs(creds, { maxLeagues = 20 } = {}) {
+  const { leagues } = await discoverFanLeagues(creds, 'all');
+  const configs = await mapLimit(leagues.slice(0, maxLeagues), 4, async (lg) => {
+    try {
+      const data = await fetchLeagueSettings(creds, { leagueId: lg.leagueId, seasonId: lg.seasonId }, lg.sport);
+      return espnLeagueConfig(data, { sport: lg.sport, leagueId: lg.leagueId, season: lg.seasonId });
+    } catch (err) {
+      if (err instanceof EspnAuthError) throw err;
+      return null;
+    }
+  });
+  return configs.filter(Boolean);
+}
+
 // Fetch one league and pull the authoritative league name + the user's team + roster.
 export async function fetchLeagueRoster(creds, { leagueId, seasonId, teamId }, sport = 'mlb') {
   const cfg = sportCfg(sport);
   const data = await espnGet(leagueUrl(leagueId, seasonId, cfg.game), creds);
   const teams = Array.isArray(data?.teams) ? data.teams : [];
   const team = teams.find((t) => t.id === teamId) || null;
-  return buildLeagueResult(data, team, { leagueId, seasonId, cfg });
+  return buildLeagueResult(data, team, { leagueId, seasonId, cfg, sport });
 }
 
 // Fetch EVERY team + roster in a league (for the Trade Center). Marks which team is
@@ -514,7 +547,7 @@ export async function fetchLeagueByOwner(creds, { leagueId, seasonId }, sport = 
     .filter(Boolean).some((o) => String(o).toUpperCase() === mySwid);
   const team = teams.find(owns) || null;
   if (!team) { const e = new Error('SWID owns no team in this league'); e.code = 'not_a_member'; throw e; }
-  return buildLeagueResult(data, team, { leagueId, seasonId, cfg });
+  return buildLeagueResult(data, team, { leagueId, seasonId, cfg, sport });
 }
 
 // Top available free agents / waiver players in a league, sorted by % rostered (a

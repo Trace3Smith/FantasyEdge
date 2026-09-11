@@ -15,6 +15,8 @@ import {
 } from '../_lib/espnFantasy.js';
 import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
 import { parseScoringSettings } from '../_lib/espnScoring.js';
+import { recordLeagueConfig } from '../_lib/leagueConfig.js';
+import { dnaCaptureAllowed } from '../_lib/leagueDnaConsent.js';
 import { getWatch, setWatch, prospectIndex, reconcileWatch } from '../_lib/prospectWatch.js';
 
 export const maxDuration = 60;
@@ -107,6 +109,9 @@ export default async function handler(req, res) {
       if (!creds) continue;
       summary.users++;
       const prefs = await getAutopilot(redis, userId);
+      // League DNA: capture only for a user who opted in on the current notice. Autopilot being on is
+      // not consent; a user who never answered the notice is never captured here.
+      const dnaOk = await dnaCaptureAllowed(redis, userId);
       const mlbLeagues = []; // fetched MLB leagues, for background prospect call-up detection
       for (const [leagueKey, prefVal] of Object.entries(prefs)) {
         const [season, leagueId, teamId] = leagueKey.split(':');
@@ -117,6 +122,7 @@ export default async function handler(req, res) {
           if (!players) { summary.noData++; continue; } // no dataset for this sport right now
           const league = await fetchLeagueRoster(creds, { leagueId, seasonId: Number(season), teamId: Number(teamId) }, sport);
           if (sport === 'mlb') mlbLeagues.push(league);
+          if (dnaOk) await recordLeagueConfig(redis, league.leagueConfig); // League DNA: settings came with the roster read
           // Value players under this league's own ESPN scoring (auto-detected).
           const scoring = parseScoringSettings(league.scoringRaw, sport);
           // NFL bye weeks, fetched once per run and shared across leagues (public, no cookies).
