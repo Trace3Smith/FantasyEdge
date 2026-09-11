@@ -177,6 +177,10 @@
   .ap-msg.ok { color: #9bdc9e; }
   .ap-msg.err { color: #f3a1a1; }
   .ap-preview { margin: -4px 0 14px; padding: 10px 12px; border: 1px dashed rgba(255,255,255,0.18); border-radius: 8px; }
+  .mu { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 4px; font-size: 11px; line-height: 17px; white-space: nowrap; color: var(--gray-light); background: rgba(255,255,255,0.06); }
+  .mu-good { color: #9bdc9e; background: rgba(155,220,158,0.12); }
+  .mu-bad { color: #f3a1a1; background: rgba(243,161,161,0.12); }
+  .mu-bye { color: var(--gold-light); }
   .add-league summary { cursor: pointer; font-weight: 600; color: var(--gold); font-size: 14px; }
   .add-league .row { margin-top: 12px; gap: 10px; align-items: center; }
   .add-league .hint { margin-top: 10px; }
@@ -972,11 +976,27 @@
         : `<span class="sugg-tag">+${m.gain}</span>`;
       const inLine = `<b>${escapeHtml(m.in)}</b>${m.inHot ? ' 🔥' : ''} <span class="sugg-meta">${escapeHtml(m.inMeta)}</span>`;
       const body = m.out
-        ? `Start ${inLine} <span class="sugg-arrow">over</span> ${escapeHtml(m.out)} <span class="sugg-meta">${escapeHtml(m.outMeta)}</span> at <b>${escapeHtml(m.slot)}</b>`
-        : `Start ${inLine} in your open <b>${escapeHtml(m.slot)}</b> slot`;
+        ? `Start ${inLine}${renderMu(m.inMu)} <span class="sugg-arrow">over</span> ${escapeHtml(m.out)} <span class="sugg-meta">${escapeHtml(m.outMeta)}</span>${renderMu(m.outMu)} at <b>${escapeHtml(m.slot)}</b>`
+        : `Start ${inLine}${renderMu(m.inMu)} in your open <b>${escapeHtml(m.slot)}</b> slot`;
       return `<li>${tag} ${body}</li>`;
     }).join('');
     return `<div class="sugg"><div>${head}</div><ul class="sugg-list">${items}</ul></div>`;
+  }
+
+  // Matchup chip (NFL): who the player faces this league week and how good a matchup it is for his
+  // position, from the server's nflMatchupFor, the same read the AI Report uses. A rating from last
+  // season's ranks names that season; with no ranks at all it's the opponent alone, never a rating.
+  function renderMu(mu) {
+    if (!mu || currentSport !== 'nfl') return '';
+    if (mu.bye) return ' <span class="mu mu-bye">BYE</span>';
+    const vs = `${mu.isHome ? 'vs' : '@'} ${escapeHtml(mu.opp || '')}`;
+    const title = mu.reason ? ` title="${escapeHtml(mu.reason)}"` : '';
+    if (!mu.lean) return ` <span class="mu"${title}>${vs}</span>`;
+    const word = mu.lean === 'favorable' ? 'good' : mu.lean === 'tough' ? 'bad' : 'neutral';
+    const cls = mu.lean === 'favorable' ? ' mu-good' : mu.lean === 'tough' ? ' mu-bad' : '';
+    const side = mu.group === 'rush' ? 'run' : 'pass';
+    const src = mu.prior && mu.source ? ` · ${escapeHtml(String(mu.source))}` : '';
+    return ` <span class="mu${cls}"${title}>${vs} · ${word} vs ${side}${src}</span>`;
   }
 
   function renderRoster(roster) {
@@ -989,7 +1009,7 @@
       const inj = p.injury ? ` <span class="inj">${escapeHtml(p.injury)}</span>` : '';
       html += `<tr class="${p.starter ? '' : 'bench'}">
         <td><span class="${slotCls}">${escapeHtml(p.slot)}</span></td>
-        <td><span class="pname">${escapeHtml(p.name)}</span>${inj}</td>
+        <td><span class="pname">${escapeHtml(p.name)}</span>${inj}${renderMu(p.matchup)}</td>
         <td><span class="pmeta">${escapeHtml(p.pos)}${p.proTeam ? ' · ' + escapeHtml(p.proTeam) : ''}</span></td>
       </tr>`;
     }
