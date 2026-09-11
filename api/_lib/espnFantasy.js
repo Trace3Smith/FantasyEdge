@@ -456,6 +456,13 @@ function buildLeagueResult(data, team, { leagueId, seasonId, cfg = SPORTS.mlb })
 const leagueUrl = (leagueId, seasonId, game) => `${v3Read(game)}/${seasonId}/segments/0/leagues/${leagueId}`
   + `?view=mTeam&view=mRoster&view=mSettings&view=mStandings`;
 
+// Settings only (view=mSettings, no rosters) — the raw input for espnLeagueConfig.js. Light enough
+// to call once per league per season without pulling every roster along with it.
+export async function fetchLeagueSettings(creds, { leagueId, seasonId }, sport = 'mlb') {
+  const cfg = sportCfg(sport);
+  return espnGet(`${v3Read(cfg.game)}/${seasonId}/segments/0/leagues/${leagueId}?view=mSettings`, creds);
+}
+
 // Fetch one league and pull the authoritative league name + the user's team + roster.
 export async function fetchLeagueRoster(creds, { leagueId, seasonId, teamId }, sport = 'mlb') {
   const cfg = sportCfg(sport);
