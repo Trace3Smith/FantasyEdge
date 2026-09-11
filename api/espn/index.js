@@ -597,7 +597,9 @@ async function nflForm(req, res, userId) {
     if (!creds) throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
     let league;
     try {
-      league = await fetchLeagueByOwner(creds, { leagueId: String(leagueId), seasonId: Number(season) });
+      // 'nfl' is load-bearing: without it fetchLeagueByOwner defaults to MLB and asks ESPN's baseball
+      // game (flb) for this NFL league id, so a cache miss either failed or parsed a baseball league.
+      league = await fetchLeagueByOwner(creds, { leagueId: String(leagueId), seasonId: Number(season) }, 'nfl');
     } catch (err) {
       if (err instanceof EspnAuthError) throw new HttpError(409, 'ESPN cookies expired', { error: 'espn_auth', reconnect: true });
       throw err;
