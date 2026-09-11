@@ -246,6 +246,15 @@
       you log in to <a href="https://fantasy.espn.com" target="_blank" rel="noopener" style="color:var(--gold)">fantasy.espn.com</a>.
       Paste them below — they're stored securely on our server, tied only to your account, and never shown again.
     </p>
+    <!-- League DNA disclosure. Keep this in step with what leagueConfig.js actually records: league
+         SETTINGS only, with no user id attached. If rosters or transactions are ever collected too,
+         this text must say so before that ships. -->
+    <p class="hint" id="leagueDnaNote">
+      🏆 Linking also helps FantasyEdge build championship teams, yours and everyone else's. Your leagues'
+      settings (scoring format, draft setup, and waiver and trade rules) help improve the models behind
+      everyone's advice. They're stored without your name or account attached, and your cookies are never
+      part of it.
+    </p>
     <label class="fld">
       <span class="lbl"><code>espn_s2</code> cookie</span>
       <textarea class="txt" id="s2Input" rows="3" placeholder="AEB... (a long string)" autocomplete="off" spellcheck="false"></textarea>
