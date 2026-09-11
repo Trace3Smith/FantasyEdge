@@ -21,6 +21,25 @@ const STALE_DAYS = 3; // the cron runs daily; 3 days of no write is a real signa
 const ageDays = (iso) => Math.max(0, (Date.now() - Date.parse(iso)) / 86400000); // clamp: a future stamp is 'now', not negative
 const fmtAge = (d) => (d < 1 ? `${Math.round(d * 24)}h` : `${d.toFixed(1)}d`);
 
+// OFFLINE FIRST — no network. dvpMatchup used to pass rated=true unconditionally, so the builder's
+// MIN_GP guard never reached the AI Report: after one week it would call a matchup favorable/tough.
+{
+  const { dvpMatchup } = await import('../api/_lib/nflDvp.js');
+  let bad = 0;
+  const check = (n, ok) => { if (!ok) bad++; console.log(`   ${ok ? '✅' : '❌'} ${n}`); };
+  // KC's pass D is 2nd-leakiest of 32; its rush D is 2nd-stingiest.
+  const entry = { opp: { abbrev: 'KC', name: 'Chiefs' }, n: 32, oppPassDRank: 31, oppPassYdsAllowed: 280, oppRushDRank: 2, oppRushYdsAllowed: 70 };
+  console.log('offline — DvP matchup honours the rated flag');
+  check('rated: a leaky pass D reads favorable', dvpMatchup(entry, 'pass', true).lean === 'favorable');
+  check('rated: a stingy rush D reads tough', dvpMatchup(entry, 'rush', true).lean === 'tough');
+  const early = dvpMatchup(entry, 'pass', false);
+  check('unrated: the same matchup reads neutral', early.lean === 'neutral');
+  check('...and says it is too early, not "favorable"', /too early/.test(early.reason) && !/favorable|tough/i.test(early.reason));
+  check('no flag passed means unrated, never a confident call', dvpMatchup(entry, 'rush').lean === 'neutral');
+  if (bad) { console.log(`\n${bad} offline check(s) FAILED`); process.exit(1); }
+  console.log('');
+}
+
 let feed;
 try {
   const res = await fetch(URL, { signal: AbortSignal.timeout(30000) });
@@ -65,6 +84,13 @@ if (staleReason) {
 }
 if (rated && games > 0) {
   console.log(`HEALTHY — rebuilt within ${fmtAge(age)}, ${games} games aggregated across ${counts.teamsRanked ?? nTeams} teams.`);
+  process.exit(0);
+}
+if (games > 0) {
+  // Weeks 1-4: games are in, but not every team has MIN_GP yet, so ranks exist and are unrated —
+  // the synopsis reads every matchup as neutral until they are. Current and correct, not empty.
+  console.log(`RATING PENDING — rebuilt within ${fmtAge(age)}, ${games} games aggregated, but not every team`);
+  console.log(`has enough games for a favorable/tough call yet. Matchups read neutral until it does.`);
   process.exit(0);
 }
 console.log(`EMPTY BUT CURRENT — written ${fmtAge(age)} ago with no completed games to aggregate.`);

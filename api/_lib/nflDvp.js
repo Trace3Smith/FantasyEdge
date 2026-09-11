@@ -182,18 +182,24 @@ export async function buildNflDvp({ season, seasontype = 2, maxWeek = MAX_WEEK, 
 }
 
 // Phrase an opponent's DvP for a given position group. `group` is 'pass' (WR/TE/QB) or 'rush' (RB).
-// Returns { lean, reason } or null when not rated. Pure — used by the synopsis def.
-export function dvpMatchup(entry, group) {
+// `rated` is the PAYLOAD's flag (every team has MIN_GP games). Returns { lean, reason } or null. Pure.
+//
+// This used to pass `rated=true` to dvpLeanFor unconditionally, so the MIN_GP guard the builder
+// computes was never applied where DvP is actually shown: a week-2 AI Report would have called a
+// matchup "favorable" or "tough" off a single game. It now defaults to NOT rated, so a caller that
+// forgets the flag gets a neutral, sample-size-honest line rather than a confident call.
+export function dvpMatchup(entry, group, rated = false) {
   if (!entry || entry.n == null) return null;
   const rank = group === 'rush' ? entry.oppRushDRank : entry.oppPassDRank;
   const yds = group === 'rush' ? entry.oppRushYdsAllowed : entry.oppPassYdsAllowed;
   const n = entry.n;
-  const lean = dvpLeanFor(rank, n, true);
+  const lean = dvpLeanFor(rank, n, rated);
   const oppName = entry.opp?.name || entry.opp?.abbrev || 'the opponent';
   const kind = group === 'rush' ? 'rush defense' : 'pass defense';
   const yUnit = group === 'rush' ? 'rush yds' : 'pass yds';
   let reason;
-  if (lean === 'favorable') reason = `Favorable matchup — ${oppName} have a bottom-tier ${kind}, allowing the ${ord(n - rank + 1)}-most ${yUnit}/game (${yds}).`;
+  if (!rated) reason = `Faces ${oppName}'s ${kind} — too early in the season to rate it (defense ranks settle after ${MIN_GP} games).`;
+  else if (lean === 'favorable') reason = `Favorable matchup — ${oppName} have a bottom-tier ${kind}, allowing the ${ord(n - rank + 1)}-most ${yUnit}/game (${yds}).`;
   else if (lean === 'tough') reason = `Tough matchup — ${oppName} have a top ${kind}, ${ord(rank)}-fewest ${yUnit}/game allowed (${yds}).`;
   else reason = `Faces ${oppName}'s ${kind} (${ord(rank)} of ${n}, ${yds} ${yUnit}/game allowed).`;
   return { lean, reason, rank, yds, group };

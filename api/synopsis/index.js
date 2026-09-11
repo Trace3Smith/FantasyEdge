@@ -78,7 +78,7 @@ export default async function handler(req, res) {
       if (group) {
         const d = await redis.get(NFL_DVP_KEY);
         const entry = d?.teams?.[player.team];
-        const mu = entry ? dvpMatchup(entry, group) : null;
+        const mu = entry ? dvpMatchup(entry, group, !!d?.rated) : null; // unrated early season → neutral
         if (mu) ctx.nflDvp = { ...mu, opp: entry.opp?.abbrev || null, isHome: !!entry.isHome };
       }
     }
