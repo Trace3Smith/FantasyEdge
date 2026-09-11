@@ -37,15 +37,17 @@ const TRADE_SPORTS = new Set(['mlb', 'wnba', 'nfl', 'nba', 'nhl']);
 //   AUTOPILOT_SPORTS — the same write, made unattended by the daily cron.
 // Others show rosters only.
 //
-// NFL has suggestions, the dry-run and the one-tap write, switched on after a dry-run was checked
-// against a real ESPN NFL team. NOT YET autopilot: that waits for one manual apply to actually land.
+// NFL has the full engine: the write was switched on after a dry-run was checked against a real
+// ESPN NFL team, and autopilot after a manual apply landed correctly on that team. The cron runs
+// once a day (13:00 UTC, 9am ET), ahead of the Thursday, Sunday and Monday kickoffs, so it sees
+// injury status as of that morning, not inactives announced ~90 minutes before kickoff.
 // deferIl is still PROVISIONAL pending the per-player lock model (NFL locks per player across
 // Thu/Sun/Mon): a player ESPN's roster read flags as locked is pinned by the engine, and one it
 // doesn't flag is caught by ESPN's 409, which setLineup drops and reports as skippedLocked. A 409
 // it cannot attribute to a named player aborts the whole write, and ESPN applies nothing partial.
 const ENGINE_SPORTS = new Set(['mlb', 'wnba', 'nfl']);
 const WRITE_SPORTS = new Set(['mlb', 'wnba', 'nfl']);
-const AUTOPILOT_SPORTS = new Set(['mlb', 'wnba']);
+export const AUTOPILOT_SPORTS = new Set(['mlb', 'wnba', 'nfl']); // each needs a cron dataset — see check:autopilot
 
 // A bye is not an injury: a healthy player on bye scores nothing and must not start, but must
 // never be sent to IR for it (see suggestLineup). The cron has always passed this; the request
