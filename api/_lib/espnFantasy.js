@@ -482,9 +482,12 @@ export async function fetchLeagueSettings(creds, { leagueId, seasonId }, sport =
 // that runs when an account is linked. One fan call finds them all (the fan API is shared across ESPN's
 // games), then one settings-only read per league. A league that fails to load is skipped, not fatal;
 // dead cookies still throw EspnAuthError. Golf never appears: discovery only classifies the five games.
-export async function fetchAllLeagueConfigs(creds, { maxLeagues = 20 } = {}) {
+// `skip(lg)` drops a discovered league before its settings are read; the daily sweep uses it so a
+// league shared by several opted-in users is fetched once per run.
+export async function fetchAllLeagueConfigs(creds, { maxLeagues = 20, skip = null } = {}) {
   const { leagues } = await discoverFanLeagues(creds, 'all');
-  const configs = await mapLimit(leagues.slice(0, maxLeagues), 4, async (lg) => {
+  const todo = (skip ? leagues.filter((lg) => !skip(lg)) : leagues).slice(0, maxLeagues);
+  const configs = await mapLimit(todo, 4, async (lg) => {
     try {
       const data = await fetchLeagueSettings(creds, { leagueId: lg.leagueId, seasonId: lg.seasonId }, lg.sport);
       return espnLeagueConfig(data, { sport: lg.sport, leagueId: lg.leagueId, season: lg.seasonId });

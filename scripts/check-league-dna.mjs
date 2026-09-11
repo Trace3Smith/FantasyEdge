@@ -181,5 +181,96 @@ console.log('\noffline — the Autopilot cron captures for opted-in users only')
   check('...and not the league of a user who never answered', !captured('existing'));
 }
 
+console.log('\noffline — the daily sweep, run by the Autopilot cron');
+{
+  const { SWEEP_CURSOR_KEY } = await import(lib('leagueDnaSweep.js'));
+  // Fresh accounts, answered directly in the store (not via dnaChoice, which captures straight away), so
+  // only the sweep can have captured them. Two share a league, to show it's read once per run.
+  Object.assign(U, {
+    sweepA:       { swid: hex('1'), league: '701' },
+    sweepShared:  { swid: hex('2'), league: '701' },
+    sweepB:       { swid: hex('3'), league: '702' },
+    sweepStale:   { swid: hex('4'), league: '703' }, // still in the set, but answered an older notice
+    sweepExpired: { swid: hex('5'), league: '704' }, // opted in; cookies have since expired
+  });
+  if (!sets.has(DNA_USERS)) sets.set(DNA_USERS, new Set());
+  for (const name of ['sweepA', 'sweepShared', 'sweepB', 'sweepStale', 'sweepExpired']) {
+    linked(name);
+    const version = name === 'sweepStale' ? DNA_NOTICE_VERSION - 1 : DNA_NOTICE_VERSION;
+    store.set(`espn:dna:ack:${name}`, { version, include: true, via: 'notice', at: '2026-09-01T00:00:00.000Z' });
+    sets.get(DNA_USERS).add(name);
+  }
+  // Autopilot is on for the expired account, but it isn't in today's lineup run: the sweep must leave it be.
+  const expiredPrefs = { '2026:704:1': { sport: 'mlb' } };
+  store.set('espn:autopilot:sweepExpired', expiredPrefs);
+  const stub = globalThis.fetch;
+  globalThis.fetch = async (url, opts = {}) => ((opts.headers?.Cookie || '').includes(`SWID=${U.sweepExpired.swid}`)
+    ? { ok: false, status: 401, json: async () => ({}), text: async () => '' }
+    : stub(url, opts));
+  const mark = espnCalls.length;
+
+  const r = await call(cron, { headers: { authorization: 'Bearer offline-cron' } });
+  globalThis.fetch = stub;
+  const sw = r.body?.summary?.sweep || {};
+  const calls = espnCalls.slice(mark);
+  check('the cron runs the sweep and reports it', r.statusCode === 200 && typeof sw.visited === 'number', JSON.stringify(sw));
+  check("opted-in users' leagues are captured", captured('sweepA') && captured('sweepB'));
+  check('a user whose answer predates the current notice is skipped, though still in the set',
+    !captured('sweepStale') && sw.skippedConsent === 1 && !calls.some((c) => c.user === 'sweepStale'));
+  check('ESPN discovery runs only for users on the opted-in list',
+    calls.filter((c) => c.u.includes('fan.api')).every((c) => sets.get(DNA_USERS).has(c.user) && c.user !== 'sweepStale'),
+    calls.filter((c) => c.u.includes('fan.api')).map((c) => c.user).join(', '));
+  const reads701 = calls.filter((c) => c.u.includes('/leagues/701?view=mSettings'));
+  check("a shared league's settings are read once per run", reads701.length === 1, reads701.map((c) => c.user).join(', '));
+  check('expired cookies are skipped quietly: counted, nothing else changed',
+    sw.expired === 1 && ack('sweepExpired')?.include === true && inSweepList('sweepExpired')
+      && store.has('espn:creds:sweepExpired')
+      && JSON.stringify(store.get('espn:autopilot:sweepExpired')) === JSON.stringify(expiredPrefs));
+  check('the lineup run is unaffected', r.body?.summary?.users === 2 && r.body.summary.errors === 0, JSON.stringify(r.body?.summary));
+  check('a full pass resets the cursor to the top', sw.complete === true && store.get(SWEEP_CURSOR_KEY)?.after === null);
+}
+
+console.log("\noffline — the sweep's time budget and cursor");
+{
+  const { sweepLeagueConfigs, SWEEP_CURSOR_KEY } = await import(lib('leagueDnaSweep.js'));
+  // A small separate Redis: five opted-in users with cookies.
+  const mk = () => {
+    const kv = new Map();
+    const members = new Set();
+    const r = {
+      get: async (k) => (kv.has(k) ? structuredClone(kv.get(k)) : null),
+      set: async (k, v) => { kv.set(k, structuredClone(v)); return 'OK'; },
+      smembers: async () => [...members],
+    };
+    for (const id of ['u1', 'u2', 'u3', 'u4', 'u5']) {
+      members.add(id);
+      kv.set(`espn:dna:ack:${id}`, { version: DNA_NOTICE_VERSION, include: true, via: 'notice' });
+      kv.set(`espn:creds:${id}`, { espn_s2: 's2', swid: `{${id}}` });
+    }
+    return { r, kv };
+  };
+
+  // A fake clock where each user's ESPN work costs 7s, against a 20s budget.
+  let t = 0;
+  const visits = [];
+  const fetchConfigs = async (creds) => { visits.push(creds.swid); t += 7000; return []; };
+  const { r, kv } = mk();
+  const run = () => sweepLeagueConfigs(r, { deadline: t + 20000, now: () => t, fetchConfigs });
+
+  const s1 = await run();
+  check('a run stops starting users once under 6s remain', s1.visited === 3 && visits.join() === '{u1},{u2},{u3}', visits.join());
+  check('...and saves where it stopped', kv.get(SWEEP_CURSOR_KEY)?.after === 'u3' && s1.complete === false);
+  visits.length = 0;
+  await run();
+  check('the next run resumes after it, wrapping round to the top', visits.join() === '{u4},{u5},{u1}', visits.join());
+
+  // A user whose ESPN work is still running at the deadline is abandoned, and the cursor doesn't pass them.
+  const { r: r2, kv: kv2 } = mk();
+  kv2.set(SWEEP_CURSOR_KEY, { after: 'u2' });
+  const s3 = await sweepLeagueConfigs(r2, { deadline: Date.now() + 60, minUserMs: 10, fetchConfigs: () => new Promise(() => {}) });
+  check('a user still running at the deadline is abandoned', s3.timedOut === 1 && s3.visited === 0, JSON.stringify(s3));
+  check("...and the cursor stays put, so they're first next run", kv2.get(SWEEP_CURSOR_KEY)?.after === 'u2');
+}
+
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nall checks passed');
 process.exit(failed ? 1 : 0);

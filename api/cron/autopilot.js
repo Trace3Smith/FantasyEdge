@@ -17,6 +17,7 @@ import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
 import { parseScoringSettings } from '../_lib/espnScoring.js';
 import { recordLeagueConfig } from '../_lib/leagueConfig.js';
 import { dnaCaptureAllowed } from '../_lib/leagueDnaConsent.js';
+import { sweepLeagueConfigs } from '../_lib/leagueDnaSweep.js';
 import { getWatch, setWatch, prospectIndex, reconcileWatch } from '../_lib/prospectWatch.js';
 
 export const maxDuration = 60;
@@ -61,6 +62,7 @@ export default async function handler(req, res) {
   if (!secret || req.headers.authorization !== `Bearer ${secret}`) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
+  const started = Date.now(); // the League DNA sweep's budget is measured from here
 
   // `applied`/`optimal`/`expired`/`errors`/`noData`/`callUps` keep their existing meanings (leagues);
   // the move-level fields below are additive so existing log readers are unaffected.
@@ -157,6 +159,15 @@ export default async function handler(req, res) {
           }
         } catch { /* monitoring is best-effort */ }
       }
+    }
+
+    // League DNA daily sweep, after the lineup work, with what's left of the run: at most 20s, and
+    // finished by 50s in, inside maxDuration. It reads only opted-in users, re-checking each against the
+    // current notice. It can never change the lineup result above: a failure is reported, not thrown.
+    try {
+      summary.sweep = await sweepLeagueConfigs(redis, { deadline: Math.min(started + 50000, Date.now() + 20000) });
+    } catch (err) {
+      summary.sweep = { error: String(err.message || err) };
     }
     return res.json({ ok: true, summary });
   } catch (err) {
