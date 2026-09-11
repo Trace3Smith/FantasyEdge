@@ -10,13 +10,14 @@
 //   action: 'disconnect' -> delete stored cookies; { connected: false }
 //   action: 'leagues'    -> { leagues: [...] } with rosters
 import { requirePremium, sendError, HttpError } from '../_lib/auth.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY } from '../_lib/kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, NFL_DVP_KEY, nflDvpPriorKey } from '../_lib/kv.js';
+import { nflMatchupFor } from '../_lib/nflDvp.js';
 import {
   normalizeS2, normalizeSwid, isValidSwid, saveCreds, getCreds, deleteCreds,
   fetchFanLeagues, fetchLeaguesWithRosters, fetchLeagueRoster, fetchLeagueByOwner, fetchLeagueAllTeams, fetchFreeAgents, setLineup,
   getAutopilot, setAutopilotLeague, leagueKeyOf,
   getManualLeagues, addManualLeague, removeManualLeague,
-  maskSwid, credsShape, EspnAuthError, fetchNflByes, slotLabel,
+  maskSwid, credsShape, EspnAuthError, fetchNflByes, fetchNflSchedule, slotLabel,
 } from '../_lib/espnFantasy.js';
 import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
 import { parseScoringSettings, scoringKey, categoryRanks } from '../_lib/espnScoring.js';
@@ -315,6 +316,11 @@ async function leagues(req, res, userId) {
     } catch { /* manual merge is optional */ }
   }
 
+  // NFL's pro schedule, fetched once for the whole response: it supplies both the bye weeks the engine
+  // needs and each player's opponent for the matchup chips below. Empty maps (never guessed) on failure.
+  const nflSchedule = sport === 'nfl'
+    ? await fetchNflSchedule(Number(result.leagues?.[0]?.season) || undefined).catch(() => null) : null;
+
   // Full engine for MLB (roto z) + WNBA (H2H Points): start/sit + IL/IR + waiver
   // suggestions and the autopilot toggle state. Each reads its own cached dataset and
   // valuation. Other sports show leagues + rosters only.
@@ -326,7 +332,7 @@ async function leagues(req, res, userId) {
         // Leagues on default scoring share one cached index; each detected custom
         // weighting builds its own (keyed by weight signature).
         // One bye lookup for every league in the response; null for non-NFL sports.
-        const byes = await byeWeeksFor(sport, result.leagues?.[0]?.season);
+        const byes = nflSchedule ? nflSchedule.byes : await byeWeeksFor(sport, result.leagues?.[0]?.season);
         const idxCache = new Map();
         const indexFor = (w) => {
           const sig = w ? JSON.stringify(w) : 'default';
@@ -399,6 +405,32 @@ async function leagues(req, res, userId) {
         }
       } catch { /* toggle state is optional */ }
     }
+  }
+
+  // Matchup chips (NFL): who each rostered player faces THIS league week, and good/neutral/bad from DvP.
+  // nflMatchupFor is the same helper the AI Report uses, so the two can't disagree. Keyed on the league's
+  // own scoringPeriodId and each player's proTeamId, not the scoreboard's "current week" or a name.
+  if (nflSchedule) {
+    try {
+      const season = Number(result.leagues?.[0]?.season) || null;
+      const [current, prior] = await Promise.all([
+        redis.get(NFL_DVP_KEY).catch(() => null),
+        season ? redis.get(nflDvpPriorKey(season - 1)).catch(() => null) : null,
+      ]);
+      for (const lg of (result.leagues || [])) {
+        if (!lg || !Array.isArray(lg.roster)) continue;
+        const byName = new Map();
+        for (const rp of lg.roster) {
+          rp.matchup = nflMatchupFor({ pos: rp.pos, proTeamId: rp.proTeamId, week: lg.scoringPeriodId, season, schedule: nflSchedule, current, prior });
+          byName.set(rp.name, rp.matchup);
+        }
+        // Both sides of each start/sit move. (Waiver/drop moves reuse `drop` for other meanings; untouched.)
+        for (const m of (lg.suggestions?.moves || [])) {
+          if (typeof m.in === 'string') m.inMu = byName.get(m.in) || null;
+          if (typeof m.out === 'string') m.outMu = byName.get(m.out) || null;
+        }
+      }
+    } catch { /* chips are optional */ }
   }
 
   // Don't ship ESPN's raw scoring blob or the standings stat totals to the client (we've
