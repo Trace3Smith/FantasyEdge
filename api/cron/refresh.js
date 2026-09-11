@@ -26,7 +26,7 @@ import { buildNflPickem } from '../_lib/nflPickem.js';
 import { buildCfbBowl } from '../_lib/cfbBowl.js';
 import { buildCfbWeek } from '../_lib/cfbWeek.js';
 import { buildMarchMadness } from '../_lib/marchMadness.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NHL_MATCHUP_KEY, NBA_MATCHUP_KEY, WNBA_MATCHUP_KEY, NFL_DVP_KEY, DATASET_VERSION } from '../_lib/kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NHL_MATCHUP_KEY, NBA_MATCHUP_KEY, WNBA_MATCHUP_KEY, NFL_DVP_KEY, nflDvpPriorKey, DATASET_VERSION } from '../_lib/kv.js';
 
 // Per-league day-of matchup keys for the basketball leagues (built in the secondary loop below).
 const HOOPS_MATCHUP_KEY = { nba: NBA_MATCHUP_KEY, wnba: WNBA_MATCHUP_KEY };
@@ -206,13 +206,33 @@ export default async function handler(req, res) {
           // (ESPN has no ready-made pass/rush yards-allowed splits). Stored under its own key. A weekly
           // freshness guard (pass the cached payload as prev) skips the ~272-fetch rebuild on days the NFL
           // week hasn't advanced. Empty out of season. Additive + failure-tolerant.
+          let dvpSeason = null;
           try {
             const prev = await redis.get(NFL_DVP_KEY);
             const dvp = await buildNflDvp({ prev });
             await redis.set(NFL_DVP_KEY, dvp);
+            dvpSeason = Number(dvp.season) || null;
             built.counts = { ...built.counts, nflDvp: dvp.counts, dvpReused: !!dvp.reusedAt };
           } catch (err) {
             built.counts = { ...built.counts, nflDvpError: err.message };
+          }
+          // LAST season's final DvP ranks: the labelled fallback that the matchup chips and the AI Report
+          // use until this season's are rated (MIN_GP games per team, ~week 5). A finished season never
+          // changes, so it's built once and kept. Only a COMPLETE build is stored: a partial season would
+          // skew every rank, and the next run simply tries again.
+          if (dvpSeason) {
+            try {
+              const pk = nflDvpPriorKey(dvpSeason - 1);
+              const have = await redis.get(pk);
+              if (!have?.rated) {
+                const p = await buildNflDvp({ season: dvpSeason - 1, seasontype: 2 });
+                const complete = !!p.rated && (p.counts?.teamsRanked || 0) === 32 && (p.counts?.games || 0) >= 256;
+                if (complete) await redis.set(pk, { season: p.season, builtAt: p.builtAt, rated: true, counts: p.counts, dvp: p.dvp });
+                built.counts = { ...built.counts, nflDvpPrior: { season: dvpSeason - 1, stored: complete, games: p.counts?.games || 0 } };
+              }
+            } catch (err) {
+              built.counts = { ...built.counts, nflDvpPriorError: err.message };
+            }
           }
         }
         built.version = DATASET_VERSION; // keep cache in sync with the handler's check

@@ -11,14 +11,13 @@
 import { requirePremium, sendError } from '../_lib/auth.js';
 import {
   redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY,
-  BVP_KEY, NHL_MATCHUP_KEY, NBA_MATCHUP_KEY, WNBA_MATCHUP_KEY, NFL_DVP_KEY,
+  BVP_KEY, NHL_MATCHUP_KEY, NBA_MATCHUP_KEY, WNBA_MATCHUP_KEY, NFL_DVP_KEY, nflDvpPriorKey,
 } from '../_lib/kv.js';
-import { dvpMatchup } from '../_lib/nflDvp.js';
+import { nflMatchupFor, nflNextWeek, espnAbbrev, DVP_GROUP } from '../_lib/nflDvp.js';
+import { fetchNflSchedule } from '../_lib/espnFantasy.js';
 
 // Per-league day-of matchup keys for the basketball leagues.
 const HOOPS_MATCHUP_KEY = { nba: NBA_MATCHUP_KEY, wnba: WNBA_MATCHUP_KEY };
-// NFL position → defense-vs-position group: RBs care about rush D, WR/TE/QB about pass D.
-const NFL_DVP_GROUP = { RB: 'rush', WR: 'pass', TE: 'pass', QB: 'pass' };
 import { getPlayerSynopsis } from '../_lib/playerSynopsis.js';
 
 // Same sport -> dataset-key map the Coach uses, so the synopsis reads exactly what the rankings show.
@@ -70,16 +69,20 @@ export default async function handler(req, res) {
     }
 
     const ctx = { builtAt: dataset?.builtAt || null, bvp: null, nhlMatchup: null, hoopsMatchup: null, nflDvp: null, posRank };
-    if (sport === 'nfl') {
-      // Position-relevant defense-vs-position for this week's opponent (in-season only — the DvP payload is
-      // empty out of season, so this naturally doesn't fire in the offseason draft framing). Phrased here
-      // because the pass-vs-rush split depends on the player's position; the def just renders it.
-      const group = NFL_DVP_GROUP[(player.pos || '').toUpperCase()];
-      if (group) {
-        const d = await redis.get(NFL_DVP_KEY);
-        const entry = d?.teams?.[player.team];
-        const mu = entry ? dvpMatchup(entry, group, !!d?.rated) : null; // unrated early season → neutral
-        if (mu) ctx.nflDvp = { ...mu, opp: entry.opp?.abbrev || null, isHome: !!entry.isHome };
+    if (sport === 'nfl' && DVP_GROUP[(player.pos || '').toUpperCase()]) {
+      // This week's opponent and how good a matchup it is, from nflMatchupFor: the SAME helper behind Team
+      // Manager's matchup chips, so the AI Report and the roster can't disagree. "This week" is the team's
+      // next game if it's within 12 days (nflNextWeek), so nothing fires in the offseason draft framing.
+      // This season's ranks once rated, last season's (labelled in the reason) before that.
+      const d = await redis.get(NFL_DVP_KEY).catch(() => null);
+      const season = Number(d?.season) || new Date().getFullYear();
+      const schedule = await fetchNflSchedule(season);
+      const teamId = schedule.idOf.get(espnAbbrev(player.team));
+      const week = nflNextWeek(schedule, teamId);
+      if (week) {
+        const prior = await redis.get(nflDvpPriorKey(season - 1)).catch(() => null);
+        const mu = nflMatchupFor({ pos: player.pos, proTeamId: teamId, week, season, schedule, current: d, prior });
+        if (mu && mu.reason) ctx.nflDvp = { lean: mu.lean || 'neutral', reason: mu.reason, opp: mu.opp, isHome: mu.isHome };
       }
     }
     if (sport === 'mlb') {

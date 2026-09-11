@@ -110,6 +110,10 @@ export const WNBA_MATCHUP_KEY = 'matchup:wnba';
 // Empty out of season. Shape: { season, week, builtAt, rated, teams: { [abbrev]: { opp, isHome,
 // oppPassYdsAllowed, oppPassDRank, oppRushYdsAllowed, oppRushDRank, n } }, dvp: {…ranks table…} }.
 export const NFL_DVP_KEY = 'matchup:nfl-dvp';
+// LAST season's final DvP ranks: the labelled early-season fallback (Team Manager matchup chips and the
+// AI Report) until this season's ranks are rated. A finished season never changes, so the cron builds it
+// once (a full season of box scores, ~3s) and keeps it. Shape: { season, builtAt, rated, counts, dvp }.
+export const nflDvpPriorKey = (season) => `matchup:nfl-dvp:${season}`;
 // Player-synopsis cache (Phase 0). One record per (sport, player): { fp, text, generatedAt, model }.
 // Generated on demand and invalidated by a signal FINGERPRINT, so a player's report regenerates only
 // when the inputs that matter (rank tier, form, projection, matchup, …) actually change — keeping
