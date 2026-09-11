@@ -36,6 +36,43 @@ const fmtAge = (d) => (d < 1 ? `${Math.round(d * 24)}h` : `${d.toFixed(1)}d`);
   check('unrated: the same matchup reads neutral', early.lean === 'neutral');
   check('...and says it is too early, not "favorable"', /too early/.test(early.reason) && !/favorable|tough/i.test(early.reason));
   check('no flag passed means unrated, never a confident call', dvpMatchup(entry, 'rush').lean === 'neutral');
+
+  // nflMatchupFor: the one helper behind Team Manager's matchup chips and the AI Report.
+  console.log('offline — matchup chips: opponent, rating, and how it degrades');
+  const { nflMatchupFor, nflNextWeek, espnAbbrev } = await import('../api/_lib/nflDvp.js');
+  // BUF hosts KC in week 1; KC is on bye in week 5. KC's pass D is the 2nd-leakiest of 32, its rush D 2nd-best.
+  const sched = {
+    byes: new Map([[12, 5], [2, 7]]),
+    abbrev: new Map([[2, 'BUF'], [12, 'KC']]), idOf: new Map([['BUF', 2], ['KC', 12]]),
+    games: new Map([[2, new Map([[1, { oppId: 12, isHome: true, date: 0 }]])], [12, new Map([[1, { oppId: 2, isHome: false, date: 0 }]])]]),
+  };
+  const table = (season, rated) => ({ season, rated, dvp: {
+    KC: { passDRank: 31, passAllowed: 262.4, rushDRank: 2, rushAllowed: 81.3 },
+    ...Object.fromEntries(Array.from({ length: 31 }, (_, i) => [`T${i}`, { passDRank: 1, rushDRank: 1 }])) } });
+  const mu = (o) => nflMatchupFor({ proTeamId: 2, week: 1, season: 2026, schedule: sched, ...o });
+  let m = mu({ pos: 'WR', current: table(2026, true) });
+  check('WR vs a bottom pass D rates favorable, from this season', m.opp === 'KC' && m.isHome && m.lean === 'favorable' && m.source === 2026 && !m.prior);
+  check('RB vs a top-2 run D rates tough', mu({ pos: 'RB', current: table(2026, true) }).lean === 'tough');
+  m = mu({ pos: 'WR', current: table(2026, false), prior: table(2025, true) });
+  check('unrated this season falls back to last season, labelled', m.lean === 'favorable' && m.prior && m.source === 2025 && /based on 2025/.test(m.reason));
+  m = mu({ pos: 'WR', current: table(2026, false), prior: null });
+  check('...and with no prior: the opponent alone, no rating', m.opp === 'KC' && m.lean === null && /too early/.test(m.reason));
+  check('a prior from the wrong season is not used', mu({ pos: 'WR', current: null, prior: table(2024, true) }).lean === null);
+  check('this season, once rated, beats the prior', mu({ pos: 'WR', current: table(2026, true), prior: table(2025, true) }).prior === false);
+  m = mu({ pos: 'K', current: table(2026, true) });
+  check('K / D/ST get the opponent, never a DvP rating', m.opp === 'KC' && m.lean === null && m.group === null);
+  check('a bye week says bye', nflMatchupFor({ pos: 'WR', proTeamId: 12, week: 5, schedule: sched })?.bye === true);
+  check('an unknown team or a week the schedule lacks is null, not a guess',
+    nflMatchupFor({ pos: 'WR', proTeamId: 99, week: 1, schedule: sched }) === null
+    && nflMatchupFor({ pos: 'WR', proTeamId: 2, week: 3, schedule: sched }) === null
+    && nflMatchupFor({ pos: 'WR', proTeamId: 2, week: 1, schedule: null }) === null);
+  check("the dataset's WAS maps to ESPN's WSH", espnAbbrev('WAS') === 'WSH' && espnAbbrev('KC') === 'KC');
+  // nflNextWeek: the AI Report's "this week", from game times, never the scoreboard's week number.
+  const now = Date.UTC(2026, 8, 12), day = 86400e3;
+  const s2 = { games: new Map([[2, new Map([[1, { date: now - 2 * day }], [2, { date: now + 3 * day }]])], [12, new Map([[1, { date: now + 20 * day }]])], [7, new Map([[1, { date: now - 3600e3 }]])]]) };
+  check('next week is the next unfinished game', nflNextWeek(s2, 2, now) === 2);
+  check('a game in progress is still this week', nflNextWeek(s2, 7, now) === 1);
+  check('a next game weeks away (preseason) gives no matchup', nflNextWeek(s2, 12, now) === null);
   if (bad) { console.log(`\n${bad} offline check(s) FAILED`); process.exit(1); }
   console.log('');
 }

@@ -340,17 +340,38 @@ export async function discoverFanLeagues(creds, sport = 'mlb') {
 const PRO_SCHEDULE_URL = (season) =>
   `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${season}?view=proTeamSchedules_wl`;
 
-export async function fetchNflByes(season = new Date().getFullYear()) {
-  const out = new Map();
+// The full pro schedule from the same public feed: per team, per scoring period, who they play. Keyed by
+// ESPN proTeamId, the id every roster entry carries, so no name matching. Verified live for 2026: all 32
+// teams carry a full 17-game schedule. Everything is empty on failure, never guessed: callers read a
+// missing team or week as UNKNOWN.
+//   { byes: Map<teamId, week>, games: Map<teamId, Map<week, { oppId, isHome, date }>>,
+//     abbrev: Map<teamId, 'KC'>, idOf: Map<'KC', teamId> }
+export async function fetchNflSchedule(season = new Date().getFullYear()) {
+  const out = { byes: new Map(), games: new Map(), abbrev: new Map(), idOf: new Map() };
   try {
     const res = await fetch(PRO_SCHEDULE_URL(season), { headers: { 'User-Agent': UA, Accept: 'application/json' }, signal: AbortSignal.timeout(20000) });
     if (!res.ok) return out;
     const j = await res.json();
     for (const t of (j?.settings?.proTeams || [])) {
-      if (t?.id != null && t?.byeWeek) out.set(Number(t.id), Number(t.byeWeek));
+      const id = Number(t?.id);
+      if (!id) continue; // id 0 is ESPN's free-agent pseudo-team
+      if (t.abbrev) { out.abbrev.set(id, t.abbrev); out.idOf.set(t.abbrev, id); }
+      if (t.byeWeek) out.byes.set(id, Number(t.byeWeek));
+      const weeks = new Map();
+      for (const [per, gs] of Object.entries(t.proGamesByScoringPeriod || {})) {
+        const g = Array.isArray(gs) ? gs[0] : null;
+        if (!g) continue;
+        const home = Number(g.homeProTeamId) === id;
+        weeks.set(Number(per), { oppId: Number(home ? g.awayProTeamId : g.homeProTeamId), isHome: home, date: g.date ?? null });
+      }
+      out.games.set(id, weeks);
     }
-  } catch { /* no byes this run — callers treat an empty map as "unknown", never as "no bye" */ }
+  } catch { /* nothing this run — callers treat empty maps as "unknown", never as "no bye" / "no game" */ }
   return out;
+}
+
+export async function fetchNflByes(season = new Date().getFullYear()) {
+  return (await fetchNflSchedule(season)).byes;
 }
 
 // --- roster fetch (v3 league API) ------------------------------------------------------------

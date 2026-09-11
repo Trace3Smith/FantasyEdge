@@ -204,3 +204,73 @@ export function dvpMatchup(entry, group, rated = false) {
   else reason = `Faces ${oppName}'s ${kind} (${ord(rank)} of ${n}, ${yds} ${yUnit}/game allowed).`;
   return { lean, reason, rank, yds, group };
 }
+
+// ---- Matchup for one player: ONE helper behind Team Manager's chips and the AI Report ------------------
+// Both surfaces call nflMatchupFor, so they can never disagree about a matchup.
+
+export const DVP_GROUP = { RB: 'rush', WR: 'pass', TE: 'pass', QB: 'pass' };
+
+// The NFL dataset mixes feeds, and some rows tag Washington 'WAS' where ESPN says 'WSH' (both seen live
+// in the dataset), so those players silently never matched a DvP entry. Normalise before any ESPN lookup.
+const ESPN_ABBREV = { WAS: 'WSH', JAC: 'JAX', LA: 'LAR' };
+export const espnAbbrev = (ab) => (ab ? (ESPN_ABBREV[ab] || ab) : ab);
+
+// Who a player faces in `week` and how good a matchup that is for his position. Ranks come from THIS
+// season's DvP once it is rated (every team has MIN_GP games); before that from LAST season's final ranks,
+// flagged `prior` and named by `source` season; with neither, the opponent alone and no lean. Never a
+// rating from nothing. Returns null when the schedule doesn't know the team or the week (feed failed,
+// unknown id): no chip beats a guessed one. `schedule` is fetchNflSchedule's shape. Pure.
+//   { bye: true }
+//   { opp, isHome, lean: 'favorable'|'tough'|'neutral'|null, group, rank, n, source, prior, reason }
+export function nflMatchupFor({ pos, proTeamId, week, season = null, schedule, current = null, prior = null }) {
+  const id = Number(proTeamId), wk = Number(week);
+  if (!schedule || !id || !wk) return null;
+  const games = schedule.games?.get(id);
+  if (!games || !games.size) return null;
+  const g = games.get(wk);
+  if (!g) return schedule.byes?.get(id) === wk ? { bye: true } : null;
+  const opp = schedule.abbrev?.get(g.oppId) || null;
+  if (!opp) return null;
+  const out = { opp, isHome: !!g.isHome, lean: null, group: null, rank: null, n: null, source: null, prior: false, reason: null };
+  const group = DVP_GROUP[String(pos || '').toUpperCase()];
+  if (!group) return out; // K, D/ST, IDP: DvP has no split for them, so the opponent alone
+  out.group = group;
+  const kind = group === 'rush' ? 'rush defense' : 'pass defense';
+  const usable = (d, s) => !!(d && d.rated && d.dvp && d.dvp[opp] && (s == null || Number(d.season) === Number(s)));
+  let table = null;
+  if (usable(current, season)) table = current;
+  else if (usable(prior, season != null ? Number(season) - 1 : null)) { table = prior; out.prior = true; }
+  if (!table) {
+    out.reason = `Faces ${opp}'s ${kind} — too early in the season to rate it (defense ranks settle after ${MIN_GP} games).`;
+    return out;
+  }
+  const r = table.dvp[opp];
+  const n = Object.keys(table.dvp).length;
+  const rank = group === 'rush' ? r.rushDRank : r.passDRank;
+  const yds = group === 'rush' ? r.rushAllowed : r.passAllowed;
+  const unit = group === 'rush' ? 'rush yds' : 'pass yds';
+  Object.assign(out, { lean: dvpLeanFor(rank, n, true), rank, n, source: Number(table.season) || null });
+  const basis = out.prior ? ` — based on ${out.source} (this season's ranks settle after ${MIN_GP} games)` : '';
+  if (out.lean === 'favorable') out.reason = `Favorable matchup — ${opp} allowed the ${ord(n - rank + 1)}-most ${unit}/game (${yds})${basis}.`;
+  else if (out.lean === 'tough') out.reason = `Tough matchup — ${opp} allowed the ${ord(rank)}-fewest ${unit}/game (${yds})${basis}.`;
+  else out.reason = `Faces ${opp}'s ${kind} (${ord(rank)} of ${n}, ${yds} ${unit}/game)${basis}.`;
+  return out;
+}
+
+// "This week" for a surface with no league week (the AI Report): the team's next game that hasn't
+// finished, if it's within NEXT_GAME_DAYS. Kickoff up to ~5h ago counts as in progress. 12 days covers
+// the longest normal gap between games (Thursday night, then the next week's Monday night: ~11 days), so
+// a TNF team isn't left blank for days; a bye or the preseason puts the next game further out: no matchup.
+// The DvP payload's scoreboard week can't stand in: in preseason it's a PRESEASON week number, which maps
+// to the wrong regular-season opponent. Pure (pass `now` to test).
+const NEXT_GAME_DAYS = 12;
+export function nflNextWeek(schedule, teamId, now = Date.now()) {
+  const games = schedule?.games?.get(Number(teamId));
+  if (!games) return null;
+  let best = null;
+  for (const [wk, g] of games) {
+    if (!g?.date || g.date < now - 5 * 3600e3) continue;
+    if (!best || g.date < best.date) best = { wk, date: g.date };
+  }
+  return best && best.date - now <= NEXT_GAME_DAYS * 86400e3 ? best.wk : null;
+}
