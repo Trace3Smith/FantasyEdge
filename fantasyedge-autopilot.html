@@ -248,13 +248,20 @@
     </p>
     <!-- League DNA disclosure. Keep this in step with what leagueConfig.js actually records: league
          SETTINGS only, with no user id attached. If rosters or transactions are ever collected too,
-         this text must say so before that ships. -->
+         this text must say so before that ships, and DNA_NOTICE_VERSION must be bumped (here and in
+         api/_lib/leagueDnaConsent.js) so everyone is asked again. The one-time notice for
+         already-linked users copies this text, so it's the only copy. -->
     <p class="hint" id="leagueDnaNote">
       🏆 Linking also helps FantasyEdge build championship teams, yours and everyone else's. Your leagues'
       settings (scoring format, draft setup, and waiver and trade rules) help improve the models behind
       everyone's advice. They're stored without your name or account attached, and your cookies are never
-      part of it.
+      part of it. You can opt out now or at any time. Opting out stops future collection; settings already
+      saved stay, because they aren't linked to you.
     </p>
+    <label class="hint" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+      <input type="checkbox" id="dnaInclude" checked>
+      <span>Include my leagues' settings</span>
+    </label>
     <label class="fld">
       <span class="lbl"><code>espn_s2</code> cookie</span>
       <textarea class="txt" id="s2Input" rows="3" placeholder="AEB... (a long string)" autocomplete="off" spellcheck="false"></textarea>
@@ -274,6 +281,19 @@
 
   <!-- Connected state (premium, connected) -->
   <div id="connectedWrap" class="hidden">
+    <!-- League DNA one-time notice, for linked users who haven't answered the current notice (they
+         linked before it existed, or before its current version). The text is copied in from the
+         connect panel's #leagueDnaNote so there's one copy. Nothing is captured until they answer. -->
+    <div class="panel hidden" id="dnaNoticePanel" style="border-color:rgba(212,160,23,0.4)">
+      <h2>Your leagues can help build championship teams</h2>
+      <p class="hint" id="dnaNoticeText"></p>
+      <div class="row">
+        <button class="btn btn-gold" id="dnaYesBtn">Got it</button>
+        <button class="btn btn-ghost" id="dnaNoBtn">Don't include my leagues</button>
+      </div>
+      <div class="msg" id="dnaNoticeMsg"></div>
+    </div>
+
     <div class="panel">
       <div class="leagues-head">
         <div>
@@ -288,6 +308,8 @@
           <button class="btn btn-ghost" id="disconnectBtn">Disconnect</button>
         </div>
       </div>
+      <!-- League DNA: the answer, and a way to change it, once the notice has been answered. -->
+      <div class="hint" id="dnaSetting" style="margin:10px 0 0"></div>
       <div class="msg" id="leaguesMsg"></div>
     </div>
 
@@ -390,6 +412,7 @@
       show('connectPanel', false);
       show('connectedWrap', true);
       $('connInfo').innerHTML = connInfoHtml(data.swid, data.savedAt);
+      renderDna(data.dnaNotice);
       renderSportBar();
       selectSport(currentSport); // loads the active sport's leagues, or shows 'Coming {month}'
     } else {
@@ -398,6 +421,41 @@
       $('reconnectNote').classList.add('hidden'); // first-time connect, not a reconnect
     }
   }
+
+  // ---- League DNA notice ------------------------------------------------------------
+  // Must match DNA_NOTICE_VERSION in api/_lib/leagueDnaConsent.js. The server records a choice only
+  // when it was made on the version it considers current, so a stale cached page never counts.
+  const DNA_NOTICE_VERSION = 1;
+
+  // A linked user who hasn't answered the current notice gets it once, at the top of the page.
+  // Everyone who has answered gets a one-line setting to change it. Nothing is captured until
+  // they answer.
+  function renderDna(st) {
+    const needed = !!(st && st.needed);
+    $('dnaNoticeText').innerHTML = $('leagueDnaNote').innerHTML; // the same disclosure as the connect panel
+    show('dnaNoticePanel', needed);
+    const line = $('dnaSetting');
+    if (!st || needed) { line.innerHTML = ''; return; }
+    line.innerHTML = st.include
+      ? `🏆 Your leagues' settings help improve FantasyEdge's models. <button class="btn-mini" id="dnaToggle">Stop including them</button>`
+      : `Your leagues' settings aren't included in FantasyEdge's models. <button class="btn-mini" id="dnaToggle">Include them</button>`;
+    $('dnaToggle').addEventListener('click', () => sendDnaChoice(!st.include, 'settings'));
+  }
+
+  async function sendDnaChoice(include, via) {
+    const btns = ['dnaYesBtn', 'dnaNoBtn', 'dnaToggle'].map((id) => $(id)).filter(Boolean);
+    btns.forEach((b) => { b.disabled = true; });
+    setMsg('dnaNoticeMsg', '');
+    const { ok, data } = await api('/api/espn', { action: 'dnaChoice', version: DNA_NOTICE_VERSION, include, via });
+    btns.forEach((b) => { b.disabled = false; });
+    if (ok) { renderDna(data.dnaNotice); return; }
+    const m = data && data.error === 'stale_notice'
+      ? 'This notice has been updated. Reload the page to see the latest version.'
+      : 'Couldn\'t save that. Try again in a moment.';
+    setMsg(via === 'notice' ? 'dnaNoticeMsg' : 'leaguesMsg', m, 'err');
+  }
+  $('dnaYesBtn').addEventListener('click', () => sendDnaChoice(true, 'notice'));
+  $('dnaNoBtn').addEventListener('click', () => sendDnaChoice(false, 'notice'));
 
   function fmtDate(iso) {
     const d = new Date(iso);
@@ -448,7 +506,9 @@
     $('connectBtn').disabled = true;
     $('connectBtn').textContent = 'Verifying with ESPN…';
     setMsg('connectMsg', '');
-    const { ok, status, data } = await api('/api/espn', { action: 'connect', espn_s2, swid });
+    // League DNA: send the notice version this panel displayed, and the include box's state.
+    const dnaNotice = { version: DNA_NOTICE_VERSION, include: $('dnaInclude').checked };
+    const { ok, status, data } = await api('/api/espn', { action: 'connect', espn_s2, swid, dnaNotice });
     $('connectBtn').disabled = false;
     $('connectBtn').textContent = 'Connect ESPN';
     if (ok) {

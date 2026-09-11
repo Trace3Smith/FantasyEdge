@@ -20,6 +20,9 @@ import {
   maskSwid, credsShape, EspnAuthError, fetchNflByes, fetchNflSchedule, slotLabel, fetchAllLeagueConfigs,
 } from '../_lib/espnFantasy.js';
 import { recordLeagueConfig } from '../_lib/leagueConfig.js';
+import {
+  DNA_NOTICE_VERSION, dnaNoticeStatus, getDnaConsent, recordDnaChoice, clearDnaConsent, dnaCaptureAllowed,
+} from '../_lib/leagueDnaConsent.js';
 import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
 import { parseScoringSettings, scoringKey, categoryRanks } from '../_lib/espnScoring.js';
 import { getWatch, setWatch, prospectIndex, reconcileWatch, applyWatchOp } from '../_lib/prospectWatch.js';
@@ -218,6 +221,7 @@ export default async function handler(req, res) {
       case 'status':     return await status(res, userId);
       case 'connect':    return await connect(req, res, userId);
       case 'disconnect': return await disconnect(res, userId);
+      case 'dnaChoice':  return await dnaChoice(req, res, userId);
       case 'leagues':    return await leagues(req, res, userId);
       case 'apply':      return await applyLineup(req, res, userId);
       case 'nflForm':    return await nflForm(req, res, userId);
@@ -243,7 +247,21 @@ async function status(res, userId) {
     connected: !!creds,
     swid: creds ? maskSwid(creds.swid) : null,
     savedAt: creds?.savedAt || null,
+    // League DNA notice state, so a linked user who hasn't answered the current notice is asked once.
+    dnaNotice: creds ? dnaNoticeStatus(await getDnaConsent(redis, userId).catch(() => null)) : null,
   });
+}
+
+// League DNA: record the settings of every league this account holds, across all five sports.
+// Best-effort and capped at 8s: the caller's real work is already done, and this can neither fail it
+// nor hold it up past the cap. CALLERS MUST HAVE CHECKED CONSENT FIRST.
+async function captureAllLeagues(creds) {
+  const capture = fetchAllLeagueConfigs(creds)
+    .then((cfgs) => Promise.all(cfgs.map((c) => recordLeagueConfig(redis, c))))
+    .catch(() => {});
+  let timer;
+  await Promise.race([capture, new Promise((r) => { timer = setTimeout(r, 8000); })]);
+  clearTimeout(timer);
 }
 
 // Connect an ESPN account: verify the pasted cookies against ESPN BEFORE persisting,
@@ -273,15 +291,14 @@ async function connect(req, res, userId) {
 
   await saveCreds(redis, userId, creds);
 
-  // League DNA: when an account is linked, record the settings of every league it holds across all
-  // five sports, not only the sport the user opens first. Best-effort and capped at 8s. The link has
-  // already succeeded by this point, and this can neither fail it nor hold it up past the cap.
-  const capture = fetchAllLeagueConfigs(creds)
-    .then((cfgs) => Promise.all(cfgs.map((c) => recordLeagueConfig(redis, c))))
-    .catch(() => {});
-  let timer;
-  await Promise.race([capture, new Promise((r) => { timer = setTimeout(r, 8000); })]);
-  clearTimeout(timer);
+  // League DNA: the connect panel shows the notice with an include box, and sends the notice version
+  // it displayed. Only a choice made on the current notice is recorded, and only an opt-in captures.
+  // A missing or stale one (an old cached page) records nothing, so the one-time notice asks later.
+  const n = req.body?.dnaNotice;
+  const choice = n && typeof n === 'object'
+    ? await recordDnaChoice(redis, userId, { version: Number(n.version), include: n.include, via: 'connect' }).catch(() => null)
+    : null;
+  if (choice?.include) await captureAllLeagues(creds);
 
   return res.json({ connected: true, swid: maskSwid(swid), leagueCount: leaguesFound.length });
 }
@@ -289,7 +306,24 @@ async function connect(req, res, userId) {
 // Disconnect — delete the user's stored cookies from Redis.
 async function disconnect(res, userId) {
   await deleteCreds(redis, userId);
+  // League DNA: stop future capture and forget the choice; a re-link shows the notice again. Configs
+  // already saved stay: they carry no user id, so nothing ties them back to this account.
+  await clearDnaConsent(redis, userId).catch(() => {});
   return res.json({ connected: false });
+}
+
+// League DNA answer, from the one-time notice (via 'notice') or the connected view's setting
+// ('settings'). Body: { version, include, via }. An answer to a stale notice version is refused and
+// recorded nowhere. Opting in captures every linked league straight away, as linking does. Opting out
+// stops future capture; configs already saved stay, as on disconnect.
+async function dnaChoice(req, res, userId) {
+  const creds = await getCreds(redis, userId);
+  if (!creds) throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
+  const via = req.body?.via === 'settings' ? 'settings' : 'notice';
+  const rec = await recordDnaChoice(redis, userId, { version: Number(req.body?.version), include: req.body?.include, via });
+  if (!rec) throw new HttpError(400, 'That notice is out of date', { error: 'stale_notice', version: DNA_NOTICE_VERSION });
+  if (rec.include) await captureAllLeagues(creds);
+  return res.json({ dnaNotice: dnaNoticeStatus(rec) });
 }
 
 // Pull the user's ESPN fantasy-baseball leagues and current rosters.
@@ -330,9 +364,12 @@ async function leagues(req, res, userId) {
     } catch { /* manual merge is optional */ }
   }
 
-  // League DNA: record each fetched league's settings. The roster read already asked ESPN for them
-  // (view=mSettings), so this is one Redis write per league and no extra ESPN call. Never throws.
-  await Promise.all((result.leagues || []).map((lg) => (lg?.leagueConfig ? recordLeagueConfig(redis, lg.leagueConfig) : null)));
+  // League DNA: record each fetched league's settings, only for a user who opted in on the current
+  // notice. The roster read already asked ESPN for them (view=mSettings), so this is one Redis write per
+  // league and no extra ESPN call. Never throws.
+  if (await dnaCaptureAllowed(redis, userId)) {
+    await Promise.all((result.leagues || []).map((lg) => (lg?.leagueConfig ? recordLeagueConfig(redis, lg.leagueConfig) : null)));
+  }
 
   // NFL's pro schedule, fetched once for the whole response: it supplies both the bye weeks the engine
   // needs and each player's opponent for the matchup chips below. Empty maps (never guessed) on failure.
