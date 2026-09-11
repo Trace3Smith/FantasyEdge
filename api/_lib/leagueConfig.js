@@ -27,6 +27,10 @@
 export const LEAGUE_CONFIG_VERSION = 1;
 
 export const PLATFORMS = new Set(['espn', 'yahoo', 'sleeper']);
+// The sports League DNA learns from: the draft-and-roster games. Golf is deliberately absent and must
+// stay that way. Its pick'em/tournament format has no draft or roster construction for the model to
+// learn from, so no golf league is ever validated or recorded, whichever path tries. This gates only
+// the config write; golf works normally everywhere else in the app.
 export const SPORTS = new Set(['nfl', 'mlb', 'nba', 'wnba', 'nhl']);
 export const SCORING_FORMATS = new Set([
   'h2h_points', 'h2h_categories', 'h2h_most_categories', 'roto', 'season_points',
@@ -100,4 +104,20 @@ export async function getLeagueConfig(redis, ids) {
   const cfg = await redis.get(leagueConfigKey(ids));
   if (!cfg || cfg.schemaVersion !== LEAGUE_CONFIG_VERSION) return null;
   return cfg;
+}
+
+// Best-effort write for the request and cron paths, which record a config because they happened to
+// fetch the league for something else. Never throws: saving league settings must not break the page
+// or the lineup run that carried them. Anything outside SPORTS (golf) is refused before validation
+// runs. An invalid config is logged, so an adapter bug still shows up, and skipped. Returns whether
+// it was written.
+export async function recordLeagueConfig(redis, cfg) {
+  if (!cfg || !SPORTS.has(cfg.sport)) return false;
+  try {
+    await saveLeagueConfig(redis, cfg);
+    return true;
+  } catch (err) {
+    console.warn(`[leagueConfig] not recorded ${cfg.platform}:${cfg.sport}:${cfg.leagueId}: ${err.message || err}`);
+    return false;
+  }
 }

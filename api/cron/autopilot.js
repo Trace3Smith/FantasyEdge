@@ -15,6 +15,7 @@ import {
 } from '../_lib/espnFantasy.js';
 import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
 import { parseScoringSettings } from '../_lib/espnScoring.js';
+import { recordLeagueConfig } from '../_lib/leagueConfig.js';
 import { getWatch, setWatch, prospectIndex, reconcileWatch } from '../_lib/prospectWatch.js';
 
 export const maxDuration = 60;
@@ -117,6 +118,7 @@ export default async function handler(req, res) {
           if (!players) { summary.noData++; continue; } // no dataset for this sport right now
           const league = await fetchLeagueRoster(creds, { leagueId, seasonId: Number(season), teamId: Number(teamId) }, sport);
           if (sport === 'mlb') mlbLeagues.push(league);
+          await recordLeagueConfig(redis, league.leagueConfig); // League DNA: the settings came with the roster read
           // Value players under this league's own ESPN scoring (auto-detected).
           const scoring = parseScoringSettings(league.scoringRaw, sport);
           // NFL bye weeks, fetched once per run and shared across leagues (public, no cookies).

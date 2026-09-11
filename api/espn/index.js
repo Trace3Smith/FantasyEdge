@@ -17,8 +17,9 @@ import {
   fetchFanLeagues, fetchLeaguesWithRosters, fetchLeagueRoster, fetchLeagueByOwner, fetchLeagueAllTeams, fetchFreeAgents, setLineup,
   getAutopilot, setAutopilotLeague, leagueKeyOf,
   getManualLeagues, addManualLeague, removeManualLeague,
-  maskSwid, credsShape, EspnAuthError, fetchNflByes, fetchNflSchedule, slotLabel,
+  maskSwid, credsShape, EspnAuthError, fetchNflByes, fetchNflSchedule, slotLabel, fetchAllLeagueConfigs,
 } from '../_lib/espnFantasy.js';
+import { recordLeagueConfig } from '../_lib/leagueConfig.js';
 import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
 import { parseScoringSettings, scoringKey, categoryRanks } from '../_lib/espnScoring.js';
 import { getWatch, setWatch, prospectIndex, reconcileWatch, applyWatchOp } from '../_lib/prospectWatch.js';
@@ -271,6 +272,17 @@ async function connect(req, res, userId) {
   }
 
   await saveCreds(redis, userId, creds);
+
+  // League DNA: when an account is linked, record the settings of every league it holds across all
+  // five sports, not only the sport the user opens first. Best-effort and capped at 8s. The link has
+  // already succeeded by this point, and this can neither fail it nor hold it up past the cap.
+  const capture = fetchAllLeagueConfigs(creds)
+    .then((cfgs) => Promise.all(cfgs.map((c) => recordLeagueConfig(redis, c))))
+    .catch(() => {});
+  let timer;
+  await Promise.race([capture, new Promise((r) => { timer = setTimeout(r, 8000); })]);
+  clearTimeout(timer);
+
   return res.json({ connected: true, swid: maskSwid(swid), leagueCount: leaguesFound.length });
 }
 
@@ -317,6 +329,10 @@ async function leagues(req, res, userId) {
       }
     } catch { /* manual merge is optional */ }
   }
+
+  // League DNA: record each fetched league's settings. The roster read already asked ESPN for them
+  // (view=mSettings), so this is one Redis write per league and no extra ESPN call. Never throws.
+  await Promise.all((result.leagues || []).map((lg) => (lg?.leagueConfig ? recordLeagueConfig(redis, lg.leagueConfig) : null)));
 
   // NFL's pro schedule, fetched once for the whole response: it supplies both the bye weeks the engine
   // needs and each player's opponent for the matchup chips below. Empty maps (never guessed) on failure.
@@ -437,7 +453,8 @@ async function leagues(req, res, userId) {
 
   // Don't ship ESPN's raw scoring blob or the standings stat totals to the client (we've
   // already translated the parts we use into lg.scoring / the suggestions); keep it lean.
-  for (const lg of (result.leagues || [])) if (lg) { delete lg.scoringRaw; delete lg.standings; }
+  // leagueConfig was recorded above and is server-side data, so it isn't sent either.
+  for (const lg of (result.leagues || [])) if (lg) { delete lg.scoringRaw; delete lg.standings; delete lg.leagueConfig; }
 
   // Surface (non-sensitive) cred shape for debugging "connected but no leagues".
   if (result.diag) result.diag.creds = credsShape(creds);
