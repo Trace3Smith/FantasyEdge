@@ -6,8 +6,9 @@
 // timestamp and -1 → null assertions pin what ESPN actually sent, not what we assumed it sends.
 //
 // Usage:  npm run check:league-config      Exit: 0 clean · 1 a check failed
+import { readFileSync } from 'node:fs';
 import {
-  leagueConfigKey, validateLeagueConfig, saveLeagueConfig, getLeagueConfig, recordLeagueConfig, isoFromMs, LEAGUE_CONFIG_VERSION,
+  leagueConfigKey, validateLeagueConfig, saveLeagueConfig, getLeagueConfig, recordLeagueConfig, isoFromMs, LEAGUE_CONFIG_VERSION, SPORTS,
 } from '../api/_lib/leagueConfig.js';
 import { espnLeagueConfig, espnScoringFormat, espnPpr } from '../api/_lib/espnLeagueConfig.js';
 import { discoverFanLeagues, fetchLeagueRoster, fetchAllLeagueConfigs } from '../api/_lib/espnFantasy.js';
@@ -105,6 +106,87 @@ console.log('\noffline — scoring format and the NFL-only ppr field');
     validateLeagueConfig(ffl).join('; '));
 }
 
+console.log('\noffline — every sport, pinned to a real ESPN payload');
+{
+  // One captured mSettings response per sport, in scripts/fixtures/league-settings/ (see the README
+  // there). These exist so no sport is ever assumed to map the way its neighbours do — the assumption
+  // behind #99, where nflForm read ESPN's baseball game for an NFL league.
+  //
+  // Expected values below are what the capture actually returned, not what the schema permits. If a
+  // league's settings are changed on ESPN, the right fix is to re-capture and update BOTH, not to
+  // loosen the assertion.
+  const raw = (f) => JSON.parse(readFileSync(new URL(`./fixtures/league-settings/${f}.json`, import.meta.url)));
+  const REAL = [
+    { f: 'nfl-1437029-2026', sport: 'nfl', leagueId: '1437029', season: 2026,
+      name: 'Florida Georgia Line', teams: 10, format: 'h2h_points', formatRaw: 'H2H_POINTS', ppr: 1,
+      draftAt: '2026-09-06T23:30:00.000Z', order: 'draft_start', perPick: 90, deadline: null, veto: 4 },
+    { f: 'mlb-18363-2026', sport: 'mlb', leagueId: '18363', season: 2026,
+      name: 'Superstars League- NL', teams: 12, format: 'roto', formatRaw: 'ROTO', ppr: null,
+      draftAt: '2026-03-25T00:00:00.000Z', order: 'manual', perPick: 60, deadline: '2026-08-31T16:00:00.000Z', veto: 4 },
+    { f: 'nba-117597-2027', sport: 'nba', leagueId: '117597', season: 2027,
+      name: 'Superstars League', teams: 12, format: 'roto', formatRaw: 'ROTO', ppr: null,
+      draftAt: '2026-10-15T01:00:00.000Z', order: 'manual', perPick: 60, deadline: '2027-03-08T17:00:00.000Z', veto: 3 },
+    { f: 'wnba-649986145-2026', sport: 'wnba', leagueId: '649986145', season: 2026,
+      name: 'Welcome to the W', teams: 8, format: 'h2h_points', formatRaw: 'H2H_POINTS', ppr: null,
+      draftAt: '2026-05-05T00:30:00.000Z', order: 'draft_start', perPick: 60, deadline: '2026-08-03T16:00:00.000Z', veto: 3 },
+    { f: 'nhl-28525-2027', sport: 'nhl', leagueId: '28525', season: 2027,
+      name: 'Superstars League', teams: 12, format: 'roto', formatRaw: 'ROTO', ppr: null,
+      draftAt: '2026-09-25T01:00:00.000Z', order: 'manual', perPick: 60, deadline: '2027-02-26T17:00:00.000Z', veto: 3 },
+  ];
+
+  check('every sport League DNA records has a real payload behind it',
+    REAL.length === SPORTS.size && REAL.every((r) => SPORTS.has(r.sport)),
+    `fixtures ${REAL.map((r) => r.sport).sort().join(',')} vs SPORTS ${[...SPORTS].sort().join(',')}`);
+
+  for (const r of REAL) {
+    const cfg = espnLeagueConfig(raw(r.f), { sport: r.sport, leagueId: r.leagueId, season: r.season, fetchedAt: FETCHED });
+    const errs = validateLeagueConfig(cfg);
+    const d = cfg.draft, a = cfg.acquisition, t = cfg.trade;
+    check(`${r.sport}: validates`, errs.length === 0, errs.join('; '));
+    check(`${r.sport}: name and team count`, cfg.name === r.name && cfg.teamCount === r.teams,
+      `${cfg.name} / ${cfg.teamCount}`);
+    check(`${r.sport}: scoring ${r.format}`, cfg.scoring.format === r.format && cfg.scoring.formatRaw === r.formatRaw,
+      `${cfg.scoring.format} (${cfg.scoring.formatRaw})`);
+    check(`${r.sport}: ppr ${r.ppr}`, cfg.scoring.ppr === r.ppr, String(cfg.scoring.ppr));
+    check(`${r.sport}: draft ${r.order} at ${r.draftAt}`,
+      d.type === 'snake' && d.orderType === r.order && d.date === r.draftAt && d.secondsPerPick === r.perPick,
+      `${d.type}/${d.orderType}/${d.date}/${d.secondsPerPick}`);
+    check(`${r.sport}: trade deadline ${r.deadline}`, t.deadline === r.deadline && t.vetoVotesRequired === r.veto,
+      `${t.deadline} veto ${t.vetoVotesRequired}`);
+    check(`${r.sport}: -1 limits read as unlimited`, a.limit === null && t.limit === null,
+      `acq ${a.limit} trade ${t.limit}`);
+    check(`${r.sport}: traditional waivers, no FAAB budget`, a.system === 'waivers' && a.budget === null,
+      `${a.system} budget ${a.budget}`);
+  }
+
+  // The single most valuable thing these payloads proved. ESPN ships a non-zero acquisitionBudget on
+  // leagues that do not use FAAB at all — four of these five carry 100 next to
+  // isUsingAcquisitionBudget: false. Reading acquisitionBudget directly, as an adapter reasonably
+  // might, would invent a $100 FAAB league four times over. The budget FLAG is what decides.
+  const stale = REAL.filter((r) => raw(r.f).settings.acquisitionSettings.acquisitionBudget > 0);
+  check('a budget ESPN sends but the league does not use never becomes FAAB',
+    stale.length === 4 && stale.every((r) => {
+      const a = espnLeagueConfig(raw(r.f), { sport: r.sport, leagueId: r.leagueId, season: r.season, fetchedAt: FETCHED }).acquisition;
+      return a.system === 'waivers' && a.budget === null;
+    }), `${stale.length} leagues carry an unused budget`);
+
+  // NFL omits tradeSettings.deadlineDate entirely rather than sending 0 — the key is simply absent.
+  // null therefore means "ESPN did not say", not "there is no deadline", and nothing downstream may
+  // read it as the latter.
+  const nflRaw = raw('nfl-1437029-2026').settings.tradeSettings;
+  check('an absent NFL trade deadline is null, not a date',
+    !('deadlineDate' in nflRaw) && espnLeagueConfig(raw('nfl-1437029-2026'),
+      { sport: 'nfl', leagueId: '1437029', season: 2026, fetchedAt: FETCHED }).trade.deadline === null);
+
+  // Cheap standing guard on the promise the v2 consent notice makes. view=mSettings carried no member
+  // names or ids at capture time; anything captured from the draft or transaction views will not be
+  // clean this way and must be scrubbed before it is committed beside these.
+  const ident = /"(displayName|firstName|lastName|memberId|owners|userProfileId|email)"|\{[0-9A-F]{8}-[0-9A-F]{4}-/i;
+  const dirty = REAL.filter((r) => ident.test(readFileSync(new URL(`./fixtures/league-settings/${r.f}.json`, import.meta.url), 'utf8')));
+  check('no committed payload carries a member name, member id or SWID', dirty.length === 0,
+    dirty.map((r) => r.f).join(', '));
+}
+
 console.log('\noffline — acquisition system');
 {
   const acq = (a) => espnLeagueConfig({ settings: { acquisitionSettings: a } },
@@ -165,6 +247,7 @@ console.log('\noffline — ESPN wiring (fetch stubbed, no network)');
   const fan = { preferences: [
     entry('FLB', 18491, 3, 'Superstars League AL'),
     entry('FFL', 555, 7, 'Sunday League'),
+    entry('FHL', 777, 4, 'Ice League'),
     entry('PGA', 999, 1, "Golf Pick'em"), // anything outside the five sports
     entry('', 888, 2, 'Unlabelled'),
   ] };
@@ -182,8 +265,9 @@ console.log('\noffline — ESPN wiring (fetch stubbed, no network)');
   try {
     const { leagues } = await discoverFanLeagues(creds, 'all');
     check('all-sport discovery tags each league with its sport',
-      leagues.length === 2 && leagues.some((l) => l.sport === 'mlb' && l.leagueId === '18491')
-        && leagues.some((l) => l.sport === 'nfl' && l.leagueId === '555'),
+      leagues.length === 3 && leagues.some((l) => l.sport === 'mlb' && l.leagueId === '18491')
+        && leagues.some((l) => l.sport === 'nfl' && l.leagueId === '555')
+        && leagues.some((l) => l.sport === 'nhl' && l.leagueId === '777'),
       JSON.stringify(leagues.map((l) => [l.sport, l.leagueId])));
     check('...and drops anything outside the five sports, unlabelled entries included',
       !leagues.some((l) => ['999', '888'].includes(l.leagueId)));
@@ -193,11 +277,14 @@ console.log('\noffline — ESPN wiring (fetch stubbed, no network)');
 
     const configs = await fetchAllLeagueConfigs(creds);
     check('connect-time capture builds a valid config per league',
-      configs.length === 2 && configs.every((c) => validateLeagueConfig(c).length === 0));
+      configs.length === 3 && configs.every((c) => validateLeagueConfig(c).length === 0));
     check("...each read from its own sport's ESPN game, settings only",
       configs.find((c) => c.sport === 'nfl')?.scoring.ppr === 0.5
         && seen.some((u) => u.endsWith('/games/ffl/seasons/2026/segments/0/leagues/555?view=mSettings')));
     check('...and none for golf', !configs.some((c) => c.leagueId === '999') && !seen.some((u) => u.includes('/leagues/999')));
+    check('...including the NHL league, from the hockey game',
+      configs.some((c) => c.sport === 'nhl' && c.leagueId === '777')
+        && seen.some((u) => u.endsWith('/games/fhl/seasons/2026/segments/0/leagues/777?view=mSettings')));
 
     const lg = await fetchLeagueRoster(creds, { leagueId: '18491', seasonId: 2026, teamId: 3 }, 'mlb');
     check('a roster fetch carries its league config',

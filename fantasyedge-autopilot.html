@@ -246,21 +246,38 @@
       you log in to <a href="https://fantasy.espn.com" target="_blank" rel="noopener" style="color:var(--gold)">fantasy.espn.com</a>.
       Paste them below — they're stored securely on our server, tied only to your account, and never shown again.
     </p>
-    <!-- League DNA disclosure. Keep this in step with what leagueConfig.js actually records: league
-         SETTINGS only, with no user id attached. If rosters or transactions are ever collected too,
-         this text must say so before that ships, and DNA_NOTICE_VERSION must be bumped (here and in
-         api/_lib/leagueDnaConsent.js) so everyone is asked again. The one-time notice for
-         already-linked users copies this text, so it's the only copy. -->
-    <p class="hint" id="leagueDnaNote">
-      🏆 Linking also helps FantasyEdge build championship teams, yours and everyone else's. Your leagues'
-      settings (scoring format, draft setup, and waiver and trade rules) help improve the models behind
-      everyone's advice. They're stored without your name or account attached, and your cookies are never
-      part of it. You can opt out now or at any time. Opting out stops future collection; settings already
-      saved stay, because they aren't linked to you.
-    </p>
+    <!-- League DNA disclosure. Keep this in step with what League DNA actually records. v2 covers the
+         whole league, not just the linked user's team: every team's draft picks, trades and outcomes
+         alongside the settings. Two promises here are load-bearing on the implementation, not just on
+         this copy — (a) what's stored is the TEAM, never the person: no ESPN display names, no member
+         ids, nothing tied to a FantasyEdge account, so the adapter must drop them at capture rather
+         than merely not show them; (b) a league is recorded once ANY member opts in, which is why the
+         last paragraph says so plainly. If what's collected changes again, this text says so BEFORE it
+         ships and DNA_NOTICE_VERSION is bumped (here and in api/_lib/leagueDnaConsent.js) so everyone
+         is asked again. The one-time notice for already-linked users copies this text, so it's the
+         only copy — a div, not a p, because it holds paragraphs. -->
+    <div class="hint" id="leagueDnaNote">
+      <p style="margin:0 0 8px">
+        🏆 Linking also helps FantasyEdge build championship teams, yours and everyone else's. With this
+        on, we record how your leagues are actually played: the league's settings (scoring format, draft
+        setup, waiver and trade rules), every team's draft picks, trades and waiver moves, and how each
+        team's season turned out — not just yours. Comparing a whole league, winners against losers, is
+        what teaches the models which roster moves really work.
+      </p>
+      <p style="margin:0 0 8px">
+        That includes your leaguemates' teams, and they haven't been asked. So we keep the team, never
+        the person: no ESPN display names, no member ids, nothing tied to your FantasyEdge account. Your
+        cookies are never part of it.
+      </p>
+      <p style="margin:0">
+        You can opt out now or at any time. Opting out means we stop using your connection to read your
+        leagues — though a league can still be recorded if another member has this on, because what's
+        stored describes the league, not you. Anything already saved stays, for the same reason.
+      </p>
+    </div>
     <label class="hint" style="display:flex;align-items:center;gap:8px;cursor:pointer">
       <input type="checkbox" id="dnaInclude" checked>
-      <span>Include my leagues' settings</span>
+      <span>Include my leagues</span>
     </label>
     <label class="fld">
       <span class="lbl"><code>espn_s2</code> cookie</span>
@@ -286,7 +303,7 @@
          connect panel's #leagueDnaNote so there's one copy. Nothing is captured until they answer. -->
     <div class="panel hidden" id="dnaNoticePanel" style="border-color:rgba(212,160,23,0.4)">
       <h2>Your leagues can help build championship teams</h2>
-      <p class="hint" id="dnaNoticeText"></p>
+      <div class="hint" id="dnaNoticeText"></div>
       <div class="row">
         <button class="btn btn-gold" id="dnaYesBtn">Got it</button>
         <button class="btn btn-ghost" id="dnaNoBtn">Don't include my leagues</button>
@@ -425,7 +442,7 @@
   // ---- League DNA notice ------------------------------------------------------------
   // Must match DNA_NOTICE_VERSION in api/_lib/leagueDnaConsent.js. The server records a choice only
   // when it was made on the version it considers current, so a stale cached page never counts.
-  const DNA_NOTICE_VERSION = 1;
+  const DNA_NOTICE_VERSION = 2;
 
   // A linked user who hasn't answered the current notice gets it once, at the top of the page.
   // Everyone who has answered gets a one-line setting to change it. Nothing is captured until
@@ -437,8 +454,8 @@
     const line = $('dnaSetting');
     if (!st || needed) { line.innerHTML = ''; return; }
     line.innerHTML = st.include
-      ? `🏆 Your leagues' settings help improve FantasyEdge's models. <button class="btn-mini" id="dnaToggle">Stop including them</button>`
-      : `Your leagues' settings aren't included in FantasyEdge's models. <button class="btn-mini" id="dnaToggle">Include them</button>`;
+      ? `🏆 Your leagues help improve FantasyEdge's models — settings, draft picks, trades and results, for every team. <button class="btn-mini" id="dnaToggle">Stop including them</button>`
+      : `Your leagues aren't included in FantasyEdge's models. <button class="btn-mini" id="dnaToggle">Include them</button>`;
     $('dnaToggle').addEventListener('click', () => sendDnaChoice(!st.include, 'settings'));
   }
 
