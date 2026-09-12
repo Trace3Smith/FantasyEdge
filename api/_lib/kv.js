@@ -114,6 +114,19 @@ export const NFL_DVP_KEY = 'matchup:nfl-dvp';
 // AI Report) until this season's ranks are rated. A finished season never changes, so the cron builds it
 // once (a full season of box scores, ~3s) and keeps it. Shape: { season, builtAt, rated, counts, dvp }.
 export const nflDvpPriorKey = (season) => `matchup:nfl-dvp:${season}`;
+// Opponent-adjusted team ratings feeding the game model (docs/game-model-scoping.md).
+//   ratings:nfl — built from nflverse's team-week file (76KB, no key) with the defensive split
+//     recovered by an opponent self-join, then opponent-adjusted by ridge regression.
+//   ratings:cfb — built from CollegeFootballData: SP+ (the margin model itself, already in points
+//     above average) plus garbage-time-filtered efficiency, talent and returning production.
+//
+// THE CRON IS THE ONLY WRITER, and the feed only ever reads. That is not a style preference: the
+// CFBD free tier allows 1,000 calls A MONTH, so letting a cache miss on a public URL trigger a
+// rebuild would turn an unauthenticated request into a lever on a monthly budget — the same reason
+// NFL_DVP_KEY is served read-only in api/sports.js. A missing key means the cards render without a
+// model line, which is the correct degrade.
+export const NFL_RATINGS_KEY = 'ratings:nfl';
+export const CFB_RATINGS_KEY = 'ratings:cfb';
 // Player-synopsis cache (Phase 0). One record per (sport, player): { fp, text, generatedAt, model }.
 // Generated on demand and invalidated by a signal FINGERPRINT, so a player's report regenerates only
 // when the inputs that matter (rank tier, form, projection, matchup, …) actually change — keeping

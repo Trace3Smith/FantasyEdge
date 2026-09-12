@@ -6,6 +6,7 @@
 // weather via a bowl-venue coordinate table (bowls are neutral sites, not team stadiums).
 // See docs/brackets-data-research.md.
 import { buildPickem, winProbFromSpread } from './pickem.js';
+import { cfbModel, cfbEfficiency } from './cfbRatings.js';
 import { CFB_VENUES } from './cfbVenues.js';
 
 export { winProbFromSpread };
@@ -95,10 +96,13 @@ const BOWL_VENUES = {
 
 // Build the current bowl-season postseason slate (bowls + CFP). Pass `season` to target a
 // specific year (e.g. testing against a completed season).
-export function buildCfbBowl({ season } = {}) {
+export async function buildCfbBowl({ season } = {}) {
   const yr = season ?? currentBowlSeason();
+  const efficiency = await cfbEfficiency();
   return buildPickem({
     leaguePath: 'football/college-football',
+    model: cfbModel,
+    efficiencyFor: efficiency,
     scoreboardUrl: `${SB}?seasontype=3&dates=${yr}&limit=200`,
     injuriesUrl: INJ,
     includeEvent: (comp) => !isFcs(comp) && hasRealTeams(comp),

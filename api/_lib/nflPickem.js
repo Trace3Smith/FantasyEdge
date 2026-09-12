@@ -3,8 +3,9 @@
 // scoreboard/injuries endpoints and the stadium coordinates for weather. See pickem.js for
 // the win-probability-from-spread derivation, injuries, and weather logic.
 import { buildPickem, buildPastWeek, winProbFromSpread } from './pickem.js';
-import { redis, NFL_DATASET_KEY } from './kv.js';
+import { redis, NFL_DATASET_KEY, NFL_RATINGS_KEY } from './kv.js';
 import { getJson } from './espn.js';
+import { scoreNflGame } from './gameModel.js';
 
 export { winProbFromSpread };
 
@@ -158,10 +159,54 @@ export async function keyPlayers(season) {
   return out;
 }
 
+// The game model's read on an NFL slate, loaded from the ratings the daily cron built.
+//
+// READ-ONLY BY DESIGN. This never builds ratings on a miss, even though it could cheaply (the
+// nflverse file is 76KB and needs no key). A cold miss means the cards render without a model line
+// until the next cron, which is the right trade: buildPickem also runs on the request path via
+// api/sports.js, and a builder that fetches on a cache miss there is a builder a public URL can
+// drive. The same rule the DvP feed follows.
+async function nflModel() {
+  let ratings = null;
+  try { ratings = await redis.get(NFL_RATINGS_KEY); } catch { return null; }
+  if (!ratings?.teams || !Object.keys(ratings.teams).length) return null;
+  return ({ home, away, neutralSite }) => scoreNflGame({
+    ratings,
+    homeAbbr: home.team.abbreviation,
+    awayAbbr: away.team.abbreviation,
+    neutralSite,
+  });
+}
+
+// Opponent-adjusted efficiency for one team's report panel, keyed by abbreviation. Returns the
+// adjusted ratings AND the raw rates behind them, because the panel states both the claim
+// ("11th in EPA allowed") and the number it rests on.
+async function nflEfficiency() {
+  let ratings = null;
+  try { ratings = await redis.get(NFL_RATINGS_KEY); } catch { return null; }
+  if (!ratings?.teams) return null;
+  return (_id, abbr) => {
+    const t = abbr ? ratings.teams[abbr] : null;
+    if (!t) return null;
+    const raw = ratings.raw?.[abbr] || null;
+    return {
+      adjusted: { off: t.off, def: t.def, net: t.net, offRank: t.offRank, defRank: t.defRank, netRank: t.netRank },
+      raw: raw ? { offense: raw.offense, defense: raw.defense, games: raw.games } : null,
+      sampleWeight: t.weight ?? 1,
+      season: ratings.season,
+      instrumentation: ratings.instrumentation,
+      garbageTimeFiltered: ratings.garbageTimeFiltered,
+    };
+  };
+}
+
 // Build the current/upcoming NFL week (pass `week` to target a specific one).
-export function buildNflPickem({ week } = {}) {
+export async function buildNflPickem({ week } = {}) {
+  const efficiency = await nflEfficiency();
   return buildPickem({
     leaguePath: 'football/nfl',
+    model: nflModel,
+    efficiencyFor: efficiency,
     // Sacks are a season total, so early in a year the current season has nothing to rank — the
     // last completed one is what carries signal, exactly as the team reports fall back.
     starters: () => keyPlayers(new Date().getFullYear() - 1),

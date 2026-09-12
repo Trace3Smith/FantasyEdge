@@ -26,7 +26,9 @@ import { buildNflPickem } from '../_lib/nflPickem.js';
 import { buildCfbBowl } from '../_lib/cfbBowl.js';
 import { buildCfbWeek } from '../_lib/cfbWeek.js';
 import { buildMarchMadness } from '../_lib/marchMadness.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NHL_MATCHUP_KEY, NBA_MATCHUP_KEY, WNBA_MATCHUP_KEY, NFL_DVP_KEY, nflDvpPriorKey, DATASET_VERSION } from '../_lib/kv.js';
+import { buildNflRatings } from '../_lib/nflRatings.js';
+import { buildCfbRatings } from '../_lib/cfbRatings.js';
+import { redis, NFL_RATINGS_KEY, CFB_RATINGS_KEY, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NHL_MATCHUP_KEY, NBA_MATCHUP_KEY, WNBA_MATCHUP_KEY, NFL_DVP_KEY, nflDvpPriorKey, DATASET_VERSION } from '../_lib/kv.js';
 
 // Per-league day-of matchup keys for the basketball leagues (built in the secondary loop below).
 const HOOPS_MATCHUP_KEY = { nba: NBA_MATCHUP_KEY, wnba: WNBA_MATCHUP_KEY };
@@ -261,7 +263,50 @@ export default async function handler(req, res) {
       }, {}),
       statsSeason: feed.teamReports?.season ?? null,
       rated: feed.teamReports?.ratedCounts ?? null,
+      // How many cards got a model line. `scored: 0` on a non-empty slate means the ratings step
+      // above failed, the CFBD key is unset, or the crosswalk resolved nothing — all of which look
+      // identical on the page (no model line) and only differ here.
+      model: feed.modelCoverage ?? null,
     });
+
+    // ===== Game-model ratings =====
+    //
+    // ORDER MATTERS: these run BEFORE the three Pick'em builds below, because those read the
+    // ratings back out of KV to attach a model line to each card (see nflPickem.js / cfbRatings.js).
+    // Built here and nowhere else — the feeds are strictly read-only on this data, so that a cache
+    // miss on a public URL can never spend CFBD's monthly call budget. A failure leaves the last
+    // good ratings in place and the cards fall back to market-only, exactly as they rendered before
+    // the model existed.
+    //
+    // Both are independently try/caught and neither can block the other or the feeds.
+    const footballSeason = new Date().getUTCMonth() < 2 ? season - 1 : season;
+    let nflRatings;
+    try {
+      const r = await buildNflRatings({ season: footballSeason });
+      await redis.set(NFL_RATINGS_KEY, r);
+      nflRatings = { season: r.season, ...r.counts, instrumentation: r.instrumentation };
+    } catch (err) {
+      nflRatings = { error: err.message };
+    }
+
+    // College ratings need CFBD_API_KEY. Unset is a normal, reported state rather than an error —
+    // `configured: false` in the summary says the college half is dark and why.
+    let cfbRatings;
+    try {
+      const r = await buildCfbRatings({ season: footballSeason });
+      // Only overwrite on a build that actually produced teams. An unconfigured or failed build
+      // returns an empty payload, and writing that would delete a good set of ratings and take
+      // every college model line down with it until the key came back.
+      if (r.counts.teams > 0 && r.counts.crosswalkMatched > 0) await redis.set(CFB_RATINGS_KEY, r);
+      cfbRatings = {
+        configured: r.configured, basis: r.basis ?? null, ...r.counts,
+        // The key's remaining monthly balance. The free tier is 1,000 calls and this build spends
+        // ~6 a day, so a falling number here is the early warning that something started looping.
+        usage: r.usage ? { tier: r.usage.tier, remaining: r.usage.remaining, limit: r.usage.monthlyLimit } : null,
+      };
+    } catch (err) {
+      cfbRatings = { error: err.message };
+    }
 
     // NFL Pick'em weekly feed (Brackets & Bowls) — free ESPN + NWS sources, no key. Additive
     // and failure-tolerant: a failed build leaves the last good feed in KV rather than
@@ -318,6 +363,8 @@ export default async function handler(req, res) {
       cfbBowl,
       cfbWeek,
       marchMadness,
+      nflRatings,
+      cfbRatings,
       ...secondary,
     });
   } catch (err) {

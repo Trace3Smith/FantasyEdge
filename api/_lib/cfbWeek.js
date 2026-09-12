@@ -21,6 +21,7 @@
 // coordinates, so it is built by `node scripts/gen-cfb-venues.mjs` from venue zip codes and
 // committed. Injuries reuse the CFB injuries endpoint.
 import { buildPickem, buildPastWeek, winProbFromSpread } from './pickem.js';
+import { cfbModel, cfbEfficiency } from './cfbRatings.js';
 import { CFB_VENUES } from './cfbVenues.js';
 
 export { winProbFromSpread };
@@ -42,9 +43,12 @@ export const CFB_CONFERENCES = {
 const FBS = 'groups=80&limit=400';
 
 // Build the current/upcoming CFB week's full FBS slate (pass `week` to target a specific one).
-export function buildCfbWeek({ week } = {}) {
+export async function buildCfbWeek({ week } = {}) {
+  const efficiency = await cfbEfficiency();
   return buildPickem({
     leaguePath: 'football/college-football',
+    model: cfbModel,
+    efficiencyFor: efficiency,
     scoreboardUrl: week ? `${SB}?${FBS}&week=${encodeURIComponent(week)}` : `${SB}?${FBS}`,
     injuriesUrl: INJ,
     // A venue missing from the table (a new build, a rare off-campus site, anywhere outside the

@@ -1,0 +1,93 @@
+{
+  "sport": "nfl",
+  "fittedAt": "2026-09-12T12:43:26.635Z",
+  "trainedThrough": 2024,
+  "trainSeasons": [
+    2016,
+    2024
+  ],
+  "marginSd": 13.5,
+  "features": [
+    "intercept",
+    "netDiff"
+  ],
+  "coef": {
+    "intercept": 1.6693137951012755,
+    "netDiff": 33.12604662287601
+  },
+  "outOfSample": {
+    "seasons": [
+      2019,
+      2025
+    ],
+    "games": 1865,
+    "modelBrier": 0.22596831829872785,
+    "marketBrier": 0.2110876071891515,
+    "modelMae": 10.369463940312638,
+    "marketMae": 9.839142091152816,
+    "modelAcc": 0.6359249329758713,
+    "marketAcc": 0.664343163538874,
+    "calibration": [
+      {
+        "lo": 0.5,
+        "n": 839,
+        "actual": 0.5685339690107271
+      },
+      {
+        "lo": 0.6,
+        "n": 634,
+        "actual": 0.6593059936908517
+      },
+      {
+        "lo": 0.7,
+        "n": 308,
+        "actual": 0.7077922077922078
+      },
+      {
+        "lo": 0.8,
+        "n": 80,
+        "actual": 0.8875
+      },
+      {
+        "lo": 0.9,
+        "n": 4,
+        "actual": 0.5
+      }
+    ],
+    "disagreement": [
+      {
+        "lo": 0,
+        "hi": 3,
+        "n": 1213,
+        "modelSideWinRate": 0.4361088211046991,
+        "marketImplied": 0.4618613638010899
+      },
+      {
+        "lo": 3,
+        "hi": 6,
+        "n": 501,
+        "modelSideWinRate": 0.3193612774451098,
+        "marketImplied": 0.38754555243779787
+      },
+      {
+        "lo": 6,
+        "hi": 10,
+        "n": 130,
+        "modelSideWinRate": 0.3384615384615385,
+        "marketImplied": 0.3326924728151143
+      },
+      {
+        "lo": 10,
+        "hi": null,
+        "n": 21,
+        "modelSideWinRate": 0.19047619047619047,
+        "marketImplied": 0.2580493135321352
+      }
+    ]
+  },
+  "gates": {
+    "showWinProb": false,
+    "showDisagreement": false,
+    "note": "model did not beat the market out of sample; margin ships as EXPLANATION only"
+  }
+}

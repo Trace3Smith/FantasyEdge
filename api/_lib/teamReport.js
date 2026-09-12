@@ -68,7 +68,7 @@ const SOFT_MS = 25000;  // soft budget; past it we stop fetching form and keep w
 // still present and correctly typed, so nothing rebuilt and production kept serving panels labelled
 // "2026 season · 17 games played" over 2025 numbers until the next daily cron. If a change would
 // make a fresh build disagree with the cached one, it needs a bump.
-export const TEAM_REPORT_VERSION = 3;
+export const TEAM_REPORT_VERSION = 4;
 
 async function mapLimit(items, limit, fn) {
   const out = [];
@@ -252,7 +252,7 @@ export function basisFor({ hasCurrent, hasPrior }) {
 // form, the basis it should be READ on, and BOTH seasons' stats under `seasons` so a matchup can
 // find a basis the two teams share. Best-effort throughout: a failure anywhere degrades to a
 // smaller report, never a thrown slate.
-export async function buildTeamReports({ leaguePath, season, teamIds }) {
+export async function buildTeamReports({ leaguePath, season, teamIds, efficiencyFor = null }) {
   const ids = [...new Set((teamIds || []).filter(Boolean).map(String))];
   const prior = season ? season - 1 : null;
   const empty = { v: TEAM_REPORT_VERSION, season, priorSeason: prior, leagueSizes: {}, ratedCounts: {}, teams: {} };
@@ -305,12 +305,26 @@ export async function buildTeamReports({ leaguePath, season, teamIds }) {
     const seasons = {};
     if (hasCurrent) seasons[season] = { gamesPlayed, offense: c.offense, defense: c.defense };
     if (hasPrior) seasons[prior] = { gamesPlayed: p.gamesPlayed ?? 0, offense: p.offense, defense: p.defense };
+    // OPPONENT-ADJUSTED EFFICIENCY, alongside the raw ESPN ranks rather than replacing them.
+    //
+    // Everything above this line is yards and points PER GAME — an unadjusted counting stat that
+    // credits a team for beating a bad schedule and punishes one for playing a good one. The block
+    // below is the same team measured after opponent strength is divided out, which is a strictly
+    // better answer to "is this unit good", and it is what the game model actually reasons over.
+    // Both are kept: the per-game ranks are what a reader recognises, the adjusted ones are what is
+    // true, and showing them together is how a panel earns the second number.
+    //
+    // Null whenever the ratings build did not cover this team — out of season, an unresolved CFBD
+    // crosswalk entry, or a cron that has not run yet. A missing block renders as absent, never as
+    // a zero, because a zero here reads as "perfectly average" and would be a confident lie.
+    const efficiency = efficiencyFor ? efficiencyFor(id) : null;
     teams[id] = {
       form,
       gamesPlayed,
       basis,
       basisSeason: basis === 'season' ? season : basis === 'prior-season' ? prior : null,
       seasons,
+      ...(efficiency ? { efficiency } : {}),
     };
   }
   return { v: TEAM_REPORT_VERSION, season, priorSeason: prior, leagueSizes, ratedCounts, teams };

@@ -16,7 +16,7 @@ const UA = 'FantasyEdge/1.0 (brackets pickem; contact via app)';
 
 // Normal CDF via an erf approximation (Abramowitz & Stegun 7.1.26). Used only to turn a
 // point spread into a favorite win probability — accuracy here is well within display needs.
-function normCdf(x) {
+export function normCdf(x) {
   const t = 1 / (1 + 0.2316419 * Math.abs(x));
   const d = 0.3989423 * Math.exp(-x * x / 2);
   const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
@@ -181,7 +181,7 @@ async function fetchWeather(coords, indoor, kickoffIso) {
 // nothing to do with injuries — so production kept serving 25 cached games with no rank or
 // conference on them. Shape is not the trigger and neither is any one feature: if a change would
 // make a fresh build disagree with the cached one, bump this.
-export const FEED_CONTENT_VERSION = 6;
+export const FEED_CONTENT_VERSION = 7;
 
 const WX_CONC = 8;
 
@@ -251,6 +251,15 @@ export async function topUpWeather(feed, feedKey) {
 //   starters()                  — optional async () => { [teamAbbr]: { QB|RB|WR|TE: 'Name' } };
 //                                 enables the starter injury lines (see injuryGroups.js). Omit and
 //                                 they never fire — only the position-group counts do.
+//   model()                     — optional async () => (game) => modelBlock | null, resolved ONCE
+//                                 per build. Attaches the game model's predicted margin and the
+//                                 component gaps that explain it (see gameModel.js). Omit and no
+//                                 card carries a model line.
+//   efficiencyFor(espnTeamId, abbr) — optional, returns an efficiency block | null for the
+//                                 expandable panel, shown beside ESPN's per-game ranks. The
+//                                 abbreviation rides along because the two sports key their
+//                                 ratings differently: NFL ratings are keyed by team abbreviation
+//                                 (nflverse's own key), CFB by ESPN id through the CFBD crosswalk.
 // Returns { contentV, season, seasonType, week, games, results, teamReports, bestPicks,
 // upsetAlerts, builtAt }, where
 // `games` is the still-to-play slate and `results` holds any game in the same window that's
@@ -265,6 +274,13 @@ export async function buildPickem(cfg) {
   // without it the starter lines stay silent rather than guessing at a depth chart.
   let starters = {};
   if (cfg.starters) { try { starters = (await cfg.starters()) || {}; } catch { starters = {}; } }
+
+  // The game model, resolved ONCE for the whole slate rather than per game — it is a cached
+  // ratings payload plus arithmetic, and an 80-game CFB week would otherwise read the same Redis
+  // key eighty times. Best-effort: no ratings (out of season, cron hasn't run, CFBD key unset)
+  // means `scoreGame` stays null and every card renders exactly as it did before this existed.
+  let scoreGame = null;
+  if (cfg.model) { try { scoreGame = await cfg.model(); } catch { scoreGame = null; } }
 
   const games = [];
   for (const ev of (sb.events || [])) {
@@ -356,6 +372,15 @@ export async function buildPickem(cfg) {
         },
         // Position-group impact lines — "3 OL out or questionable" and what that does to the game.
         // Templated, not generated: no per-game model call. Empty for CFB, which has no injury data.
+        // The model's read on this game: a predicted MARGIN plus the two or three measured
+        // component gaps behind it. Never a replacement for `pick` — that stays market-derived,
+        // because the market is better calibrated than this model is and the backtest says so in
+        // numbers (see gameModel.js). Null whenever ratings don't cover both teams.
+        model: (() => {
+          if (!scoreGame) return null;
+          try { return scoreGame({ home, away, neutralSite: c.neutralSite === true }); }
+          catch { return null; }
+        })(),
         injuryImpact: {
           // Injuries key by team id (ESPN's payload shape); starters key by abbreviation (the
           // dataset's). Each map is keyed by whatever its own source actually provides.
@@ -392,6 +417,10 @@ export async function buildPickem(cfg) {
   const upsetAlerts = picked.filter((g) => g.upsetAlert)
     .map((g) => ({ id: g.id, underdog: g.pick.team === g.home.abbr ? g.away.abbr : g.home.abbr, favorite: g.pick.team, favWinProb: g.pick.winProb }));
 
+  const abbrById = Object.fromEntries(
+    upcoming.flatMap((g) => [[String(g.home.id), g.home.abbr], [String(g.away.id), g.away.abbr]]),
+  );
+
   // Expandable team reports (recent form + offense/defense ranks) for everyone still to play.
   // Precomputed here rather than fetched per click: the slate's teams are a small, known set, so
   // one league-wide stats call plus a schedule each — on the daily cron — makes the panel instant
@@ -403,6 +432,11 @@ export async function buildPickem(cfg) {
         leaguePath: cfg.leaguePath,
         season: sb.season?.year ?? null,
         teamIds: upcoming.flatMap((g) => [g.home.id, g.away.id]),
+        // The slate is the only place an ESPN id and its abbreviation appear together, so the
+        // lookup is closed over here rather than making teamReport.js aware of either sport.
+        efficiencyFor: cfg.efficiencyFor
+          ? (id) => cfg.efficiencyFor(id, abbrById[String(id)] || null)
+          : null,
       });
     } catch { /* the slate is the product; the panel is an enhancement */ }
   }
@@ -419,6 +453,11 @@ export async function buildPickem(cfg) {
     teamReports,
     bestPicks,
     upsetAlerts,
+    // How many of the still-to-play games actually got a model line. Reported rather than inferred:
+    // a model that silently covers nothing looks exactly like one that was never wired up, which is
+    // the failure this codebase has already eaten twice (see the injuries note above). The cron
+    // prints this so operators can identify a failed ratings build or join.
+    modelCoverage: { scored: upcoming.filter((g) => g.model).length, games: upcoming.length },
     builtAt: new Date().toISOString(),
   };
 }

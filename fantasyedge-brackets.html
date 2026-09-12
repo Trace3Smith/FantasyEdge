@@ -307,6 +307,9 @@
   .rc-row .rc-name{flex:1;font-size:13.5px;}
   .rc-row .rc-score{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:17px;}
   .rc-row.won{color:var(--white);} .rc-row.won .rc-name{font-weight:700;} .rc-row.won .rc-score{color:var(--green);}
+.gc-model{padding:14px 18px;border-top:1px solid var(--dark4);font-size:12px;line-height:1.6}
+.model-row{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-variant-numeric:tabular-nums}
+.gc-model ul{padding-left:18px;margin:8px 0}.gc-model p{margin:8px 0 0;color:var(--gray-light);font-size:11px}
 </style>
 <link rel="stylesheet" href="assets/mobile.css">
 </head>
@@ -839,6 +842,47 @@ function panelInjuries(g, side) {
 
 // The panel body for one side of one game: the matchup edge first (it's the "why"), then injuries
 // (the most time-sensitive thing on the card), then the season profile, then recent results.
+// Ratings use different units by sport; keep those definitions beside the numbers.
+function efficiencyHtml(e) {
+  if (!e) return '';
+  const value = (v, rank, digits = 3) => Number.isFinite(v)
+    ? `${v.toFixed(digits)}${Number.isFinite(rank) ? ` · #${rank}` : ''}` : 'Unavailable';
+  let rows, note;
+  if (e.adjusted) {
+    const a = e.adjusted;
+    rows = [['Offense', value(a.off, a.offRank)], ['Defense', value(a.def, a.defRank)], ['Overall', value(a.net, a.netRank)]];
+    note = `${e.season} ratings · ${Math.round((e.sampleWeight ?? 1) * 100)}% current-season weight; remainder from ${e.season - 1}. Opponent-adjusted EPA/play relative to average; positive is better on both sides. Garbage time included. Success rate and drive metrics unavailable.`;
+    if (e.raw) rows.push(['Raw EPA/play, offense / allowed', `${value(e.raw.offense.epaPerPlay)} / ${value(e.raw.defense.epaPerPlay)} (${e.raw.games} games)`]);
+  } else if (e.sp) {
+    rows = [['SP+ overall', value(e.sp.rating, e.sp.ranking, 1)], ['SP+ offense', value(e.sp.offense, e.ranks?.spOff, 1)], ['SP+ defense', value(e.sp.defense, e.ranks?.spDef, 1)]];
+    note = `${e.season} season · SP+ is opponent-adjusted; lower defense is better. Efficiency below is unadjusted and excludes garbage time.`;
+    if (e.eff) rows.push(['EPA/play, offense / allowed', `${value(e.eff.epaOff, e.ranks?.epaOff)} / ${value(e.eff.epaDef, e.ranks?.epaDef)}`], ['Success rate, offense / allowed', `${value(e.eff.srOff)} / ${value(e.eff.srDef)}`]);
+  } else return '';
+  return '<div class="tp-hd">Opponent-adjusted efficiency</div>' + rows.map(([label, v]) => `<div class="model-row"><span>${esc(label)}</span><b>${esc(v)}</b></div>`).join('') + `<div class="tp-none">${esc(note)}</div>`;
+}
+
+function modelHtml(g) {
+  const m = g.model;
+  if (!m || !Number.isFinite(m.margin)) return '';
+  const favorite = m.margin >= 0 ? g.home.abbr : g.away.abbr;
+  const line = Math.abs(m.margin) < 0.05 ? 'Even matchup' : `${favorite} by ${Math.abs(m.margin).toFixed(1)}`;
+  const num = (v, rank, unit) => {
+    const text = unit === '% PPA' || unit === 'rate' ? `${(v * 100).toFixed(1)}%` : v.toFixed(3);
+    return text + (Number.isFinite(rank) ? ` (#${rank})` : '');
+  };
+  const gaps = (m.gaps || []).filter(x => Number.isFinite(x.home) && Number.isFinite(x.away)).map(x => {
+    let hl = g.home.abbr, al = g.away.abbr;
+    if (x.label === 'Home offense vs away defense') { hl += ' offense'; al += ' defense'; }
+    if (x.label === 'Away offense vs home defense') { hl += ' defense'; al += ' offense'; }
+    const label = /offense vs/.test(x.label) ? 'EPA/play' : x.label;
+    return `<li>${esc(label)}: ${esc(hl)} ${num(x.home, x.homeRank, x.unit)} · ${esc(al)} ${num(x.away, x.awayRank, x.unit)}</li>`;
+  }).join('');
+  const note = m.sport === 'nfl'
+    ? `${m.season} ratings · ${Math.round((m.sampleWeight ?? 1) * 100)}% minimum current-season weight. Adjusted EPA/play; positive is better on both sides. Garbage time included.`
+    : `${m.season} SP+ ratings; efficiency excludes garbage time and is not opponent-adjusted. Margin has not been backtested; home-field estimate is unfitted.`;
+  return `<div class="gc-model"><div class="model-row"><b>Why this leans</b><span>Model: ${esc(line)}</span></div>${gaps ? `<ul>${gaps}</ul>` : ''}<p>${esc(note)} Margin is context; the pick remains market-based.</p></div>`;
+}
+
 function teamPanelHtml(feed, g, side) {
   const rep = feed.teamReports, me = g[side], opp = side === 'home' ? g.away : g.home;
   const mine = rep?.teams?.[me.id], theirs = rep?.teams?.[opp.id];
@@ -891,7 +935,7 @@ function teamPanelHtml(feed, g, side) {
     ? `<div class="tp-hd">Last ${(mine.form||[]).length}</div><div class="tp-form">${games}</div>`
     : '<div class="tp-hd">Last games</div><div class="tp-none">No completed games yet.</div>';
 
-  return edgeSec + panelInjuries(g, side) + statSec + formSec;
+  return efficiencyHtml(mine.efficiency) + edgeSec + panelInjuries(g, side) + statSec + formSec;
 }
 
 // Open/close a team's panel. Rendered on first open (not with the card) so a slate of 24 games
@@ -1226,6 +1270,7 @@ function gameCard(g, feedId, hasReports) {
     ${hasReports ? `<div class="team-panel" id="tp-${feedId}-${g.id}"></div>` : ''}
     ${pickBlock}
     ${line}
+    ${modelHtml(g)}
     <div class="gc-extra">${impact}${wx}</div>
   </div>`;
 }

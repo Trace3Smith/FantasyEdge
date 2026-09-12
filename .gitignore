@@ -5,3 +5,5 @@ node_modules/
 .DS_Store
 scripts/capture-board.js
 tmp/
+
+.cache/

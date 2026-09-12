@@ -41,7 +41,7 @@ function loadPageScript(fetchImpl = globalThis.fetch) {
   const nodes = {};
   const byId = (id) => nodes[id] || (nodes[id] = { ...stubEl(), id });
   const document = { getElementById: byId, querySelectorAll: () => [], addEventListener() {}, hidden: false, _nodes: nodes };
-  const exports = 'return { gameCard, resultCard, teamPanelHtml, edgeVerdict, boxScoreHtml, '
+  const exports = 'return { gameCard, resultCard, teamPanelHtml, modelHtml, efficiencyHtml, edgeVerdict, boxScoreHtml, '
     + 'liveTargets, pollGame, paintLive, ordPeriod, LIVE, FEEDS, '
     + 'loadFeed, showFeed, renderWeeks, setWeek, stampText, FEED_CFG, NFL_FEED, CFB_WEEK_FEED, '
     + '_nodes: document._nodes };';
@@ -691,6 +691,24 @@ async function checkNflRoofs() {
   console.log(`  INFO  home venue ids: ${teams.slice().sort().map((ab) => `${ab}:${seen[ab].id}`).join(' ')}`);
 }
 
+function checkModelRendering(page) {
+  console.log('\n[synthetic] MODEL DISPLAY');
+  const g = { home: { abbr: 'AAA' }, away: { abbr: 'BBB' }, model: {
+    sport: 'nfl', season: 2026, margin: -3.5, winProb: 39.777, showWinProb: false,
+    sampleWeight: 0.125, gaps: [{ label: 'Home offense vs away defense', unit: 'EPA/play', home: 0.1, away: 0.2, homeRank: 3, awayRank: 1 }],
+  } };
+  let html = page.modelHtml(g);
+  ok(html.includes('BBB by 3.5') && html.includes('AAA offense'), 'model margin and measured matchup render with correct sides');
+  ok(!html.includes('39.777') && html.includes('Garbage time included'), 'gated probability stays hidden and NFL instrumentation is visible');
+  ok(page.modelHtml({}) === '', 'missing ratings omit the enhancement');
+  g.model = { ...g.model, sport: 'cfb', season: 2025 };
+  html = page.modelHtml(g);
+  ok(html.includes('2025 SP+') && html.includes('not been backtested') && html.includes('not opponent-adjusted'), 'college display labels the actual season, validation and raw efficiency');
+  html = page.efficiencyHtml({ season: 2026, sampleWeight: 0, adjusted: { off: 0.1, def: 0.2, net: 0.3, offRank: 2, defRank: 1, netRank: 1 } });
+  ok(html.includes('0% current-season weight') && html.includes('2025') && html.includes('0.200'), 'team panel shows adjusted values and prior-season blending');
+  ok(!/undefined|NaN/.test(html), 'model panel contains no invalid values');
+}
+
 const which = process.argv.slice(2).filter((a) => FEEDS[a]);
 const page = loadPageScript();
 for (const name of (which.length ? which : ['cfbweek'])) {
@@ -708,5 +726,6 @@ await checkNflRoofs();
 checkInjuryGroups();
 checkTopUp();
 checkCrossover(page);
+checkModelRendering(page);
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);
