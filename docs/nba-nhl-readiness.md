@@ -91,3 +91,28 @@ actual league format, parser coverage, freshness and connection health, rather t
 called proof of NBA/NHL transaction readiness. Next needed fixtures are actual rosters/settings with
 rosterSettings and a separate points league for each sport, followed by explicitly approved transaction
 validation. Unknown data must block unsafe capabilities, not block useful read-only connection status.
+
+## Continuation evidence: public roster access probe (2026-09-12)
+
+Four credential-free GETs were attempted against ESPN's read host, using `mSettings`, `mRoster` and
+`mTeam` views: NBA/fba league 117597 and NHL/fhl league 28525, each for seasons 2027 and 2026.
+**All four returned HTTP 401.** The 2026 requests were a separate prior-season availability probe,
+not a substitution for the committed 2027 settings. No response bodies, credentials or ownership data
+were persisted. No authenticated reads or provider writes were attempted. These results establish an
+access blocker for these specific requests, not a parser failure or proof that all leagues are private.
+
+Next evidence needed: an explicitly selected accessible league/account for each sport, with a secure
+local capture of sanitized provider responses. Never send cookies through chat. Preserve source sport,
+ESPN season, league/team/player IDs, capture time, scoringPeriodId, rosterSettings, scoringSettings,
+lineup/eligible-slot IDs, proTeamId, statuses and lock-field presence. Replace owners consistently with
+synthetic IDs so ownership/co-owner/unauthorized cases remain testable; remove members, cookies, URLs
+containing SWID, user names and other profile data. Keep public player names only where identity tests
+require them. Do not commit raw authenticated responses or claim synthetic responses are captured ones.
+
+For each sport, obtain category and points settings plus populated rosters, reserve players and an
+owner/co-owner case. Obtain provider slot/team/stat labels with provenance before adding mappings. Add
+parser regressions for unknown slot IDs and absent injury/lock fields; absence cannot imply healthy or
+unlocked. Discovery needs its own sanitized fan response; a league roster does not prove discovery.
+Until this evidence is available, READ_ONLY is an architectural capability ceiling, not a launch claim.
+UI tabs, recommendations, real writes and Autopilot remain disabled. My Edge aggregation/UI implementation
+has not begun; the evidence gate requested for starting that dependent work has not yet been satisfied.
