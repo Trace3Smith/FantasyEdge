@@ -14,6 +14,7 @@
     "check:espn": "node scripts/check-espn-fantasy.mjs",
     "check:league-config": "node scripts/check-league-config.mjs",
     "check:league-dna": "node --experimental-test-module-mocks scripts/check-league-dna.mjs",
+    "capture:league-settings": "node scripts/capture-league-settings.mjs",
     "check:brackets": "node scripts/check-brackets.mjs cfbweek nfl bowl"
   },
   "dependencies": {
