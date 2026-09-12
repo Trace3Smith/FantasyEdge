@@ -1,6 +1,6 @@
 # Game-prediction model (CFB + NFL Pick'em) — data scoping
 
-**Status:** v1 implemented locally (2026-09-12), pending deployment. The original scoping findings follow.
+**Status:** v1 implemented locally (2026-09-12), pending deployment. College backtested 2026-09-12 — see the addendum. The original scoping findings follow.
 
 Implementation: NFL opponent-adjusted EPA ratings and CFB SP+ feed predicted margins and measured factors into Pick’em cards and team reports. Market picks remain unchanged. NFL walk-forward evaluation over 1,865 games gives Brier 0.2260 versus market 0.2111; both model probability and disagreement displays remain disabled. CFB has not been backtested and both gates remain disabled there too. Its raw efficiency is garbage-time-filtered but is **not** opponent-adjusted; SP+ is adjusted. NFL team-week efficiency includes garbage time.
 
@@ -347,3 +347,82 @@ before kickoff.
 **Recommendation:** build it for the explanation, gate the number behind calibration, and
 keep the market pick as the pick. Start with CFB — SP+ makes it one API call with no
 training, and CFB is where a thin market makes an edge at least plausible.
+
+
+---
+
+## Addendum (2026-09-12) — the college backtest, and a thesis that did not survive it
+
+`CFBD_API_KEY` is now set. Two things were settled.
+
+### SP+ cannot be backtested, and that is a property of the API
+
+`/ratings/sp` takes `year` and `team` and **no `week`**; `TeamSP` carries `year, team, conference,
+rating, ranking, secondOrderWins, sos, offense, defense, specialTeams` and no week or date field. A
+request for 2023 returns one rating per team: the finished one. Grading an October 2023 game with it
+hands the model the season's outcome, and the failure is silent — the backtest simply looks
+excellent.
+
+**Production is not affected.** SP+ for an in-progress season is a live rating, so the cron querying
+`year=2026` in Week 6 gets Week 6's SP+, which is genuinely pregame for Week 7. What is lost is only
+retrospective validation.
+
+The leak-free substitute is `homePregameElo` / `awayPregameElo` on `/games` — the rating each team
+carried *before* kickoff, stamped on every game. Verified **100% populated for FBS-vs-FBS games back
+to 2016**; every gap is an FCS opponent, which is excluded anyway. Cost: two calls per season.
+`/ratings/elo` also accepts a `week` ("defaults to the latest available week"), and
+`/metrics/wp/pregame` returns `week, gameId, spread, homeWinProbability` — CFBD's own pregame model
+and the market line in one call — but `/games` is cheapest and needs no extra join.
+
+Also confirmed by the live key: **`features.adjustedMetrics` is `false` on the Free tier**, so
+`/wepa/team/season` is gated as the scoping pass suspected. Building on SP+ was the right call.
+
+### The college market beats the model, by about as much as the NFL market does
+
+Walk-forward, 4,970 FBS-vs-FBS games, 2019–2025, model trained only on prior seasons:
+
+| Out of sample | Model | Market |
+| --- | --- | --- |
+| Brier | 0.1853 | **0.1739** |
+| Margin MAE | 13.07 | **12.21** |
+| Straight-up | 71.5% | **73.3%** |
+| Residual SD | 16.65 pts | 15.69 pts |
+
+Both college gates therefore stay shut, matching the NFL outcome (+0.0114 Brier here, +0.0149
+there). The model is again **well calibrated about its own uncertainty** — 50–60%→55.2%,
+60–70%→64.5%, 70–80%→75.3%, 80–90%→87.4%, 90–100%→93.5% — it simply knows less than the market.
+
+Note the college baseline is *not* comparable to the NFL's in absolute terms: college favourites win
+73.7% straight up against the NFL's 66.4%, because college has far bigger mismatches. Brier is lower
+for everyone. Only the model-vs-market gap is comparable across sports.
+
+### The thin-market thesis is disproved
+
+Scoping ranked unranked/Group-of-Five games as the second-best opportunity, on the reasoning that
+softer lines on Sun Belt and MAC games leave more room. It said to test it before claiming it. Tested:
+
+| Segment | n | Model Brier | Market Brier | Gap |
+| --- | --- | --- | --- | --- |
+| Power 5 both sides | 2,330 | 0.1881 | 0.1800 | **+0.0081** |
+| Group of 5 both sides | 1,914 | 0.1973 | 0.1853 | **+0.0121** |
+| Mixed | 726 | 0.1445 | 0.1239 | **+0.0206** |
+
+The model trails the market by **more** on Group-of-Five games than on Power 5 ones, not less. The
+market is not softer where fewer people bet it — or if it is, our rating is softer still. That
+removes the last place a probability edge was expected to be hiding, and it is asserted in
+`npm run check:model` so it cannot quietly return as an assumption.
+
+Disagreement carries no signal either: 48.9% vs 49.1% implied at 0–3 points, 37.9% vs 38.5% at 6–10.
+The one mildly positive bucket (3–6 points, 48.9% vs 46.6%) is isolated and is what noise looks like.
+
+### What this licenses, and what it does not
+
+It validates the **structure** — rating difference plus home field — not SP+. Elo is a different
+rating. The college display gates stay shut until SP+ is validated *prospectively*: snapshot it
+weekly from the cron and grade it forward. That is the only honest route, and it takes a season.
+
+Fitted for the record (Elo basis, not transplanted into the feed): home field **3.13 points**, less
+**1.51** at neutral sites, and **23.5 Elo per point** of margin — close to the conventional 25. The
+shipped `CFB_HOME_FIELD` is still the unfitted 2.5; 3.13 is evidence that is slightly low, but it
+was fitted alongside Elo's scaling, so changing the shipped constant is a display change and needs a
+decision rather than a silent edit.
