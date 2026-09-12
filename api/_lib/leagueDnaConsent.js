@@ -1,20 +1,28 @@
 // League DNA consent: whether a user has seen the League DNA notice, and what they chose.
 //
 // Every capture path checks this before recording a league config: the capture at linking, the
-// leagues fetch, the Autopilot cron, and the daily sweep to come. With no choice recorded on the
-// current notice version, NOTHING is captured for that user, so consent never depends on which page
-// they happened to open.
+// leagues fetch, the Autopilot cron, and the daily sweep. With no choice recorded on the current
+// notice version, NOTHING is captured for that user, so consent never depends on which page they
+// happened to open.
 //
 //   espn:dna:ack:{userId} = { version, include, via: 'connect' | 'notice' | 'settings', at }
 //   espn:dna:users        = set of users whose current choice is to include (the sweep's list)
 //
-// A user who opts out keeps a record, so they aren't asked again, but isn't in the set. Configs are
-// league-level settings, so a league is still captured once any one of its members has opted in.
+// A user who opts out keeps a record, so they aren't asked again, but isn't in the set. A league is
+// still captured once any ONE of its members has opted in — what's stored describes the league, not
+// the person. The v2 notice states this outright, because from v2 on it also covers an opted-out
+// member's own picks and trades, reached through a leaguemate's connection.
 
 // Bump whenever the notice text changes what is collected (and bump the copy in
 // fantasyedge-autopilot.html with it). Every choice stored at an older version stops counting: those
 // users drop out of capture and see the new notice.
-export const DNA_NOTICE_VERSION = 1;
+//
+// v2 widened the scope from league settings to the whole league's play: every team's draft picks,
+// trades and outcomes, not only the linked user's team. Everyone who answered v1 agreed to something
+// narrower, so they are all asked again. Note the sweep's counts while that plays out: DNA_USERS
+// still lists the v1 opt-ins (only an explicit opt-out removes anyone), so `opted` stays as it was
+// while `skippedConsent` rises to match `visited` — that is consent working, not a fault.
+export const DNA_NOTICE_VERSION = 2;
 
 const ackKey = (userId) => `espn:dna:ack:${userId}`;
 export const DNA_USERS = 'espn:dna:users';
