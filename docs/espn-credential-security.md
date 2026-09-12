@@ -2,6 +2,9 @@
 
 Implemented on `my-edge-foundation`; not deployed or migrated in this session.
 
+Detailed operator procedure: [production rollout runbook](espn-encryption-rollout.md).
+It includes the exact key encoding, compatible rollback release blocker, canary limits and verification.
+
 ## Storage contract and rollout prerequisite
 
 `api/_lib/espnCredentials.js` uses Node AES-256-GCM, a fresh 96-bit nonce per encryption,
@@ -39,7 +42,9 @@ is an acknowledged residual security risk; changing code alone does not encrypt 
 Reads perform no persistence: concurrent disconnect cannot be undone by a lazy migration.
 
 `scripts/migrate-espn-credentials.mjs` scans ONLY `espn:creds:*`. Default invocation is inventory-only;
-`--apply` enables encryption. It prints aggregate counts only, never IDs or secrets. This tool was NOT
+`--apply` enables encryption; `--apply --limit N` bounds legacy migration attempts.
+`--verify` is read-only envelope decryption verification, with aggregate unreadable/expired counts.
+Apply and verify preflight key configuration before storage access; unknown options fail closed. It prints aggregate counts only, never IDs or secrets. This tool was NOT
 run on production or any live Redis during this task. Running it is an explicit operator step after
 key provisioning and deployment approval. It makes no ESPN calls or subscription/lineup changes.
 

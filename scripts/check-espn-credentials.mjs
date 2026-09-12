@@ -23,6 +23,14 @@ assert.throws(() => encryptCredentials('u',creds));
 assert.equal(decryptCredentials('u',creds),creds,'legacy remains compatible without a key');
 process.env.ESPN_CREDENTIAL_ENCRYPTION_KEY = 'malformed';
 assert.throws(() => encryptCredentials('u',creds));
+for (const invalid of [Buffer.alloc(31).toString('base64'), Buffer.alloc(33).toString('base64'),
+  key.replace(/=+$/, ''), Buffer.alloc(32).toString('hex'), `"${key}"`, `${key.slice(0,10)}\n${key.slice(10)}`]) {
+  process.env.ESPN_CREDENTIAL_ENCRYPTION_KEY = invalid;
+  assert.throws(() => encryptCredentials('u',creds), 'reject noncanonical or wrong-length keys');
+}
+assert.equal(key.length,44);
+process.env.ESPN_CREDENTIAL_ENCRYPTION_KEY = ` ${key}\n`;
+assert.equal(decryptCredentials('u',encryptCredentials('u',creds)).swid,creds.swid);
 process.env.ESPN_CREDENTIAL_ENCRYPTION_KEY = key;
 let current = JSON.stringify(creds), expiry;
 const redis = { eval: async (script, keys, args) => {

@@ -12,7 +12,7 @@
     "check:teams": "node scripts/check-teams.mjs",
     "check:autopilot": "node scripts/check-autopilot.mjs && node --experimental-test-module-mocks scripts/check-autopilot-entitlement.mjs",
     "check:sport-readiness": "node scripts/check-sport-readiness.mjs",
-    "check:credentials": "node scripts/check-espn-credentials.mjs",
+    "check:credentials": "node scripts/check-espn-credentials.mjs && node scripts/check-credential-migration.mjs",
     "check:espn": "node scripts/check-espn-fantasy.mjs",
     "check:league-config": "node scripts/check-league-config.mjs",
     "check:league-dna": "node --experimental-test-module-mocks scripts/check-league-dna.mjs",
