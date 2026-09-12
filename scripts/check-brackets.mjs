@@ -22,7 +22,7 @@ import { CFB_CONFERENCES } from '../api/_lib/cfbWeek.js';
 import { staleWeatherGames } from '../api/_lib/pickem.js';
 import { groupInjuries } from '../api/_lib/injuryGroups.js';
 import { FEED_CONTENT_VERSION, PAST_WEEK_VERSION } from '../api/_lib/pickem.js';
-import { getBoxScore } from '../api/_lib/boxScore.js';
+import { getBoxScore, boxScoreHasStats } from '../api/_lib/boxScore.js';
 
 const FEEDS = { cfbweek: buildCfbWeek, nfl: buildNflPickem, bowl: buildCfbBowl };
 let failures = 0;
@@ -57,6 +57,43 @@ function loadPageScript(fetchImpl = globalThis.fetch) {
 // Which games the serve-time top-up picks up. This is the whole decision — the rest is one fetch
 // per selected game — and it has to be tight in both directions: too eager turns a public URL into
 // repeated upstream traffic, too shy and the forecast on a card about to kick off stays a day old.
+// Which box scores are safe to pin in a cache that never expires. This is the whole decision — the
+// key is written without a TTL, so anything stored wrong is stored wrong permanently — and it has
+// to be tight in both directions: too lax and an ESPN outage is cached forever, too strict and a
+// real box score is re-fetched (552KB) on every view.
+//
+// The failure this guards against is live, not hypothetical: on 2026-09-12 ESPN served completed
+// CFB games with `statistics: []` — correct shape, both teams, scores, a winner, and no stats.
+function checkBoxScoreCaching() {
+  console.log('\n[synthetic] BOX SCORE CACHEABILITY');
+  const team = (over = {}) => ({
+    abbr: 'AAA', name: 'A', totals: [['Total Yards', '400']],
+    groups: [{ name: 'passing', labels: ['C/ATT'], rows: [['QB', '21/37']] }], ...over,
+  });
+  const box = (teams, over = {}) => ({ id: '1', final: true, teams, ...over });
+
+  ok(boxScoreHasStats(box([team(), team()])), 'a real box score with both teams populated is cacheable');
+  ok(boxScoreHasStats(box([team({ groups: [] }), team()])),
+    'team totals alone are enough — the per-athlete groups are a bonus');
+  ok(boxScoreHasStats(box([team({ totals: [] }), team()])),
+    'per-athlete groups alone are enough when ESPN omits team totals');
+
+  // The outage shape, exactly as observed.
+  ok(!boxScoreHasStats(box([team({ totals: [], groups: [] }), team({ totals: [], groups: [] })])),
+    'a final game with empty stats on BOTH teams is not cacheable (the 2026-09-12 ESPN outage)');
+  ok(!boxScoreHasStats(box([team({ totals: [], groups: [] }), team()])),
+    'a HALF-empty payload is not cacheable either — one blank team renders visibly broken');
+  ok(!boxScoreHasStats(box([])), 'a payload with no teams is not cacheable');
+  ok(!boxScoreHasStats(null) && !boxScoreHasStats(undefined) && !boxScoreHasStats({}),
+    'a missing or malformed payload is rejected rather than thrown on');
+
+  // The read side is what lets already-poisoned keys heal. Same predicate, applied to what came
+  // back OUT of Redis: an entry stored empty before this fix landed must read as a miss.
+  const poisoned = box([team({ totals: [], groups: [] }), team({ totals: [], groups: [] })]);
+  ok(poisoned.final === true && !boxScoreHasStats(poisoned),
+    'a poisoned cache entry is final-but-statless, so the read path re-fetches instead of serving it');
+}
+
 function checkTopUp() {
   console.log('\n[synthetic] WEATHER TOP-UP SELECTION');
   const now = Date.parse('2026-09-05T12:00:00Z');
@@ -182,10 +219,18 @@ async function checkBoxScore(name, feed, page) {
   ok(box.final === true, 'a completed game reports final — the flag that makes it cacheable forever');
   ok(box.teams.every((t) => t.score != null), 'both scores present');
   ok(box.teams.some((t) => t.winner), 'a winner is marked');
-  ok(box.teams.every((t) => t.totals.length > 0), `team totals present (${box.teams[0].totals.length} categories)`);
+  // These two assertions read LIVE ESPN data, so they legitimately go red when ESPN itself stops
+  // serving stats — which it did on 2026-09-12, returning finished games with `statistics: []`.
+  // That is worth failing on rather than softening: a quiet green here is how a source outage
+  // becomes invisible. But the message has to say WHICH failure it is, or the next person reads a
+  // red suite as a code regression and goes looking in the wrong file.
+  const statless = !boxScoreHasStats(box);
+  const why = statless ? ' — ESPN is serving a statless final here; upstream, not a code fault' : '';
+  ok(box.teams.every((t) => t.totals.length > 0),
+    `team totals present (${box.teams[0].totals.length} categories)${why}`);
   const groups = box.teams[0].groups;
   ok(groups.some((x) => x.name === 'passing') && groups.some((x) => x.name === 'rushing')
-    && groups.some((x) => x.name === 'receiving'), 'passing, rushing and receiving all present');
+    && groups.some((x) => x.name === 'receiving'), `passing, rushing and receiving all present${why}`);
   // Every row must line up with its header, or the table renders shifted and silently wrong.
   const bad = box.teams.flatMap((t) => t.groups.flatMap((x) => x.rows.filter((r) => r.length !== x.labels.length + 1)
     .map((r) => `${t.abbr}/${x.name}: ${r.length - 1} stats vs ${x.labels.length} labels`)));
@@ -724,6 +769,7 @@ for (const name of (which.length ? which : ['cfbweek'])) {
 checkVenueTable();
 await checkNflRoofs();
 checkInjuryGroups();
+checkBoxScoreCaching();
 checkTopUp();
 checkCrossover(page);
 checkModelRendering(page);
