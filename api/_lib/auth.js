@@ -79,6 +79,12 @@ export function isPremiumUser(user) {
   return user?.publicMetadata?.plan === 'premium';
 }
 
+// Background work has no browser session. Use the same entitlement source as
+// manual requests; callers must skip work if Clerk cannot answer.
+export async function premiumForUser(userId) {
+  return isPremiumUser(await clerkClient.users.getUser(userId));
+}
+
 // requireUser + load the full Clerk user so callers can branch on plan. Returns
 // { userId, user, premium }.
 export async function getEntitlement(req) {

@@ -11,6 +11,11 @@
 // (server-side) and are never returned to the browser — status checks expose a
 // connected boolean and a masked SWID at most. Every caller is premium-gated.
 
+import { randomUUID } from 'node:crypto';
+import { HttpError } from './auth.js';
+import { leagueKeyOf, qualifiedLeagueKey } from '../../leagueIdentity.js';
+export { leagueKeyOf };
+
 import { normName } from './golf.js';
 import { espnLeagueConfig } from './espnLeagueConfig.js';
 
@@ -53,7 +58,9 @@ export function normalizeS2(raw) {
 }
 
 export async function saveCreds(redis, userId, { espn_s2, swid }) {
-  const creds = { espn_s2: normalizeS2(espn_s2), swid: normalizeSwid(swid), savedAt: new Date().toISOString() };
+  const creds = { espn_s2: normalizeS2(espn_s2), swid: normalizeSwid(swid), savedAt: new Date().toISOString(), connectionId: randomUUID() };
+  await clearAutopilot(redis, userId);
+  await suspendWatchAssociations(redis, userId);
   await redis.set(credsKey(userId), creds);
   return creds;
 }
@@ -69,6 +76,20 @@ export async function getCreds(redis, userId) {
 
 export async function deleteCreds(redis, userId) {
   await redis.del(credsKey(userId));
+  await clearAutopilot(redis, userId);
+  await suspendWatchAssociations(redis, userId);
+}
+
+// A user's watch wishes/history survive, but a previous ESPN team's association
+// cannot generate an alert after relinking a different account with overlapping IDs.
+async function suspendWatchAssociations(redis, userId) {
+  const key = `espn:prospectwatch:${userId}`;
+  const watch = await redis.get(key);
+  if (!watch || typeof watch !== 'object') return;
+  const next = Object.fromEntries(Object.entries(watch).map(([id, entry]) => [id, {
+    ...entry, previousLeague: entry.lg || entry.previousLeague || null, lg: '', leagueName: '',
+  }]));
+  await redis.set(key, next);
 }
 
 // Mask the SWID for display ("{ABCD…WXYZ}") so the UI can confirm WHICH account is
@@ -430,6 +451,7 @@ function buildLeagueResult(data, team, { leagueId, seasonId, cfg = SPORTS.mlb, s
   const name = (t) => `${t.location || ''} ${t.nickname || ''}`.trim() || t.name || t.abbrev || `Team ${t.id}`;
   return {
     leagueId,
+    sport,
     season: seasonId,
     teamId: team ? team.id : null,
     // Current scoring period (the day, for MLB) — required by the lineup-set write.
@@ -504,7 +526,12 @@ export async function fetchLeagueRoster(creds, { leagueId, seasonId, teamId }, s
   const cfg = sportCfg(sport);
   const data = await espnGet(leagueUrl(leagueId, seasonId, cfg.game), creds);
   const teams = Array.isArray(data?.teams) ? data.teams : [];
-  const team = teams.find((t) => t.id === teamId) || null;
+  const team = teams.find((t) => String(t.id) === String(teamId));
+  const owner = normalizeSwid(creds.swid).toLowerCase();
+  if (!team || ![team.primaryOwner, ...(Array.isArray(team.owners) ? team.owners : [])].some(
+    id => id && normalizeSwid(id).toLowerCase() === owner)) {
+    throw new HttpError(403, 'Team ownership could not be verified', { error: 'not_team_owner' });
+  }
   return buildLeagueResult(data, team, { leagueId, seasonId, cfg, sport });
 }
 
@@ -719,21 +746,21 @@ const manualLeaguesKey = (userId) => `espn:manualleagues:${userId}`;
 
 export async function getManualLeagues(redis, userId) {
   const list = await redis.get(manualLeaguesKey(userId));
-  return Array.isArray(list) ? list : [];
+  return Array.isArray(list) ? list.map(l => ({ ...l, sport: l.sport || 'mlb' })) : [];
 }
 
-export async function addManualLeague(redis, userId, { leagueId, season }) {
+export async function addManualLeague(redis, userId, { leagueId, season, sport = 'mlb' }) {
   const list = await getManualLeagues(redis, userId);
-  if (!list.some((l) => String(l.leagueId) === String(leagueId) && String(l.season) === String(season))) {
-    list.push({ leagueId: String(leagueId), season });
+  if (!list.some((l) => l.sport === sport && String(l.leagueId) === String(leagueId) && String(l.season) === String(season))) {
+    list.push({ leagueId: String(leagueId), season, sport });
   }
   await redis.set(manualLeaguesKey(userId), list);
   return list;
 }
 
-export async function removeManualLeague(redis, userId, { leagueId, season }) {
+export async function removeManualLeague(redis, userId, { leagueId, season, sport = 'mlb' }) {
   const list = (await getManualLeagues(redis, userId))
-    .filter((l) => !(String(l.leagueId) === String(leagueId) && String(l.season) === String(season)));
+    .filter((l) => !(l.sport === sport && String(l.leagueId) === String(leagueId) && String(l.season) === String(season)));
   await redis.set(manualLeaguesKey(userId), list);
   return list;
 }
@@ -744,19 +771,31 @@ export async function removeManualLeague(redis, userId, { leagueId, season }) {
 // only iterates opted-in users. leagueKey is "season:leagueId:teamId".
 const autopilotKey = (userId) => `espn:autopilot:${userId}`;
 const AUTOPILOT_USERS = 'espn:autopilot:users';
-export const leagueKeyOf = (lg) => `${lg.season ?? lg.seasonId}:${lg.leagueId}:${lg.teamId}`;
+export async function clearAutopilot(redis, userId) {
+  // Remove permissions first. A stale membership is harmless to the cron.
+  await redis.del(autopilotKey(userId));
+  await redis.srem(AUTOPILOT_USERS, userId);
+}
 
 export async function getAutopilot(redis, userId) {
-  return (await redis.get(autopilotKey(userId))) || {};
+  const raw = (await redis.get(autopilotKey(userId))) || {};
+  const prefs = {};
+  // Modern entries win if both formats exist; legacy booleans mean MLB only.
+  for (const [key, value] of Object.entries(raw)) {
+    const qualified = qualifiedLeagueKey(key, autopilotSportOf(value));
+    if (!(qualified in prefs) || key === qualified) prefs[qualified] = value;
+  }
+  return prefs;
 }
 
 // A pref value records which sport's engine to run for that league. Legacy prefs were
 // stored as the bare boolean `true` (MLB-only era) — treat those as MLB.
 export const autopilotSportOf = (v) => (v && typeof v === 'object' && v.sport) ? v.sport : 'mlb';
 
-export async function setAutopilotLeague(redis, userId, leagueKey, on, sport = 'mlb') {
+export async function setAutopilotLeague(redis, userId, leagueKey, on, sport = 'mlb', connectionId = 'legacy') {
   const prefs = await getAutopilot(redis, userId);
-  if (on) prefs[leagueKey] = { sport }; else delete prefs[leagueKey];
+  leagueKey = qualifiedLeagueKey(leagueKey, sport);
+  if (on) prefs[leagueKey] = { sport, connectionId }; else delete prefs[leagueKey];
   await redis.set(autopilotKey(userId), prefs);
   if (Object.keys(prefs).length) await redis.sadd(AUTOPILOT_USERS, userId);
   else await redis.srem(AUTOPILOT_USERS, userId);
