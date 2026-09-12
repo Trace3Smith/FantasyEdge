@@ -27,6 +27,7 @@ import { buildCfbBowl } from '../_lib/cfbBowl.js';
 import { buildCfbWeek } from '../_lib/cfbWeek.js';
 import { buildMarchMadness } from '../_lib/marchMadness.js';
 import { buildNflRatings } from '../_lib/nflRatings.js';
+import { recordSpSnapshot } from '../_lib/cfbSpSnapshots.js';
 import { buildCfbRatings } from '../_lib/cfbRatings.js';
 import { redis, NFL_RATINGS_KEY, CFB_RATINGS_KEY, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NHL_MATCHUP_KEY, NBA_MATCHUP_KEY, WNBA_MATCHUP_KEY, NFL_DVP_KEY, nflDvpPriorKey, DATASET_VERSION } from '../_lib/kv.js';
 
@@ -291,9 +292,16 @@ export default async function handler(req, res) {
 
     // College ratings need CFBD_API_KEY. Unset is a normal, reported state rather than an error —
     // `configured: false` in the summary says the college half is dark and why.
-    let cfbRatings;
+    let cfbRatings, currentCfbRatings, spObservation;
+    async function snapshotSp(feed) {
+      try {
+        return await recordSpSnapshot(redis, { observation: spObservation, ratings: currentCfbRatings, feed });
+      } catch { return { status: 'error', reason: 'snapshot_storage_failed' }; }
+    }
     try {
-      const r = await buildCfbRatings({ season: footballSeason });
+      const r = await buildCfbRatings({ season: footballSeason,
+        onSpObserved: value => { spObservation = value; } });
+      currentCfbRatings = r;
       // Only overwrite on a build that actually produced teams. An unconfigured or failed build
       // returns an empty payload, and writing that would delete a good set of ratings and take
       // every college model line down with it until the key came back.
@@ -326,7 +334,7 @@ export default async function handler(req, res) {
     try {
       const feed = await buildCfbBowl();
       await redis.set(CFB_BOWL_KEY, feed);
-      cfbBowl = { season: feed.season, ...pickemSummary(feed) };
+      cfbBowl = { season: feed.season, ...pickemSummary(feed), spSnapshot: await snapshotSp(feed) };
     } catch (err) {
       cfbBowl = { error: err.message };
     }
@@ -337,7 +345,7 @@ export default async function handler(req, res) {
     try {
       const feed = await buildCfbWeek();
       await redis.set(CFB_WEEK_KEY, feed);
-      cfbWeek = { week: feed.week, ...pickemSummary(feed) };
+      cfbWeek = { week: feed.week, ...pickemSummary(feed), spSnapshot: await snapshotSp(feed) };
     } catch (err) {
       cfbWeek = { error: err.message };
     }

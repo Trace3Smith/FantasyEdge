@@ -17,7 +17,29 @@
 // `gates.showDisagreement` records that verdict for the renderer.
 import { normCdf } from './pickem.js';
 import NFL_COEF from './nflModelCoef.json' with { type: 'json' };
-export const CFB_HOME_FIELD = 2.5;
+// Home-field advantage in college football, in points. MEASURED, on 6,921 hosted FBS-vs-FBS games
+// (2016-2025) by scripts/fit-cfb-model.mjs, which regresses actual margin on the SP+ rating
+// difference and takes the intercept.
+//
+// FITTED ON SP+, NOT BORROWED FROM THE ELO BACKTEST, and the difference is the whole point. The Elo
+// walk-forward in the same script reports a home-field intercept of 3.13, and transplanting that
+// looked reasonable — home-field advantage is a property of the sport, so why would the rating
+// system matter? It matters because an intercept is only meaningful alongside the slope it was
+// fitted with. Elo's slope is attenuated (it is a noisier predictor on a different scale), so its
+// intercept absorbs systematic margin the slope fails to explain. SP+ fits a slope of 0.976 —
+// essentially 1.0, which is what it should be, since SP+ is already denominated in points — and
+// that leaves a clean intercept of 2.48. Shipping 3.13 would have overstated every home team by
+// two-thirds of a point for no reason beyond the borrowed coefficient.
+//
+// The conventional 2.5 this replaces turned out to be right to within 0.02 points.
+export const CFB_HOME_FIELD = 2.48;
+
+// Neutral-site games deliberately keep ZERO home-field advantage, not the +1.74 the same regression
+// reports for the nominal home team. That estimate rests on 218 games against a ~16.6 point
+// residual spread — a standard error near 1.1, which does not separate it from zero — and the raw
+// unmodelled margin for the nominal home side at neutral sites is -0.22. There is plausibly a small
+// real effect in there (a bowl game in one team's back yard is not truly neutral), but this sample
+// cannot demonstrate it, so the principled default stands until one can.
 
 // Same conversion the market pick already uses (pickem.js), deliberately: putting both numbers
 // through one function means a difference between them is a difference of OPINION, not of
@@ -106,8 +128,8 @@ export function scoreNflGame({ ratings, homeAbbr, awayAbbr, neutralSite = false 
 // ---- CFB -------------------------------------------------------------------
 
 // SP+ is published in points above average, so the rating difference IS the expected neutral-field
-// margin and there is nothing to fit. Home field is added as a constant and flagged unfitted (see
-// CFB_HOME_FIELD) — the honest label for a number taken from convention rather than measured here.
+// margin and there is nothing to fit there. Home field IS fitted — 2.48 points, measured on SP+
+// itself (see CFB_HOME_FIELD for why the Elo backtest's 3.13 was the wrong number to borrow).
 export function scoreCfbGame({ ratings, homeEspnId, awayEspnId, neutralSite = false }) {
   const hs = ratings?.crosswalk?.[String(homeEspnId)];
   const as = ratings?.crosswalk?.[String(awayEspnId)];

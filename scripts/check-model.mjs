@@ -19,12 +19,13 @@ import { readFileSync } from 'node:fs';
 import { ridgeSolve, olsSolve } from '../api/_lib/ridge.js';
 import { buildNflRatings, rawRates, adjustEpa, parseCsv } from '../api/_lib/nflRatings.js';
 import { buildCrosswalk, normalizeName } from '../api/_lib/cfbCrosswalk.js';
-import { scoreNflGame, scoreCfbGame, winProbFromMargin } from '../api/_lib/gameModel.js';
+import { scoreNflGame, scoreCfbGame, winProbFromMargin, CFB_HOME_FIELD } from '../api/_lib/gameModel.js';
 
 let failures = 0;
 const ok = (cond, msg) => { console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${msg}`); if (!cond) failures++; };
 
 const COEF = JSON.parse(readFileSync(new URL('../api/_lib/nflModelCoef.json', import.meta.url), 'utf8'));
+const CFB = JSON.parse(readFileSync(new URL('../api/_lib/cfbModelCoef.json', import.meta.url), 'utf8'));
 
 // ---------------------------------------------------------------------------
 console.log('\n[coefficients] THE GATES');
@@ -186,6 +187,55 @@ console.log('\n[synthetic] COLLEGE SCORING');
   } });
   ok(Object.keys(r.teams).length === 2 && r.teams.AAA.weight === 0,
     'missing preseason asset falls back to prior season with zero current weight');
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n[coefficients] COLLEGE BACKTEST');
+{
+  const o = CFB.outOfSample;
+  ok(o.games >= 3000, `college backtested on a real sample (${o.games} games, ${o.seasons[0]}-${o.seasons[1]})`);
+  ok(CFB.basis === 'pregame-elo', 'college backtest uses pregame Elo, which is leak-free by construction');
+  // The trap this whole script exists to keep shut. /ratings/sp has no week parameter and TeamSP
+  // has no week field, so a historical SP+ request returns the FINISHED season — grading an
+  // October game with it would hand the model the season's outcome. If a future edit ever points
+  // this backtest at SP+, this assertion is what should stop it.
+  ok(/end-of-season/.test(CFB.doesNotValidate || ''),
+    'the record states plainly that SP+ itself is NOT what was validated');
+  ok(CFB.gates.showWinProb === (o.modelBrier < o.marketBrier),
+    `college showWinProb agrees with its backtest (model ${o.modelBrier.toFixed(4)} vs market ${o.marketBrier.toFixed(4)})`);
+  ok(CFB.gates.showWinProb === false && CFB.gates.showDisagreement === false,
+    'both college display gates are shut');
+
+  // The thin-market thesis, recorded so it cannot quietly come back as an assumption. Scoping
+  // ranked Group-of-Five games as the most likely place to find an edge; the backtest found the
+  // model trails the market by MORE there than on Power 5 games, not less.
+  const p5 = o.segments.p5, g5 = o.segments.g5;
+  ok(p5 && g5 && p5.n > 500 && g5.n > 500, `segment samples are usable (P5 ${p5?.n}, G5 ${g5?.n})`);
+  ok((g5.bm - g5.bk) > (p5.bm - p5.bk),
+    `thin-market thesis is recorded as DISPROVED (G5 gap +${(g5.bm - g5.bk).toFixed(4)} vs P5 +${(p5.bm - p5.bk).toFixed(4)})`);
+
+  for (const b of o.calibration) {
+    if (b.n < 200) continue;
+    const mid = b.lo * 100 + 5, err = Math.abs(b.actual * 100 - mid);
+    ok(err <= 8, `college ${(b.lo * 100).toFixed(0)}-${(b.lo * 100 + 10).toFixed(0)}% bucket lands at ${(b.actual * 100).toFixed(1)}% (n=${b.n})`);
+  }
+
+  // College margins are genuinely more variable than NFL ones; borrowing the NFL's 13.5 would make
+  // every college probability overconfident. The fitted residual SD must reflect that.
+  ok(CFB.marginSd > 14, `college residual SD is fitted, not borrowed from the NFL (${CFB.marginSd.toFixed(1)} pts vs NFL 13.5)`);
+
+  // Home field must be the value fitted ON SP+, never the Elo backtest's intercept. Those differ by
+  // two thirds of a point and the Elo one is the tempting mistake: it is printed right above the
+  // SP+ number in the same report, and it is wrong here only because an intercept belongs to the
+  // slope it was fitted with. Every displayed college margin moves if this drifts.
+  const hf = CFB.homeField;
+  ok(hf && hf.fittedOn === 'sp+', 'home field is recorded as fitted on SP+, not on Elo');
+  ok(Math.abs(CFB_HOME_FIELD - hf.pts) < 0.01,
+    `shipped CFB_HOME_FIELD (${CFB_HOME_FIELD}) matches the SP+ fit (${hf.pts.toFixed(3)})`);
+  ok(Math.abs(CFB_HOME_FIELD - CFB.coef.intercept) > 0.4,
+    `shipped CFB_HOME_FIELD is NOT the Elo intercept (${CFB.coef.intercept.toFixed(2)})`);
+  ok(Math.abs(hf.spSlope - 1) < 0.1,
+    `SP+ slope is ~1.0 (${hf.spSlope.toFixed(3)}), confirming SP+ difference already reads as points`);
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)\n` : '\nAll model checks passed.\n');

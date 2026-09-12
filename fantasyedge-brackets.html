@@ -879,7 +879,7 @@ function modelHtml(g) {
   }).join('');
   const note = m.sport === 'nfl'
     ? `${m.season} ratings · ${Math.round((m.sampleWeight ?? 1) * 100)}% minimum current-season weight. Adjusted EPA/play; positive is better on both sides. Garbage time included.`
-    : `${m.season} SP+ ratings; efficiency excludes garbage time and is not opponent-adjusted. Margin has not been backtested; home-field estimate is unfitted.`;
+    : `${m.season} SP+ ratings; efficiency excludes garbage time and is not opponent-adjusted. Home-field advantage is measured (2.5 pts). SP+ itself has not been backtested, so no win probability is shown.`;
   return `<div class="gc-model"><div class="model-row"><b>Why this leans</b><span>Model: ${esc(line)}</span></div>${gaps ? `<ul>${gaps}</ul>` : ''}<p>${esc(note)} Margin is context; the pick remains market-based.</p></div>`;
 }
 

@@ -76,7 +76,7 @@ function rankField(teams, pick, betterIsHigher) {
 // `espnTeams` are the teams actually on the slate (id + names), used to resolve the crosswalk.
 // Everything is best-effort per source: SP+ is the only hard requirement, because without it there
 // is no margin model; the efficiency, talent and returning blocks each degrade to absent.
-export async function buildCfbRatings({ season, espnTeams = null } = {}) {
+export async function buildCfbRatings({ season, espnTeams = null, onSpObserved = null } = {}) {
   const empty = {
     v: CFB_RATINGS_VERSION, sport: 'cfb', season, configured: cfbdConfigured,
     instrumentation: 'cfbd-advanced', garbageTimeFiltered: true,
@@ -103,6 +103,12 @@ export async function buildCfbRatings({ season, espnTeams = null } = {}) {
       if (Array.isArray(prev) && prev.length >= 20) { sp = prev; basis = 'prior-season'; }
     } catch { /* keep whatever SP+ we have */ }
   }
+
+  // Capture the response we just received, not a later Redis cache read. The cron
+  // uses this optional hook for prospective history with zero extra CFBD calls.
+  if (onSpObserved) onSpObserved({ rows: sp, basis,
+    season: basis === 'prior-season' ? season - 1 : season,
+    observedAt: new Date().toISOString() });
 
   const [adv, talent, returning, teamsList] = await Promise.all([
     advancedSeasonStats(basis === 'season' ? season : season - 1).catch(() => []),
@@ -171,7 +177,7 @@ export async function buildCfbRatings({ season, espnTeams = null } = {}) {
     instrumentation: 'cfbd-advanced',
     garbageTimeFiltered: true,              // excludeGarbageTime=true on the advanced stats call
     homeField: CFB_HOME_FIELD,
-    homeFieldFitted: false,                 // see CFB_HOME_FIELD — conventional, not measured
+    homeFieldFitted: true,                  // see CFB_HOME_FIELD — measured on 6,921 games
     teams,
     crosswalk: map,
     counts: {

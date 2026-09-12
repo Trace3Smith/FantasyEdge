@@ -1,0 +1,119 @@
+{
+  "sport": "cfb",
+  "basis": "pregame-elo",
+  "fittedAt": "2026-09-12T22:43:55.133Z",
+  "trainSeasons": [
+    2016,
+    2024
+  ],
+  "marginSd": 16.646334250689854,
+  "marketSd": 15.685185214263747,
+  "coef": {
+    "intercept": 3.1281444987950278,
+    "eloDiff": 0.0425630250041904,
+    "neutral": -1.5143000775887872
+  },
+  "outOfSample": {
+    "seasons": [
+      2019,
+      2025
+    ],
+    "games": 4970,
+    "modelBrier": 0.18528983567363877,
+    "marketBrier": 0.17385129890720902,
+    "modelMae": 13.071368723762122,
+    "marketMae": 12.206841046277667,
+    "modelAcc": 0.7148893360160966,
+    "marketAcc": 0.7334004024144869,
+    "calibration": [
+      {
+        "lo": 0.5,
+        "n": 1280,
+        "actual": 0.55234375
+      },
+      {
+        "lo": 0.6,
+        "n": 1224,
+        "actual": 0.6446078431372549
+      },
+      {
+        "lo": 0.7,
+        "n": 1077,
+        "actual": 0.7530176415970288
+      },
+      {
+        "lo": 0.8,
+        "n": 862,
+        "actual": 0.8735498839907193
+      },
+      {
+        "lo": 0.9,
+        "n": 527,
+        "actual": 0.9354838709677419
+      }
+    ],
+    "disagreement": [
+      {
+        "lo": 0,
+        "hi": 3,
+        "n": 2169,
+        "modelSideWinRate": 0.4891655140617796,
+        "marketImplied": 0.4905673142131999
+      },
+      {
+        "lo": 3,
+        "hi": 6,
+        "n": 1433,
+        "modelSideWinRate": 0.4891835310537334,
+        "marketImplied": 0.46626709411534073
+      },
+      {
+        "lo": 6,
+        "hi": 10,
+        "n": 911,
+        "modelSideWinRate": 0.3787047200878156,
+        "marketImplied": 0.38497128776173933
+      },
+      {
+        "lo": 10,
+        "hi": null,
+        "n": 457,
+        "modelSideWinRate": 0.23851203501094093,
+        "marketImplied": 0.23818212615150525
+      }
+    ],
+    "segments": {
+      "p5": {
+        "n": 2330,
+        "bm": 0.1881226990191377,
+        "bk": 0.18003425413133642,
+        "am": 12.70348943181188,
+        "ak": 12.075536480686695,
+        "hm": 0.7107296137339055,
+        "hk": 0.7261802575107296
+      },
+      "g5": {
+        "n": 1914,
+        "bm": 0.1973204562664589,
+        "bk": 0.18526938630221929,
+        "am": 12.943763927338136,
+        "ak": 12.367293625914316,
+        "hm": 0.6886102403343782,
+        "hk": 0.7100313479623824
+      }
+    }
+  },
+  "gates": {
+    "showWinProb": false,
+    "showDisagreement": false
+  },
+  "homeField": {
+    "pts": 2.4816559071369646,
+    "neutralAdj": -0.7450817974091123,
+    "spSlope": 0.9763633690104694,
+    "games": 7139,
+    "fittedOn": "sp+"
+  },
+  "validates": "the rating-difference structure, using pregame Elo",
+  "doesNotValidate": "SP+, which is what the feed actually ships; /ratings/sp is end-of-season only"
+}
