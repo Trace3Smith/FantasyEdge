@@ -9,7 +9,10 @@ a 128-bit authentication tag, and authenticated associated data containing the C
 schema version. Redis `espn:creds:{userId}` holds only `{version,iv,tag,data}` for new connections.
 The encrypted payload contains both cookies, save time, connection generation and expiry.
 No cookies, keys, ciphertext or full member IDs should be printed in logs, diagnostics or handoffs.
-Existing status output remains a masked identifier plus save time.
+Existing status output remains a masked identifier plus save time. Provider read errors return HTTP
+status only, not the fan URL (which contains SWID) or response body. Lineup recovery parses responses
+internally but logs only status/counts, reports matched roster names and does not return a raw lockedBody.
+Unknown write failures remain fail-closed, with no provider body in exceptions.
 
 Required new server-only environment variable: `ESPN_CREDENTIAL_ENCRYPTION_KEY`.
 Optional rotation variable: `ESPN_CREDENTIAL_ENCRYPTION_PREVIOUS_KEY`.

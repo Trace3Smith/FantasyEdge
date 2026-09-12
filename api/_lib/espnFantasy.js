@@ -253,17 +253,18 @@ async function espnGet(url, creds, { headers = {} } = {}) {
       headers: { Cookie: cookieHeader(creds), 'User-Agent': UA, Accept: 'application/json', ...headers },
       signal: ctrl.signal,
     });
+  } catch {
+    throw new Error('ESPN request failed');
   } finally {
     clearTimeout(t);
   }
   if (res.status === 401 || res.status === 403) throw new EspnAuthError();
   if (!res.ok) {
-    // Include ESPN's response body — its 400s usually name what they rejected.
-    const body = await res.text().catch(() => '');
-    const snip = body ? `: ${body.replace(/\s+/g, ' ').slice(0, 200)}` : '';
-    throw new Error(`ESPN HTTP ${res.status} for ${url}${snip}`);
+    // The fan URL contains the full SWID. Provider bodies can echo cookies or
+    // member IDs, so neither belongs in browser diagnostics or application logs.
+    throw new Error(`ESPN HTTP ${res.status}`);
   }
-  return res.json();
+  return res.json().catch(() => { throw new Error('ESPN returned an invalid response'); });
 }
 
 // --- league discovery (fan API) --------------------------------------------------------------
@@ -646,6 +647,8 @@ async function postLineupTxn(creds, { leagueId, seasonId, teamId, scoringPeriodI
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
+  } catch {
+    throw new Error('ESPN lineup request failed');
   } finally { clearTimeout(t); }
   const txt = await res.text().catch(() => '');
   return { ok: res.ok, status: res.status, body: txt };
@@ -700,12 +703,11 @@ export async function setLineup(creds, ids, items = [], { roster = [], sport = '
   const game = sportCfg(sport).game;
   const skippedLocked = [];
   let alreadySet = 0;
-  let lockedBody = null; // raw 409 text from the first recovered lock, for diagnosing the wording
   let attempt = items.slice();
 
   for (let tries = 0; tries < 6 && attempt.length; tries++) {
     const r = await postLineupTxn(creds, { ...ids, game }, attempt);
-    if (r.ok) return { applied: attempt.length, skippedLocked, alreadySet, lockedBody };
+    if (r.ok) return { applied: attempt.length, skippedLocked, alreadySet };
     if (r.status === 401 || r.status === 403) throw new EspnAuthError();
 
     if (r.status === 409) {
@@ -716,29 +718,21 @@ export async function setLineup(creds, ids, items = [], { roster = [], sport = '
       const dropIds = new Set([...lockedIds, ...alreadyIds]);
       const next = attempt.filter((it) => !dropIds.has(it.playerId));
       if (dropIds.size && next.length < attempt.length) {
-        // Keep the raw body from the FIRST recovered 409. It is the only place ESPN states its exact
-        // rejection wording, and parse409Names is built on that wording — currently on MLB-shaped
-        // evidence only ("Spencer Horwitz is locked"). NFL is unverified and has a likely break: its
-        // D/ST entries are named "Bills D/ST", and the parser's character class excludes '/', so such
-        // a name would capture as "ST" and never match a roster entry. Logging it here means the next
-        // genuine locked rejection in production supplies the evidence, with no need to provoke a
-        // failing write against a real team.
-        if (!lockedBody && lockedNames.length) lockedBody = String(r.body || '').slice(0, 400);
-        if (lockedNames.length) console.warn(`[setLineup] ${game} 409 locked-player body: ${String(r.body || '').slice(0, 400)}`);
-        skippedLocked.push(...lockedNames);
+        // Parse internally, but report only known roster names and counts. Raw
+        // provider responses can echo credential/member fields and must not escape.
+        if (lockedNames.length) console.warn(`[setLineup] ${game} 409: ${lockedNames.length} locked players identified`);
+        skippedLocked.push(...roster.filter(rp => lockedIds.has(rp.id)).map(rp => rp.name));
         alreadySet += alreadyIds.size;
         attempt = next;
         continue; // retry without the locked / already-correct player(s)
       }
-      // A 409 we could NOT attribute to a named player — the phrasing did not match. Log it verbatim:
-      // this is exactly how an unhandled rejection class (a sport's different wording, or the
-      // IR-designated-to-return timing rule) would first show up.
-      console.warn(`[setLineup] ${game} unparsed 409 body: ${String(r.body || '').slice(0, 400)}`);
+      // Unknown provider wording is a fail-closed error; no response-body logging.
+      console.warn(`[setLineup] ${game} unparsed 409; no retry`);
     }
-    throw new Error(`ESPN lineup write HTTP ${r.status}${r.body ? ': ' + r.body.slice(0, 180) : ''}`);
+    throw new Error(`ESPN lineup write HTTP ${r.status}`);
   }
   // Everything left was redundant (already correct) — a successful no-op.
-  return { applied: attempt.length, skippedLocked, alreadySet, lockedBody };
+  return { applied: attempt.length, skippedLocked, alreadySet };
 }
 
 // --- manually-added leagues (Redis, per Clerk user) ------------------------------------------
