@@ -13,7 +13,7 @@ const redis = {
   srem: async (k,u) => members.delete(u),
   smembers: async k => k === 'espn:autopilot:users' ? [...members] : [],
 };
-let answers, writes, reads;
+let answers, writes, reads, duringRead;
 const kv = await import(lib('kv.js'));
 const auth = await import(lib('auth.js'));
 const fantasy = await import(lib('espnFantasy.js'));
@@ -24,14 +24,15 @@ mock.module(lib('auth.js'), { namedExports: { ...auth, premiumForUser: async () 
   return value;
 } } });
 mock.module(lib('espnFantasy.js'), { namedExports: { ...fantasy,
-  fetchLeagueRoster: async () => { reads++; return { roster: [], scoringPeriodId: 1 }; },
+  fetchLeagueRoster: async () => { reads++; if (duringRead) duringRead(); return { roster: [], scoringPeriodId: 1 }; },
   setLineup: async () => { writes++; return { applied: 1 }; },
 } });
 mock.module(lib('lineupAdvisor.js'), { namedExports: {
   buildValueIndex: () => new Map(), suggestLineup: () => ({ plan: [{ playerId: 1 }] }),
 } });
 const { default: cron } = await import('../api/cron/autopilot.js');
-async function run(values) {
+async function run(values, hook = null) {
+  duringRead = hook;
   store.clear(); members.clear(); members.add('user');
   store.set('espn:creds:user', { espn_s2: 'offline', swid: '{offline}' });
   store.set('espn:autopilot:user', { '2026:1:1': { sport: 'mlb' } });
@@ -55,4 +56,10 @@ assert.equal(store.has('espn:autopilot:user'), false);
 s = await run([true, new Error('offline Clerk failure')]);
 assert.equal(writes, 0); assert.equal(s.entitlementErrors, 1);
 assert.ok(store.has('espn:autopilot:user'));
-console.log('PASS: 5 Autopilot entitlement scenarios; no live calls');
+await run([true], () => store.delete('espn:creds:user'));
+assert.equal(writes, 0, 'disconnect during provider read blocks submission');
+await run([true], () => store.delete('espn:autopilot:user'));
+assert.equal(writes, 0, 'permission revocation during provider read blocks submission');
+await run([true], () => store.set('espn:creds:user', {espn_s2:'offline-new',swid:'{offline}',connectionId:'new'}));
+assert.equal(writes, 0, 'reconnect during provider read blocks submission');
+console.log('PASS: 8 Autopilot entitlement and revocation scenarios; no live calls');

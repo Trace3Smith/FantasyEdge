@@ -10,6 +10,7 @@
 import { mock } from 'node:test';
 
 // kv.js builds its Upstash client on import; the handler gets the in-memory stand-in below instead.
+process.env.ESPN_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64'); // synthetic offline key
 process.env.KV_REST_API_URL ||= 'https://offline.invalid';
 process.env.KV_REST_API_TOKEN ||= 'offline';
 process.env.CRON_SECRET = 'offline-cron';

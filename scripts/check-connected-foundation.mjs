@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { leagueKeyOf } from '../leagueIdentity.js';
+process.env.ESPN_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64'); // synthetic offline key
 process.env.KV_REST_API_URL = 'https://offline.invalid';
 process.env.KV_REST_API_TOKEN = 'offline';
 const lib = p => new URL(`../api/_lib/${p}`, import.meta.url).href;
@@ -65,6 +66,10 @@ store.set('espn:prospectwatch:u', { '99': { name:'Watch fixture',lg:'2026:1:1',r
 store.set('espn:dna:ack:u',{version:2,include:true});
 await f.setAutopilotLeague(redis,'u','mlb:2026:1:1',true);
 premium=false;
+// Revocation must work even when the encryption key for a stored connection is unavailable.
+store.set('espn:creds:u', { version: 1, data: 'unreadable' });
+assert.equal((await post({action:'autopilot',sport:'mlb',on:false,league:ids})).statusCode,200);
+assert.equal((await post({action:'dnaChoice',version:2,include:false})).statusCode,200);
 assert.equal((await post({action:'apply',sport:'mlb',...ids})).statusCode,403);
 assert.equal((await post({action:'disconnect'})).statusCode,200);
 assert.equal(store.has('espn:creds:u'),false);

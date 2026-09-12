@@ -622,11 +622,11 @@
     $('leaguesArea').innerHTML = leagues.map(renderLeagueCard).join('');
   }
 
-  // Frontend league key (matches the server's season:leagueId:teamId).
+  // Sport-qualified frontend key matches the server, including overlapping league IDs.
   function lkOf(lg) {
     const teamId = lg.teamId != null ? lg.teamId : (lg.team && lg.team.id);
     if (teamId == null || !lg.leagueId) return '';
-    return `${lg.season}:${lg.leagueId}:${teamId}`;
+    return `${lg.sport || currentSport}:${lg.season}:${lg.leagueId}:${teamId}`;
   }
 
   // Expired-session panel: clear explanation + one-click path back to the connect

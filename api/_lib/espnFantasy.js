@@ -9,8 +9,9 @@
 //
 // SECURITY: the cookies are bearer-equivalent secrets. They live ONLY in Redis
 // (server-side) and are never returned to the browser — status checks expose a
-// connected boolean and a masked SWID at most. Every caller is premium-gated.
+// connected boolean and a masked SWID at most. Paid operations are premium-gated; revocation requires sign-in only.
 
+import { encryptCredentials, decryptCredentials, CREDENTIAL_TTL_SECONDS } from './espnCredentials.js';
 import { randomUUID } from 'node:crypto';
 import { HttpError } from './auth.js';
 import { leagueKeyOf, qualifiedLeagueKey } from '../../leagueIdentity.js';
@@ -59,14 +60,15 @@ export function normalizeS2(raw) {
 
 export async function saveCreds(redis, userId, { espn_s2, swid }) {
   const creds = { espn_s2: normalizeS2(espn_s2), swid: normalizeSwid(swid), savedAt: new Date().toISOString(), connectionId: randomUUID() };
+  const encrypted = encryptCredentials(userId, creds); // validate key before touching saved state
   await clearAutopilot(redis, userId);
   await suspendWatchAssociations(redis, userId);
-  await redis.set(credsKey(userId), creds);
+  await redis.set(credsKey(userId), encrypted, { ex: CREDENTIAL_TTL_SECONDS });
   return creds;
 }
 
 export async function getCreds(redis, userId) {
-  const c = await redis.get(credsKey(userId));
+  const c = decryptCredentials(userId, await redis.get(credsKey(userId)));
   if (!(c && c.espn_s2 && c.swid)) return null;
   // Re-normalize the SWID on read so a previously-saved malformed value (e.g. a
   // missing brace) is healed transparently for both the fan path and the write
@@ -768,7 +770,7 @@ export async function removeManualLeague(redis, userId, { leagueId, season, spor
 // --- autopilot preferences (Redis, per Clerk user) -------------------------------------------
 // A user's enabled leagues live at espn:autopilot:{userId} = { [leagueKey]: true }.
 // A set espn:autopilot:users tracks who has ANY league enabled, so the daily cron
-// only iterates opted-in users. leagueKey is "season:leagueId:teamId".
+// only iterates opted-in users. Keys include sport; old three-part keys remain readable.
 const autopilotKey = (userId) => `espn:autopilot:${userId}`;
 const AUTOPILOT_USERS = 'espn:autopilot:users';
 export async function clearAutopilot(redis, userId) {

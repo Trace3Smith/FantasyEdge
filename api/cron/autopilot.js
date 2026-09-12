@@ -9,6 +9,7 @@
 // user's cookies have died we disable their autopilot (so we stop hammering a
 // broken account) until they reconnect. Protected by CRON_SECRET like the refresh cron.
 import { redis, DATASET_KEY, WNBA_DATASET_KEY, NBA_DATASET_KEY, NFL_DATASET_KEY } from '../_lib/kv.js';
+import { AUTOPILOT_SPORTS } from '../../leagueCapabilities.js';
 import { parseLeagueKey } from '../../leagueIdentity.js';
 import { premiumForUser } from '../_lib/auth.js';
 import {
@@ -122,8 +123,13 @@ export default async function handler(req, res) {
         summary.entitlementErrors++;
         continue;
       }
-      const creds = await getCreds(redis, userId);
-      if (!creds) continue;
+      let creds;
+      try { creds = await getCreds(redis, userId); }
+      catch { summary.errors++; continue; } // one unreadable record must not abort the run/sweep
+      if (!creds) {
+        await clearAutopilot(redis, userId).catch(() => { summary.errors++; });
+        continue;
+      }
       summary.users++;
       const prefs = await getAutopilot(redis, userId);
       // League DNA: capture only for a user who opted in on the current notice. Autopilot being on is
@@ -132,7 +138,7 @@ export default async function handler(req, res) {
       const mlbLeagues = []; // fetched MLB leagues, for background prospect call-up detection
       for (const [leagueKey, prefVal] of Object.entries(prefs)) {
         const ids = parseLeagueKey(leagueKey, autopilotSportOf(prefVal));
-        if (!ids || !['mlb', 'wnba', 'nfl'].includes(ids.sport) || !prefVal) continue;
+        if (!ids || !AUTOPILOT_SPORTS.has(ids.sport) || !prefVal) continue;
         const { season, leagueId, teamId, sport } = ids;
         if (sport !== autopilotSportOf(prefVal)) continue;
         if ((prefVal.connectionId || 'legacy') !== (creds.connectionId || 'legacy')) continue;
