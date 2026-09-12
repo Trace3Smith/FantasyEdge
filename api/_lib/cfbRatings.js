@@ -171,7 +171,7 @@ export async function buildCfbRatings({ season, espnTeams = null } = {}) {
     instrumentation: 'cfbd-advanced',
     garbageTimeFiltered: true,              // excludeGarbageTime=true on the advanced stats call
     homeField: CFB_HOME_FIELD,
-    homeFieldFitted: false,                 // see CFB_HOME_FIELD — conventional, not measured
+    homeFieldFitted: true,                  // see CFB_HOME_FIELD — measured on 6,921 games
     teams,
     crosswalk: map,
     counts: {

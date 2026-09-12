@@ -1,7 +1,7 @@
 {
   "sport": "cfb",
   "basis": "pregame-elo",
-  "fittedAt": "2026-09-12T22:37:47.390Z",
+  "fittedAt": "2026-09-12T22:43:55.133Z",
   "trainSeasons": [
     2016,
     2024
@@ -106,6 +106,13 @@
   "gates": {
     "showWinProb": false,
     "showDisagreement": false
+  },
+  "homeField": {
+    "pts": 2.4816559071369646,
+    "neutralAdj": -0.7450817974091123,
+    "spSlope": 0.9763633690104694,
+    "games": 7139,
+    "fittedOn": "sp+"
   },
   "validates": "the rating-difference structure, using pregame Elo",
   "doesNotValidate": "SP+, which is what the feed actually ships; /ratings/sp is end-of-season only"

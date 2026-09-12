@@ -28,7 +28,7 @@
 //                 APPROACH, not the shipped numbers, and the college display gates stay shut until
 //                 SP+ is validated prospectively (snapshot it weekly and grade it forward).
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { games, gameLines } from '../api/_lib/cfbd.js';
+import { games, gameLines, spRatings } from '../api/_lib/cfbd.js';
 import { olsSolve } from '../api/_lib/ridge.js';
 import { normCdf } from '../api/_lib/pickem.js';
 
@@ -230,6 +230,51 @@ console.log(`  college disagreement may be shown: ${disagreeGate ? 'PASS' : 'FAI
 console.log(`\nCOEFFICIENTS: intercept ${coef[0].toFixed(4)}  eloDiff ${coef[1].toFixed(5)}  neutralAdj ${coef[2].toFixed(4)}`);
 console.log(`  (${(1 / coef[1]).toFixed(1)} Elo points per point of margin)`);
 
+// --- home-field advantage, measured on SP+ ITSELF ---------------------------
+//
+// The Elo fit above reports a home-field intercept, but transplanting it into an SP+ model would be
+// borrowing a coefficient from a model we do not ship. So this fits it directly on SP+:
+//
+//     margin = hfa + slope * (SP+home - SP+away) + neutralAdj * isNeutral
+//
+// USING END-OF-SEASON SP+ HERE IS DELIBERATE AND, FOR THIS ONE QUESTION, LEGITIMATE. Everywhere
+// else in this file that would be a fatal leak. But home-field advantage is identified by the
+// ASYMMETRY between playing at home and away, and the end-of-season leak contaminates both teams in
+// a game symmetrically — it inflates how well `slope` fits, and leaves `hfa` alone. So `slope` and
+// the goodness of fit below are NOT evidence of predictive skill and must never be quoted as such;
+// only `hfa` and `neutralAdj` are taken from this, and only those are written out.
+const spByYear = {};
+for (let y = FIRST; y <= LAST; y++) {
+  const sp = await cached(`sp_${y}.json`, () => spRatings(y));
+  spByYear[y] = new Map(sp.filter((r) => r?.team && typeof r.rating === 'number').map((r) => [r.team, r.rating]));
+}
+const spRows = [];
+for (let y = FIRST; y <= LAST; y++) {
+  const gs = await cached(`games_${y}.json`, () => games(y));
+  const m = spByYear[y];
+  for (const g of gs) {
+    if (!g.completed || g.homeClassification !== 'fbs' || g.awayClassification !== 'fbs') continue;
+    const h = m.get(g.homeTeam), a = m.get(g.awayTeam);
+    if (!Number.isFinite(h) || !Number.isFinite(a)) continue;
+    if (!Number.isFinite(g.homePoints) || !Number.isFinite(g.awayPoints)) continue;
+    spRows.push({ d: h - a, margin: g.homePoints - g.awayPoints, neutral: g.neutralSite === true });
+  }
+}
+const spFit = olsSolve({
+  rows: spRows.map((r) => [1, r.d, r.neutral ? 1 : 0]),
+  y: spRows.map((r) => r.margin),
+});
+const trueNeutral = spRows.filter((r) => r.neutral);
+const atHome = spRows.filter((r) => !r.neutral);
+console.log(`\nHOME FIELD, FITTED ON SP+ ITSELF  (${spRows.length} games; ${atHome.length} hosted, ${trueNeutral.length} neutral)`);
+console.log(`  home-field advantage : ${spFit[0].toFixed(3)} pts`);
+console.log(`  neutral-site adjust  : ${spFit[2].toFixed(3)} pts  -> effective ${(spFit[0] + spFit[2]).toFixed(3)} at a neutral site`);
+console.log(`  SP+ slope            : ${spFit[1].toFixed(3)}  (leak-inflated; NOT a skill estimate)`);
+// Raw sanity check, no model at all: what is the plain average home margin?
+const rawHome = atHome.reduce((s, r) => s + r.margin, 0) / atHome.length;
+const rawNeut = trueNeutral.length ? trueNeutral.reduce((s, r) => s + r.margin, 0) / trueNeutral.length : null;
+console.log(`  (unmodelled average home margin ${rawHome.toFixed(2)}; nominal-home margin at neutral sites ${rawNeut === null ? 'n/a' : rawNeut.toFixed(2)})`);
+
 if (process.argv.includes('--write')) {
   const out = {
     sport: 'cfb', basis: 'pregame-elo', fittedAt: new Date().toISOString(),
@@ -244,6 +289,9 @@ if (process.argv.includes('--write')) {
       },
     },
     gates: { showWinProb: winProbGate, showDisagreement: disagreeGate },
+    // Fitted on SP+ directly (see above), which is why these — and only these — are safe to put
+    // into the shipped model. `spSlope` is recorded for completeness and is leak-inflated.
+    homeField: { pts: spFit[0], neutralAdj: spFit[2], spSlope: spFit[1], games: spRows.length, fittedOn: 'sp+' },
     // The load-bearing caveat, carried in the artefact so it cannot be lost in a summary.
     validates: 'the rating-difference structure, using pregame Elo',
     doesNotValidate: 'SP+, which is what the feed actually ships; /ratings/sp is end-of-season only',

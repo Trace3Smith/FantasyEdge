@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs';
 import { ridgeSolve, olsSolve } from '../api/_lib/ridge.js';
 import { buildNflRatings, rawRates, adjustEpa, parseCsv } from '../api/_lib/nflRatings.js';
 import { buildCrosswalk, normalizeName } from '../api/_lib/cfbCrosswalk.js';
-import { scoreNflGame, scoreCfbGame, winProbFromMargin } from '../api/_lib/gameModel.js';
+import { scoreNflGame, scoreCfbGame, winProbFromMargin, CFB_HOME_FIELD } from '../api/_lib/gameModel.js';
 
 let failures = 0;
 const ok = (cond, msg) => { console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${msg}`); if (!cond) failures++; };
@@ -223,6 +223,19 @@ console.log('\n[coefficients] COLLEGE BACKTEST');
   // College margins are genuinely more variable than NFL ones; borrowing the NFL's 13.5 would make
   // every college probability overconfident. The fitted residual SD must reflect that.
   ok(CFB.marginSd > 14, `college residual SD is fitted, not borrowed from the NFL (${CFB.marginSd.toFixed(1)} pts vs NFL 13.5)`);
+
+  // Home field must be the value fitted ON SP+, never the Elo backtest's intercept. Those differ by
+  // two thirds of a point and the Elo one is the tempting mistake: it is printed right above the
+  // SP+ number in the same report, and it is wrong here only because an intercept belongs to the
+  // slope it was fitted with. Every displayed college margin moves if this drifts.
+  const hf = CFB.homeField;
+  ok(hf && hf.fittedOn === 'sp+', 'home field is recorded as fitted on SP+, not on Elo');
+  ok(Math.abs(CFB_HOME_FIELD - hf.pts) < 0.01,
+    `shipped CFB_HOME_FIELD (${CFB_HOME_FIELD}) matches the SP+ fit (${hf.pts.toFixed(3)})`);
+  ok(Math.abs(CFB_HOME_FIELD - CFB.coef.intercept) > 0.4,
+    `shipped CFB_HOME_FIELD is NOT the Elo intercept (${CFB.coef.intercept.toFixed(2)})`);
+  ok(Math.abs(hf.spSlope - 1) < 0.1,
+    `SP+ slope is ~1.0 (${hf.spSlope.toFixed(3)}), confirming SP+ difference already reads as points`);
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)\n` : '\nAll model checks passed.\n');
