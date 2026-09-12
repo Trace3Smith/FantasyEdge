@@ -1,0 +1,156 @@
+{
+  "settings": {
+    "name": "Superstars League- NL",
+    "size": 12,
+    "scoringSettings": {
+      "allowOutOfPositionScoring": true,
+      "homeTeamBonus": 0,
+      "matchupTieRule": "NONE",
+      "matchupTieRuleBy": 0,
+      "playerRankType": "ROTO",
+      "playoffHomeTeamBonus": 0,
+      "playoffMatchupTieRule": "NONE",
+      "playoffMatchupTieRuleBy": 0,
+      "scoringItems": [
+        {
+          "isReverseItem": false,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1,
+          "statId": 20
+        },
+        {
+          "isReverseItem": false,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1,
+          "statId": 5
+        },
+        {
+          "isReverseItem": false,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1,
+          "statId": 21
+        },
+        {
+          "isReverseItem": false,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1,
+          "statId": 53
+        },
+        {
+          "isReverseItem": true,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1,
+          "statId": 47
+        },
+        {
+          "isReverseItem": false,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1,
+          "statId": 23
+        },
+        {
+          "isReverseItem": false,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1,
+          "statId": 57
+        },
+        {
+          "isReverseItem": true,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1,
+          "statId": 41
+        },
+        {
+          "isReverseItem": false,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1,
+          "statId": 60
+        },
+        {
+          "isReverseItem": false,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1,
+          "statId": 48
+        },
+        {
+          "isReverseItem": false,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1,
+          "statId": 17
+        },
+        {
+          "isReverseItem": false,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1,
+          "statId": 2
+        }
+      ],
+      "scoringType": "ROTO",
+      "statQualificationMinimum": {
+        "limitValue": 0,
+        "statId": -1
+      }
+    },
+    "draftSettings": {
+      "auctionBudget": 0,
+      "availableDate": 1774393200000,
+      "date": 1774396800000,
+      "isTradingEnabled": true,
+      "keeperCount": 0,
+      "keeperCountFuture": 0,
+      "keeperOrderType": "TRADITIONAL",
+      "leagueSubType": "NONE",
+      "orderType": "MANUAL",
+      "pickOrder": [
+        9,
+        1,
+        13,
+        7,
+        6,
+        5,
+        12,
+        4,
+        3,
+        10,
+        11,
+        2
+      ],
+      "timePerSelection": 60,
+      "type": "SNAKE"
+    },
+    "acquisitionSettings": {
+      "acquisitionBudget": 0,
+      "acquisitionLimit": -1,
+      "acquisitionType": "WAIVERS_TRADITIONAL",
+      "finalPlaceTransactionEligible": 0,
+      "isUsingAcquisitionBudget": false,
+      "matchupAcquisitionLimit": 0,
+      "matchupLimitPerScoringPeriod": false,
+      "minimumBid": 0,
+      "transactionLockingEnabled": false,
+      "waiverHours": 24,
+      "waiverOrderReset": false,
+      "waiverProcessDays": [],
+      "waiverProcessHour": 3
+    },
+    "tradeSettings": {
+      "allowOutOfUniverse": false,
+      "deadlineDate": 1788192000000,
+      "max": -1,
+      "revisionHours": 24,
+      "vetoVotesRequired": 4
+    }
+  }
+}

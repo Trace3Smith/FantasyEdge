@@ -1,0 +1,118 @@
+{
+  "settings": {
+    "name": "Welcome to the W",
+    "size": 8,
+    "scoringSettings": {
+      "allowOutOfPositionScoring": false,
+      "homeTeamBonus": 0,
+      "matchupTieRule": "NONE",
+      "matchupTieRuleBy": 0,
+      "playerRankType": "STANDARD",
+      "playoffHomeTeamBonus": 0,
+      "playoffMatchupTieRule": "NONE",
+      "playoffMatchupTieRuleBy": 0,
+      "scoringItems": [
+        {
+          "isReverseItem": false,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 2,
+          "statId": 37
+        },
+        {
+          "isReverseItem": false,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1,
+          "pointsOverrides": {},
+          "statId": 6
+        },
+        {
+          "isReverseItem": false,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1.5,
+          "statId": 1
+        },
+        {
+          "isReverseItem": false,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1.5,
+          "statId": 2
+        },
+        {
+          "isReverseItem": false,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1,
+          "pointsOverrides": {},
+          "statId": 0
+        },
+        {
+          "isReverseItem": false,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1,
+          "statId": 17
+        },
+        {
+          "isReverseItem": false,
+          "leagueRanking": 0,
+          "leagueTotal": 0,
+          "points": 1,
+          "pointsOverrides": {},
+          "statId": 3
+        }
+      ],
+      "scoringType": "H2H_POINTS"
+    },
+    "draftSettings": {
+      "auctionBudget": 200,
+      "availableDate": 1777937400000,
+      "date": 1777941000000,
+      "isTradingEnabled": false,
+      "keeperCount": 0,
+      "keeperCountFuture": 0,
+      "keeperOrderType": "TRADITIONAL",
+      "leagueSubType": "NONE",
+      "orderType": "DRAFT_START",
+      "pickOrder": [
+        8,
+        5,
+        2,
+        6,
+        4,
+        1,
+        7,
+        3
+      ],
+      "timePerSelection": 60,
+      "type": "SNAKE"
+    },
+    "acquisitionSettings": {
+      "acquisitionBudget": 100,
+      "acquisitionLimit": -1,
+      "acquisitionType": "WAIVERS_TRADITIONAL",
+      "finalPlaceTransactionEligible": 0,
+      "isUsingAcquisitionBudget": false,
+      "matchupAcquisitionLimit": 0.5714285714285714,
+      "matchupLimitPerScoringPeriod": true,
+      "minimumBid": 1,
+      "transactionLockingEnabled": false,
+      "waiverHours": 24,
+      "waiverOrderReset": false,
+      "waiverProcessDays": [
+        "SUNDAY"
+      ],
+      "waiverProcessHour": 8
+    },
+    "tradeSettings": {
+      "allowOutOfUniverse": false,
+      "deadlineDate": 1785772800000,
+      "max": -1,
+      "revisionHours": 24,
+      "vetoVotesRequired": 3
+    }
+  }
+}

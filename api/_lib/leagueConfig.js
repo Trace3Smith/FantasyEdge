@@ -31,6 +31,11 @@ export const PLATFORMS = new Set(['espn', 'yahoo', 'sleeper']);
 // stay that way. Its pick'em/tournament format has no draft or roster construction for the model to
 // learn from, so no golf league is ever validated or recorded, whichever path tries. This gates only
 // the config write; golf works normally everywhere else in the app.
+//
+// All five are pinned to a real ESPN payload in scripts/fixtures/league-settings/. Nothing goes in
+// this set on the assumption that a sport maps the way its neighbours do: a sport with no captured
+// payload behind it stays out until there is one, and check-league-config.mjs fails if the two ever
+// disagree.
 export const SPORTS = new Set(['nfl', 'mlb', 'nba', 'wnba', 'nhl']);
 export const SCORING_FORMATS = new Set([
   'h2h_points', 'h2h_categories', 'h2h_most_categories', 'roto', 'season_points',
