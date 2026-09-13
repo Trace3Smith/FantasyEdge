@@ -305,7 +305,7 @@ const FAN_PARAM_VARIANTS = [
 //
 // sport 'all' keeps every league in the five ESPN games we support, each tagged with its sport, and
 // drops any entry it can't classify. In single-sport mode an unlabelled entry is still kept, as before.
-export async function discoverFanLeagues(creds, sport = 'mlb') {
+export async function discoverFanLeagues(creds, sport = 'mlb', { complete = false } = {}) {
   const all = sport === 'all';
   const wantAbbrev = all ? null : sportCfg(sport).abbrev;
   const diag = { ok: false, prefCount: 0, abbrevs: [], seasons: [], types: [], entryKeys: [], responseKeys: [], skipped: { abbrev: 0, ids: 0, noEntry: 0 }, kept: 0, variants: 0, error: null };
@@ -363,7 +363,7 @@ export async function discoverFanLeagues(creds, sport = 'mlb') {
         leagueName: group.groupName || e.name || `League ${leagueId}`,
       });
     }
-    if (out.length) break; // found the sport — no need to try narrower variants
+    if (out.length && !complete) break; // found the sport — no need to try narrower variants
   }
   diag.kept = out.length;
   return { leagues: out, diag };

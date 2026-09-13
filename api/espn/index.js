@@ -1,3 +1,5 @@
+import { createRecommendationLoader } from '../_lib/myEdge/recommendations.js';
+import { createRecommendationContext } from '../_lib/recommendationSnapshot.js';
 import { aggregateEspn } from '../_lib/myEdge/espn.js';
 // ESPN fantasy account integration (Premium) — a single serverless function that
 // dispatches on `action` so the four ESPN operations share one deployment slot
@@ -228,7 +230,7 @@ export default async function handler(req, res) {
       case 'connect':    return await connect(req, res, userId);
       case 'disconnect': return await disconnect(res, userId);
       case 'dnaChoice':  return await dnaChoice(req, res, userId);
-      case 'myEdge':     return await myEdge(res, userId);
+      case 'myEdge':     return await myEdge(req, res, userId);
       case 'leagues':    return await leagues(req, res, userId);
       case 'apply':      return await applyLineup(req, res, userId);
       case 'nflForm':    return await nflForm(req, res, userId);
@@ -247,11 +249,11 @@ export default async function handler(req, res) {
 }
 
 // Same Premium authentication as Team Manager. Advisor-only, no persistence or DNA collection.
-async function myEdge(res, userId) {
+async function myEdge(req, res, userId) {
   res.setHeader('Cache-Control', 'private, no-store');
   const creds = await getCreds(redis, userId);
   if (!creds) return res.status(200).json({ mode: 'ADVISOR', connectionState: 'DISCONNECTED', actions: [], assessments: [], attentionCount: 0 });
-  return res.status(200).json(await aggregateEspn(creds));
+  return res.status(200).json(await aggregateEspn(creds, { userId, cursor: req.body?.cursor ?? null, enrich: createRecommendationLoader(redis, creds) }));
 }
 
 // Whether the user has an ESPN account connected. Returns only a boolean (+ masked
@@ -405,31 +407,22 @@ async function leagues(req, res, userId) {
         // weighting builds its own (keyed by weight signature).
         // One bye lookup for every league in the response; null for non-NFL sports.
         const byes = nflSchedule ? nflSchedule.byes : await byeWeeksFor(sport, result.leagues?.[0]?.season);
-        const idxCache = new Map();
-        const indexFor = (w) => {
-          const sig = w ? JSON.stringify(w) : 'default';
-          if (!idxCache.has(sig)) idxCache.set(sig, buildValueIndex(players, sport, w));
-          return idxCache.get(sig);
-        };
+        const recommend = createRecommendationContext(ds, sport);
         await Promise.all((result.leagues || []).map(async (lg) => {
           if (!lg || !lg.team || !Array.isArray(lg.roster) || !lg.roster.length) return;
           // Detect this league's scoring from ESPN, persist it in KV alongside the
           // roster, and value players under it. Falls back to the sport default when
           // the scoring can't be confidently translated.
-          const scoring = parseScoringSettings(lg.scoringRaw, sport);
-          if (scoring) {
-            lg.scoring = scoring;
-            redis.set(scoringKey(sport, lg.season, lg.leagueId), scoring).catch(() => {});
-          }
           let freeAgents = [];
           try {
             freeAgents = await fetchFreeAgents(creds, { leagueId: lg.leagueId, seasonId: lg.season, limit: 40 }, sport);
           } catch { /* waiver data is optional */ }
-          // Rank the user in each scored category (from mStandings) to weight waiver
-          // category impact — gaining a category they trail in matters more than one they lead.
-          const ranks = categoryRanks(lg.standings, lg.teamId, sport);
-          lg.suggestions = suggestLineup(lg, indexFor(scoring?.weights || null), sport,
-            { freeAgents, cats: scoring?.cats || null, ranks, byeWeeks: byes });
+          const snapshot = recommend(lg, { freeAgents, byeWeeks: byes });
+          if (snapshot.scoring) {
+            lg.scoring = snapshot.scoring;
+            redis.set(scoringKey(sport, lg.season, lg.leagueId), snapshot.scoring).catch(() => {});
+          }
+          lg.suggestions = snapshot.suggestions;
         }));
 
         // Prospect call-up monitoring (MLB only): track stashed prospects, detect

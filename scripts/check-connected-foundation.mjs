@@ -102,7 +102,7 @@ const edge=await post({action:'myEdge',sport:'nfl',leagueId:'forged',teamId:'for
 assert.equal(edge.statusCode,200);assert.equal(edge.headers['Cache-Control'],'private, no-store');
 assert.equal(edge.body.assessments[0].status,'EMPTY_ROSTER');
 assert.equal(edge.body.assessments[0].scope.sport,'nba','scope derives from provider, not browser');
-assert.equal(edge.body.attentionCount,0);assert.equal(edgeReads,2);
+assert.equal(edge.body.attentionCount,0);assert.equal(edgeReads,3);
 assert.equal(JSON.stringify([...store]),beforeStore,'aggregation does not persist consent, cache or permissions');
 assert.equal(JSON.stringify(edge.body).includes(fixture.owner),false);
 store.delete('espn:creds:u');
