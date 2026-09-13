@@ -238,6 +238,12 @@
     <button class="btn btn-gold" id="signInBtn">Sign in</button>
   </div>
 
+  <div class="panel hidden" id="connectionError">
+    <h2>Connection status unavailable</h2>
+    <p class="hint">We could not check your saved ESPN connection. No connection state has been confirmed. Retry before entering credentials.</p>
+    <button class="btn btn-gold" id="retryConnection">Retry connection check</button>
+  </div>
+
   <!-- Connect form (premium, not connected) -->
   <div class="panel hidden" id="connectPanel">
     <div class="msg show ok hidden" id="reconnectNote" style="margin-bottom:12px">↻ Refreshing your ESPN connection — paste your latest cookies below and you're set for another month or two.</div>
@@ -420,15 +426,20 @@ const navigation = targetFromSearch(location.search);
     show('locked', signedIn && !premium);
     show('signedOut', !signedIn);
     // Hide both premium surfaces until we know the connection status.
-    if (!signedIn || !premium) { show('connectPanel', false); show('connectedWrap', false); return; }
+    if (!signedIn || !premium) { show('connectionError', false); show('connectPanel', false); show('connectedWrap', false); return; }
     if (!loadedOnce) { loadedOnce = true; await refreshStatus(); }
   }
 
   // ---- connection status ---------------------------------------------------------
+  let connectionStatusVerified = false;
+  $('retryConnection').addEventListener('click', () => refreshStatus());
   async function refreshStatus() {
-    const { ok, status, data } = await api('/api/espn', { action: 'status' });
+    connectionStatusVerified = false;
+    show('connectionError', false); show('connectPanel', false); show('connectedWrap', false);
+    const { ok, status, data } = await api('/api/espn', { action: 'status' }).catch(() => ({ok:false}));
     if (status === 401) { show('connectPanel', false); show('connectedWrap', false); show('signedOut', true); return; }
-    if (!ok) { show('connectPanel', true); return; }
+    if (!ok || typeof data?.connected !== 'boolean') { show('connectionError', true); return; }
+    connectionStatusVerified = true;
     if (data.connected) {
       show('connectPanel', false);
       show('connectedWrap', true);
@@ -513,6 +524,7 @@ const navigation = targetFromSearch(location.search);
   }
 
   async function connect() {
+    if (!connectionStatusVerified) { show('connectPanel', false); show('connectionError', true); return; }
     const espn_s2 = $('s2Input').value.trim();
     const swid = $('swidInput').value.trim();
     if (!espn_s2 || !swid) { setMsg('connectMsg', 'Paste both the espn_s2 and SWID cookie values.', 'err'); return; }

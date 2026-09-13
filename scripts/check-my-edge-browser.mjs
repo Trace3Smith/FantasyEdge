@@ -110,6 +110,13 @@ try {
   await page.waitForFunction(()=>document.getElementById('leaguesMsg')?.textContent.includes('invalid'));
   await page.goto(base+'/'+toolLink('teamManager',{...target,teamId:'9999'}));
   await page.waitForFunction(()=>document.getElementById('leaguesMsg')?.textContent.includes('not available'));
+  await page.route('**/api/espn',async route=>{
+   if(route.request().postDataJSON()?.action==='status')return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'storage_unavailable'})});
+   return route.continue();
+  });
+  await page.goto(base+'/'+toolLink('teamManager',target));await page.waitForSelector('#connectionError:not(.hidden)');
+  assert.equal(await page.locator('#connectPanel').isVisible(),false,'failed status never invites credential entry');
+  await page.unroute('**/api/espn');await page.locator('#retryConnection').click();await page.waitForSelector('.league-card');
   assert.deepEqual(errors,[]);await page.close();
  }
  assert.ok(requests.every(r=>['myEdge','status','leagues','leagueContext'].includes(r.action)));

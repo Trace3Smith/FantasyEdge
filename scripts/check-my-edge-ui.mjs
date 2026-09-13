@@ -30,3 +30,11 @@ assert.equal(mergePages(pages,now+61000).attentionCount,0,'expired actions exclu
 signedIn=false;listener();assert.equal(root.get('actions').children.length,0,'signout clears private cards');assert.equal(root.get('account').hidden,false);
 assert.ok(calls.every(c=>c.path==='/api/espn'&&c.body.action==='myEdge'));
 app.dispose();console.log('PASS: Advisor UI pagination, deduplication, escaped text, allowlisted tools, expiry, preseason/partial coverage and signout clearing');
+
+signedIn=true;
+FE.apiPost=async()=>({ok:true,data:{connectionState:'DISCONNECTED',actions:[],assessments:[]}});
+await app.load(true);assert.match(root.get('status').textContent,/Connect or reconnect ESPN/);
+assert.equal(root.get('actions').children.length,0);
+FE.apiPost=async()=>({ok:false,status:503,data:{error:'storage_unavailable'}});
+await app.load(true);assert.match(root.get('status').textContent,/Could not finish/,'storage failure is not a disconnected state');
+console.log('PASS: verified disconnected state differs from failed storage lookup');
