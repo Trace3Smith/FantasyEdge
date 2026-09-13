@@ -1,0 +1,13 @@
+.git
+.vercel
+.cache
+tmp
+.DS_Store
+scripts/capture-board.js
+.env*
+.codex
+.agents
+.claude
+AI_SESSION_HANDOFF.md
+PROJECT_HANDOFF.md
+node_modules

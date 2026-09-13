@@ -1,3 +1,4 @@
+import { blockPreview } from '../_lib/previewSafety.js';
 // Draft-pick advice. Our model (api/_lib/draft.js) builds the shortlist of best
 // available candidates with their signals (value vs. replacement, ADP/falling value,
 // roster need, positional scarcity); a single Claude call then acts as the draft
@@ -259,6 +260,7 @@ async function analyzePick({ sport, round, scoring, teams, roster, candidates, r
 }
 
 export default async function handler(req, res) {
+  if (blockPreview(req, res, 'disabled')) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {

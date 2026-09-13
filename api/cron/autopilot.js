@@ -1,3 +1,4 @@
+import { blockPreview } from '../_lib/previewSafety.js';
 // Daily Lineup Autopilot cron (scheduled in vercel.json). For every user who has
 // opted IN on at least one league, re-fetch that league's roster, compute the optimal
 // legal lineup from our valuations for that league's sport, and apply it to ESPN.
@@ -60,6 +61,7 @@ export function tallyApply(summary, res) {
 }
 
 export default async function handler(req, res) {
+  if (blockPreview(req, res, 'disabled')) return;
   // Bearer secret only, failing closed when it is unset — same gate as api/cron/refresh.js.
   const secret = process.env.CRON_SECRET;
   if (!secret || req.headers.authorization !== `Bearer ${secret}`) {

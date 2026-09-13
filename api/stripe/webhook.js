@@ -1,3 +1,4 @@
+import { blockPreview } from '../_lib/previewSafety.js';
 // Stripe webhook — the single source that flips a user's plan in Clerk. Stripe is
 // the source of truth for subscription state; Clerk publicMetadata.plan is just a
 // mirror the frontend can read. Signature verification needs the raw request body,
@@ -36,6 +37,7 @@ async function userIdForCustomer(customerId) {
 }
 
 export default async function handler(req, res) {
+  if (blockPreview(req, res, 'disabled')) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   let event;

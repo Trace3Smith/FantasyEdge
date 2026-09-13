@@ -1,3 +1,4 @@
+import { blockPreview } from '../_lib/previewSafety.js';
 // AI Coach chat endpoint (Premium only). Forwards the running conversation to Claude
 // with a fantasy-sports-friend system prompt and returns one reply. Stateless: the
 // client sends the full message history each turn, and we cap/clamp it to bound cost.
@@ -59,6 +60,7 @@ function sanitize(raw) {
 }
 
 export default async function handler(req, res) {
+  if (blockPreview(req, res, 'disabled')) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {

@@ -1,3 +1,4 @@
+import { blockPreview, isPreview } from '../_lib/previewSafety.js';
 import { leagueTarget } from '../../leagueNavigation.js';
 import { createRecommendationLoader } from '../_lib/myEdge/recommendations.js';
 import { createRecommendationContext } from '../_lib/recommendationSnapshot.js';
@@ -217,6 +218,7 @@ function decorateNflProposals(proposals, idx, ppr, positions) {
 }
 
 export default async function handler(req, res) {
+  if (blockPreview(req, res, 'espn')) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
     const action = req.body?.action;
@@ -406,7 +408,7 @@ async function leagues(req, res, userId) {
   // League DNA: record each fetched league's settings, only for a user who opted in on the current
   // notice. The roster read already asked ESPN for them (view=mSettings), so this is one Redis write per
   // league and no extra ESPN call. Never throws.
-  if (await dnaCaptureAllowed(redis, userId)) {
+  if (!isPreview() && await dnaCaptureAllowed(redis, userId)) {
     await Promise.all((result.leagues || []).map((lg) => (lg?.leagueConfig ? recordLeagueConfig(redis, lg.leagueConfig) : null)));
   }
 
@@ -440,7 +442,7 @@ async function leagues(req, res, userId) {
           const snapshot = recommend(lg, { freeAgents, byeWeeks: byes });
           if (snapshot.scoring) {
             lg.scoring = snapshot.scoring;
-            redis.set(scoringKey(sport, lg.season, lg.leagueId), snapshot.scoring).catch(() => {});
+            if (!isPreview()) redis.set(scoringKey(sport, lg.season, lg.leagueId), snapshot.scoring).catch(() => {});
           }
           lg.suggestions = snapshot.suggestions;
         }));
@@ -455,7 +457,7 @@ async function leagues(req, res, userId) {
             const pIdx = prospectIndex(ds?.players || []);
             const watch = await getWatch(redis, userId);
             const { watch: nextWatch, byLeague } = reconcileWatch({ watch, leagues: result.leagues || [], idx: pIdx });
-            setWatch(redis, userId, nextWatch).catch(() => {});
+            if (!isPreview()) setWatch(redis, userId, nextWatch).catch(() => {});
             const reclaimIds = new Set(Object.values(nextWatch).filter((e) => e.reclaim).map((e) => String(e.id)));
             for (const lg of (result.leagues || [])) {
               if (!lg || !lg.team) continue;
