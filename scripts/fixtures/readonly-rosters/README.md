@@ -30,8 +30,9 @@ INJURY_RESERVE status. This does not prove IR activation eligibility or legality
 
 NHL: position IDs 1–5; populated slots 3,4,5,6,7; configured slots also include 8. Statuses include ACTIVE,
 OUT and SUSPENSION. IDs and eligibility are preserved exactly, but response data has no authoritative
-human slot-name registry. Current NHL parser still lacks position/slot/bench maps and can misclassify
-reserves as starters. Tests deliberately verify raw data preservation and capability restrictions without
+human slot-name registry. NHL default position labels are now verified by the companion nhl-position-evidence.json (five public
+ESPN athlete profiles matched by player ID). Slot/bench maps remain unsupported; starter:null explicitly
+preserves that uncertainty instead of misclassifying reserves. Tests deliberately verify raw data preservation and capability restrictions without
 certifying those incorrect semantics. C/LW/RW/D, goalie/flex/reserve labels and IR+ require further evidence.
 
 All captured entries include selected provider lock fields. This proves their shape and parser handling,

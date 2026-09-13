@@ -126,3 +126,28 @@ unlocked. Discovery needs its own sanitized fan response; a league roster does n
 Until this evidence is available, READ_ONLY is an architectural capability ceiling, not a launch claim.
 UI tabs, recommendations, real writes and Autopilot remain disabled. My Edge aggregation/UI implementation
 has not begun; the evidence gate requested for starting that dependent work has not yet been satisfied.
+
+## Read-only acceptance update — preseason and historical evidence
+
+The user confirmed the 2027 drafts have not started. Empty authenticated rosters are **normal preseason
+behavior**, not an error or readiness blocker. `rosterState: EMPTY` distinguishes explicit empty entries
+from `UNAVAILABLE` (missing roster data) and `POPULATED`. Current fixtures prove discovery, authentication/
+ownership and this empty path; populated 2026 fixtures prove parser shapes. No need to wait for drafts.
+
+NBA read-only acceptance passes for the observed ROTO provider shape: all five player positions, slot IDs,
+eligibility, scoring items/direction, OUT versus healthy statuses, bench12/IR13, player IDs and numeric
+proTeamId. Team abbreviation lookup remains a display gap; IDs are preserved. Points-league recommendation
+coverage and transaction/IR activation legality are not prerequisites for showing the captured roster.
+
+NHL default positions now map 1 C, 2 LW, 3 RW, 4 D, 5 G using five public ESPN athlete profiles matched by
+provider player ID; sanitized supporting evidence is nhl-position-evidence.json. This is separate from
+lineup-slot IDs. Human slot roles, bench versus IR/IR+ and scored stat labels remain explicitly unsupported.
+Raw IDs, eligibility, numeric category rules, injury/lock fields and player/team identity pass regression
+coverage. Unknown slot roles now return starter:null and slotKnown:false instead of mislabeling every
+reserve as a starter. This permits read-only data visibility with documented gaps; suppress slot-dependent
+advice until mappings are verified. No guessed goalie, skater, reserve or category formula was introduced.
+
+Shared parser also adds positionId/positionKnown, injuryStatusKnown, lockStatusKnown and normalized
+availability from its existing injury-status vocabulary. Missing values do not prove health or lock
+eligibility. Legacy injury/locked fields remain for existing consumers. NBA/NHL writes and Autopilot are
+unchanged. My Edge Advisor foundation can proceed with coverage-aware assessments despite these gaps.

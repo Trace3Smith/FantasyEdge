@@ -30,12 +30,16 @@ try {
    assert.deepEqual(result.scoringRaw,league.settings.scoringSettings);
    assert.deepEqual(result.slotCounts,league.settings.rosterSettings.lineupSlotCounts);
    assert.equal(result.roster.length,season===2027?0:sport==='nba'?15:22);
+   assert.equal(result.rosterState,season===2027?'EMPTY':'POPULATED');
    const entries=league.teams.find(t=>t.id===selection.teamId).roster.entries;
    for(const entry of entries) {
      const source=entry.playerPoolEntry.player, parsed=result.roster.find(p=>p.id===source.id);
      assert.ok(parsed);
      assert.equal(parsed.proTeamId,source.proTeamId);
      assert.equal(parsed.slotId,entry.lineupSlotId);
+     assert.equal(parsed.positionId,source.defaultPositionId);
+     assert.equal(parsed.injuryStatusKnown,true);
+     assert.equal(parsed.lockStatusKnown,true);
      assert.deepEqual(parsed.eligibleSlots,source.eligibleSlots);
      assert.equal(parsed.injuryStatus,source.injuryStatus);
      assert.equal(parsed.locked,entry.lineupLocked===true || entry.playerPoolEntry.lineupLocked===true || entry.playerPoolEntry.rosterLocked===true);
@@ -44,6 +48,15 @@ try {
      assert.ok(result.roster.some(p=>p.slotId===13 && !p.starter && p.injuryStatus==='OUT'));
      assert.ok(result.roster.some(p=>p.slotId===12 && !p.starter));
      assert.deepEqual([...new Set(result.roster.map(p=>p.pos))].sort(),['C','PF','PG','SF','SG']);
+   }
+   if(sport==='nhl' && season===2026) {
+     const evidence=JSON.parse(readFileSync(new URL('fixtures/readonly-rosters/nhl-position-evidence.json',import.meta.url)));
+     for(const row of evidence.rows) {
+       const player=result.roster.find(p=>p.id===row.athleteId);
+       assert.equal(player.positionId,row.fantasyDefaultPositionId);
+       assert.equal(player.pos,row.position.abbreviation);
+     }
+     assert.ok(result.roster.every(p=>p.starter===null && !p.slotKnown));
    }
    const other=league.teams.find(t=>![t.primaryOwner,...(t.owners||[])].includes(owner));
    assert.ok(other,'capture retains a nonowned team identity');

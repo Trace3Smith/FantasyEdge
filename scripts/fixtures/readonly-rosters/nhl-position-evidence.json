@@ -1,0 +1,52 @@
+{
+  "source": "ESPN public athlete profiles",
+  "rows": [
+    {
+      "fantasyDefaultPositionId": 1,
+      "athleteId": 3041969,
+      "position": {
+        "id": "1",
+        "abbreviation": "C",
+        "displayName": "Center"
+      }
+    },
+    {
+      "fantasyDefaultPositionId": 2,
+      "athleteId": 5833,
+      "position": {
+        "id": "2",
+        "abbreviation": "LW",
+        "displayName": "Left Wing"
+      }
+    },
+    {
+      "fantasyDefaultPositionId": 3,
+      "athleteId": 3114766,
+      "position": {
+        "id": "3",
+        "abbreviation": "RW",
+        "displayName": "Right Wing"
+      }
+    },
+    {
+      "fantasyDefaultPositionId": 4,
+      "athleteId": 3988803,
+      "position": {
+        "id": "4",
+        "abbreviation": "D",
+        "displayName": "Defense"
+      }
+    },
+    {
+      "fantasyDefaultPositionId": 5,
+      "athleteId": 3151981,
+      "position": {
+        "id": "5",
+        "abbreviation": "G",
+        "displayName": "Goaltender"
+      }
+    }
+  ],
+  "capturedAt": "2026-09-12",
+  "endpointTemplate": "https://site.web.api.espn.com/apis/common/v3/sports/hockey/nhl/athletes/{athleteId}"
+}

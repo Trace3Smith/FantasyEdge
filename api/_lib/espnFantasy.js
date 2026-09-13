@@ -197,7 +197,9 @@ const SPORTS = {
   nba: { game: 'fba', abbrev: 'FBA', slots: HOOPS_SLOTS, positions: HOOPS_POS, bench: new Set([12, 13]), slotOrder: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], teams: {} },
   // Off-season sports — game codes for future use; no rosters fetched while off-season.
   nfl: { game: 'ffl', abbrev: 'FFL', slots: NFL_SLOTS, positions: NFL_POS, bench: new Set([20, 21]), slotOrder: [0, 1, 7, 2, 3, 4, 5, 6, 23, 16, 17, 18, 19, 8, 9, 10, 11, 12, 13, 14, 15, 24], teams: NFL_TEAMS },
-  nhl: { game: 'fhl', abbrev: 'FHL', slots: {}, positions: {}, bench: new Set([], []), slotOrder: [], teams: {} },
+  // Default positions verified against public ESPN athlete profiles; see nhl-position-evidence.json.
+  // Slot roles remain unknown and must not be inferred from default position IDs.
+  nhl: { game: 'fhl', abbrev: 'FHL', slots: {}, positions: {1:'C',2:'LW',3:'RW',4:'D',5:'G'}, bench: new Set(), slotOrder: [], teams: {} },
 };
 const sportCfg = (sport) => SPORTS[sport] || SPORTS.mlb;
 // Fan-API abbreviation → our sport key ('FFL' → 'nfl'), for discovery across every game at once.
@@ -427,15 +429,22 @@ function parseRoster(entries = [], cfg = SPORTS.mlb) {
     return {
       id: pl.id ?? null,
       name: pl.fullName || 'Unknown',
-      pos: posOf(pl.defaultPositionId, cfg),
+      pos: cfg === SPORTS.nhl ? (cfg.positions[pl.defaultPositionId] || `Position ${pl.defaultPositionId ?? 'unknown'}`) : posOf(pl.defaultPositionId, cfg),
+      positionId: pl.defaultPositionId ?? null,
+      positionKnown: Object.hasOwn(cfg.positions || cfg.slots, pl.defaultPositionId),
       proTeam: teamOf(pl.proTeamId, cfg),
       proTeamId: pl.proTeamId != null ? Number(pl.proTeamId) : null, // keys the bye lookup — no name matching
       slot: slotOf(slotId, cfg),
       slotId,
+      slotKnown: Object.hasOwn(cfg.slots, slotId),
       eligibleSlots: Array.isArray(pl.eligibleSlots) ? pl.eligibleSlots : [],
-      starter: !cfg.bench.has(slotId),
+      starter: (cfg === SPORTS.nhl || cfg === SPORTS.nba) && !Object.hasOwn(cfg.slots, slotId) ? null : !cfg.bench.has(slotId),
       injury: injuryLabelOf(pl.injuryStatus),
       injuryStatus: pl.injuryStatus || 'ACTIVE',
+      injuryStatusKnown: typeof pl.injuryStatus === 'string' && pl.injuryStatus.length > 0,
+      availability: !pl.injuryStatus ? 'UNKNOWN' : HEALTHY_STATUS.has(pl.injuryStatus) ? 'AVAILABLE'
+        : ['O','IL','60-IL','SUSP'].includes(INJURY_LABEL[pl.injuryStatus]) ? 'UNAVAILABLE' : 'UNCERTAIN',
+      lockStatusKnown: [ppe.lineupLocked, ppe.rosterLocked, en.lineupLocked].some(v => typeof v === 'boolean'),
       locked,
     };
   });
@@ -486,6 +495,7 @@ function buildLeagueResult(data, team, { leagueId, seasonId, cfg = SPORTS.mlb, s
         }
       : null,
     roster: team ? parseRoster(team.roster?.entries || [], cfg) : [],
+    rosterState: !team ? 'UNAVAILABLE' : !Array.isArray(team.roster?.entries) ? 'UNAVAILABLE' : team.roster.entries.length ? 'POPULATED' : 'EMPTY',
     // Platform-neutral settings for League DNA (leagueConfig.js). Built from the mSettings view this
     // fetch already requests, so it costs no extra ESPN call. Callers record it, then strip it before
     // anything is sent to the browser.
