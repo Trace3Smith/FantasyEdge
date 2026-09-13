@@ -8,7 +8,7 @@ export function aggregateSnapshots(snapshots, { now = Date.now() } = {}) {
   const generatedAt = new Date(now).toISOString();
   for(const snapshot of snapshots) {
     const {scope,league,observedAt,capabilities=[],error,recommendations,vacancies}=snapshot;
-    const assessment={scope,leagueName:league?.leagueName||`League ${scope.leagueId}`,unsupportedFields:scope.sport==='nhl'?['lineup_slot_roles','reserve_roles','scoring_category_labels']:[],recommendationSupport:'READ_ONLY',status:'PARTIAL',checkedSignals:[],unsupportedSignals:['lineup_upgrades','waivers','trades','lock_urgency'],capabilities,observedAt:observedAt||null};
+    const assessment={scope,connectionSource:snapshot.connectionSource||'discovered',leagueName:league?.leagueName||`League ${scope.leagueId}`,unsupportedFields:scope.sport==='nhl'?['lineup_slot_roles','reserve_roles','scoring_category_labels']:[],recommendationSupport:'READ_ONLY',status:'PARTIAL',checkedSignals:[],unsupportedSignals:['lineup_upgrades','waivers','trades','lock_urgency'],capabilities,observedAt:observedAt||null};
     assessments.push(assessment);
     if(error || !league) {assessment.status='UNAVAILABLE';assessment.reason='provider_read_failed';continue;}
     assessment.checkedSignals=['authenticated_roster'];

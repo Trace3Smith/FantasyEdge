@@ -1,3 +1,4 @@
+import { toolLink } from '../leagueNavigation.js';
 import { compareActions } from '../myEdgePriority.js';
 const friendly=value=>String(value||'').replaceAll('_',' ');
 const tools={teamManager:['fantasyedge-autopilot.html','Open Team Manager'],tradeCenter:['fantasyedge-trade-center.html','Open Trade Center'],coach:['fantasyedge-coach.html','Open Coach']};
@@ -7,7 +8,7 @@ export function mergePages(pages,now=Date.now()) {
     for(const action of page.actions||[]) actions.set(action.id,action);
     for(const a of page.assessments||[]) assessments.set(JSON.stringify(a.scope),a);
   }
-  const fresh=[...actions.values()].filter(a=>Date.parse(a.freshness?.expiresAt)>now).sort(compareActions);
+  const fresh=[...actions.values()].filter(a=>Number.isFinite(Date.parse(a.freshness?.observedAt)) && Date.parse(a.freshness.observedAt)<=now && Date.parse(a.freshness?.expiresAt)>now).sort(compareActions);
   return {actions:fresh,assessments:[...assessments.values()],attentionCount:fresh.filter(a=>a.actionable).length,
     expiredCount:actions.size-fresh.length};
 }
@@ -22,17 +23,17 @@ export function mountMyEdge(doc,FE) {
     el('actions').replaceChildren();el('assessments').replaceChildren();
     el('attention').textContent=`${merged.attentionCount} action${merged.attentionCount===1?' needs':'s need'} your attention`;
     for(const action of merged.actions) {
-      const card=node('article');card.append(node('p',`${action.scope.sport.toUpperCase()} · ${action.leagueName||'League'}`,'meta'),node('h3',action.headline),node('p',action.summary));
+      const card=node('article');card.setAttribute('data-action-id',action.id);card.append(node('p',`${action.scope.sport.toUpperCase()} · ${/^League \d+$/.test(action.leagueName||'')?'Connected league':action.leagueName||'Connected league'}`,'meta'),node('h3',action.headline),node('p',action.summary));
       card.append(node('p',`Checked ${new Date(action.freshness.observedAt).toLocaleString()}${action.actionable?'':' · Information only'}`,'meta'));
       const why=node('details'),title=node('summary','Why this appeared');why.append(title);
       for(const evidence of action.evidence||[]) why.append(node('p',`${evidence.kind==='provider_status'?'ESPN status':'Team Manager check'}: ${typeof evidence.value==='object'?`${evidence.value.count??''} ${evidence.value.slot??''} slot(s)`:friendly(evidence.value)}`));
       card.append(why);
       const links=node('div',undefined,'links');
-      for(const target of [tools[action.destination?.tool]||tools.teamManager,tools.coach]) {const a=node('a',target[1]);a.href=target[0];links.append(a);}
+      for(const target of [tools[action.destination?.tool]||tools.teamManager,tools.coach]) {const a=node('a',target[1]);a.href=toolLink(Object.keys(tools).find(k=>tools[k]===target),action.scope);links.append(a);}
       card.append(links);el('actions').append(card);
     }
     for(const assessment of merged.assessments) {
-      const card=node('article');card.append(node('h3',`${assessment.scope.sport.toUpperCase()} · ${assessment.leagueName||'League'}`));
+      const card=node('article');card.append(node('h3',`${assessment.scope.sport.toUpperCase()} · ${/^League \d+$/.test(assessment.leagueName||'')?'Connected league':assessment.leagueName||'Connected league'}`));
       const stale=assessment.observedAt && Date.now()-Date.parse(assessment.observedAt)>300000;
       card.append(node('p',stale?'This assessment is out of date. Refresh to check again.':assessment.summary||friendly(assessment.reason||assessment.status)));
       card.append(node('p',`Checks: ${(assessment.checkedSignals||[]).map(friendly).join(', ')||'not completed'}`,'meta'));
@@ -40,6 +41,7 @@ export function mountMyEdge(doc,FE) {
       if(assessment.recommendationReason) card.append(node('p',`Recommendation coverage: ${friendly(assessment.recommendationReason)}`,'meta'));
       el('assessments').append(card);
     }
+    if(merged.actions.length>merged.attentionCount) el('attention').textContent+=` · ${merged.actions.length-merged.attentionCount} informational updates`;
     if(merged.expiredCount) el('status').textContent='Some actions expired and were hidden. Refresh for current advice.';
     el('more').hidden=!cursor;el('more').disabled=busy;
   }
@@ -64,7 +66,7 @@ export function mountMyEdge(doc,FE) {
       }
       if(page.connectionState==='UNAVAILABLE')throw new Error();
       pages.push(page);cursor=page.nextCursor||null;
-      el('status').textContent=`Loaded ${mergePages(pages).assessments.length} of ${page.discoveredCount||0} discovered leagues.${cursor?' Load more to continue.':''}${page.discoveryCoverage==='PARTIAL'?' Provider discovery was incomplete; refresh to retry.':''}`;
+      el('status').textContent=`Loaded ${mergePages(pages).assessments.length} of ${page.discoveredCount||0} league references.${cursor?' Load more to continue.':''}${pages.some(p=>p.discoveryCoverage==='PARTIAL')?' Provider discovery was incomplete; refresh to retry.':''}${pages.some(p=>p.manualCoverage==='UNAVAILABLE'||p.excludedManualCount>0)?' Some saved league references could not be verified; no saved roster data is shown.':''}`;
       render();
     } catch {if(requestGeneration===generation)el('status').textContent='Could not finish checking leagues. Refresh to retry; previous results may be out of date.';}
     finally {if(requestGeneration===generation){busy=false;el('refresh').disabled=false;el('more').disabled=false;}}

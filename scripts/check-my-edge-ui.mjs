@@ -5,6 +5,7 @@ class Element {
  constructor(tag){this.tag=tag;this.children=[];this.events={};this.hidden=false;this.disabled=false;this.value='';}
  set textContent(v){this.value=String(v);this.children=[];}get textContent(){return this.value+this.children.map(c=>c.textContent).join('');}
  append(...n){this.children.push(...n);}replaceChildren(...n){this.value='';this.children=n;}
+ setAttribute(k,v){this[k]=v;}
  addEventListener(e,f){this.events[e]=f;}
 }
 const root=new Map(['actions','assessments','attention','status','more','refresh','account'].map(id=>[id,new Element('div')]));
@@ -21,7 +22,7 @@ const app=mountMyEdge(doc,FE);await app.ready;
 assert.equal(root.get('more').hidden,false);assert.match(root.get('assessments').textContent,/No players rostered yet/);
 assert.match(root.get('actions').textContent,/<img onerror/,'untrusted name rendered as text');
 const links=root.get('actions').children[0].children.at(-1).children;
-assert.equal(links[0].href,'fantasyedge-autopilot.html');assert.equal(links[1].href,'fantasyedge-coach.html');
+assert.match(links[0].href,/^fantasyedge-autopilot.html\?platform=espn&sport=nba/);assert.match(links[1].href,/^fantasyedge-coach.html\?platform=espn&sport=nba/);
 await app.load();assert.equal(calls[1].body.cursor,'next');assert.equal(root.get('more').hidden,true);
 assert.equal(root.get('actions').children.length,1,'duplicate action across pages appears once');
 assert.equal(root.get('assessments').children.length,2);assert.match(root.get('assessments').textContent,/reserve roles/);

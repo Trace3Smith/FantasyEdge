@@ -347,7 +347,9 @@
   </div>
 </main>
 
-<script>
+<script type="module">
+import { targetFromSearch, leagueMatches } from './leagueNavigation.js';
+const navigation = targetFromSearch(location.search);
   const $ = (id) => document.getElementById(id);
   const isPremium = () => !!(window.FE && window.FE.isPremium && window.FE.isPremium());
   const isSignedIn = () => !!(window.FE && window.FE.isSignedIn && window.FE.isSignedIn());
@@ -373,14 +375,14 @@
     nba:  { label: 'NBA',  active: false, coming: 'October' },
     nhl:  { label: 'NHL',  active: false, coming: 'October' },
   };
-  let currentSport = localStorage.getItem('fe_autopilot_sport') || 'mlb';
+  let currentSport = navigation.target?.sport || localStorage.getItem('fe_autopilot_sport') || 'mlb';
   if (!SPORTS[currentSport]) currentSport = 'mlb';
   let leaguesByKey = {};       // leagueKey -> league object (for the embedded AI Coach)
   const coachState = {};       // leagueKey -> { messages: [{role,content}], busy }
 
   function renderSportBar() {
     $('sportBar').innerHTML = Object.entries(SPORTS).map(([k, v]) =>
-      `<button class="sport-btn${k === currentSport ? ' active' : ''}" data-sport="${k}">${v.label}${v.active ? '' : '<span class="soon">soon</span>'}</button>`
+      `<button class="sport-btn${k === currentSport ? ' active' : ''}" data-sport="${k}">${v.label}${v.active ? '' : navigation.target?.sport===k ? '<span class="soon">read only</span>' : '<span class="soon">soon</span>'}</button>`
     ).join('');
   }
 
@@ -392,7 +394,8 @@
     setMsg('leaguesMsg', '');
     show('addLeaguePanel', sport === 'mlb'); // manual add is the MLB discovery fallback
     const cfg = SPORTS[sport];
-    if (cfg.active) {
+    if(navigation.error){$('leaguesArea').innerHTML='';setMsg('leaguesMsg','This league link is invalid. Open My Edge to choose a league again.','err');return;}
+    if (cfg.active || navigation.target?.sport === sport) {
       loadLeagues();
     } else {
       $('leaguesArea').innerHTML = `<div class="panel"><div class="coming">
@@ -585,10 +588,11 @@
 
   // ---- leagues + rosters ---------------------------------------------------------
   async function loadLeagues() {
-    if (SPORTS[currentSport] && !SPORTS[currentSport].active) { selectSport(currentSport); return; } // off-season → 'Coming {month}'
+    if (SPORTS[currentSport] && !SPORTS[currentSport].active && navigation.target?.sport !== currentSport) { selectSport(currentSport); return; } // off-season → 'Coming {month}'
     setMsg('leaguesMsg', '');
+    if (navigation.error) { setMsg('leaguesMsg', 'This league link is invalid. Open My Edge to choose a league again.', 'err'); return; }
     $('leaguesArea').innerHTML = '<div class="loading">Pulling your ESPN leagues and rosters…</div>';
-    const { ok, status, data } = await api('/api/espn', { action: 'leagues', sport: currentSport });
+    const { ok, status, data } = await api('/api/espn', { action: 'leagues', sport: currentSport, ...(navigation.target?.sport === currentSport ? {target:navigation.target}: {}) });
     if (!ok) {
       $('leaguesArea').innerHTML = '';
       if (status === 409 && data?.error === 'not_connected') { show('connectedWrap', false); show('connectPanel', true); return; }
@@ -600,6 +604,9 @@
       if (status === 401) { setMsg('leaguesMsg', 'Session expired — please sign in again.', 'err'); return; }
       setMsg('leaguesMsg', (data && data.error) ? data.error : 'Could not load leagues from ESPN.', 'err');
       return;
+    }
+    if (navigation.target?.sport === currentSport && !(data.leagues||[]).some(l=>leagueMatches(l,navigation.target,currentSport))) {
+      $('leaguesArea').innerHTML='';setMsg('leaguesMsg','This league is not available for your connected account.','err');return;
     }
     renderLeagues(data);
   }
@@ -987,7 +994,7 @@
   function renderEngineNote() {
     if (ENGINE_SPORTS[currentSport]) return '';
     const label = (SPORTS[currentSport] && SPORTS[currentSport].label) || currentSport.toUpperCase();
-    return `<div class="sugg sugg-ok">Your ${escapeHtml(label)} roster and the AI Coach are live. `
+    return `<div class="sugg sugg-ok">Read-only ${escapeHtml(label)} roster. ${currentSport==='nhl'?'Lineup slot, reserve and scoring category labels remain unverified. ':''}`
       + `Start/sit, one-tap lineups and Autopilot aren't switched on for ${escapeHtml(label)} yet.</div>`;
   }
 
@@ -1091,11 +1098,11 @@
     let benchOpened = false;
     let html = '';
     for (const p of roster) {
-      if (!p.starter && !benchOpened) { benchOpened = true; html += '<tr class="bench-sep"><td colspan="3">Bench</td></tr>'; }
+      if (p.starter === false && !benchOpened) { benchOpened = true; html += '<tr class="bench-sep"><td colspan="3">Bench</td></tr>'; }
       const slotCls = p.starter ? 'slot-badge start' : 'slot-badge';
       const inj = p.injury ? ` <span class="inj">${escapeHtml(p.injury)}</span>` : '';
-      html += `<tr class="${p.starter ? '' : 'bench'}">
-        <td><span class="${slotCls}">${escapeHtml(p.slot)}</span></td>
+      html += `<tr class="${p.starter === false ? 'bench' : ''}">
+        <td><span class="${slotCls}">${escapeHtml(p.slotKnown===false?'Unverified slot':p.slot)}</span></td>
         <td><span class="pname">${escapeHtml(p.name)}</span>${inj}${renderMu(p.matchup)}</td>
         <td><span class="pmeta">${escapeHtml(p.pos)}${p.proTeam ? ' · ' + escapeHtml(p.proTeam) : ''}</span></td>
       </tr>`;

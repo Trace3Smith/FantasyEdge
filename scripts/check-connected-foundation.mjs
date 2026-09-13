@@ -92,6 +92,7 @@ assert.equal((await post({action:'myEdge'})).statusCode,403,'existing Premium en
 premium=true;
 const fixture=JSON.parse((await import('node:fs')).readFileSync(new URL('fixtures/readonly-rosters/nba-2027.json',import.meta.url)));
 store.set('espn:creds:u',{espn_s2:'offline',swid:fixture.owner});
+store.set('espn:manualleagues:u',[{sport:'mlb',leagueId:'1',season:new Date().getUTCFullYear()}]);
 const beforeStore=JSON.stringify([...store]);
 let edgeReads=0;
 globalThis.fetch=async(url,opts={})=>{
@@ -101,10 +102,27 @@ globalThis.fetch=async(url,opts={})=>{
 const edge=await post({action:'myEdge',sport:'nfl',leagueId:'forged',teamId:'forged'});
 assert.equal(edge.statusCode,200);assert.equal(edge.headers['Cache-Control'],'private, no-store');
 assert.equal(edge.body.assessments[0].status,'EMPTY_ROSTER');
-assert.equal(edge.body.assessments[0].scope.sport,'nba','scope derives from provider, not browser');
-assert.equal(edge.body.attentionCount,0);assert.equal(edgeReads,3);
+assert.ok(edge.body.assessments.some(a=>a.scope.sport==='nba'),'scope derives from provider, not browser');
+assert.ok(edge.body.assessments.some(a=>a.connectionSource==='manual'),'owned manual league is included');
+assert.equal(edge.body.attentionCount,0);assert.equal(edgeReads,4);
 assert.equal(JSON.stringify([...store]),beforeStore,'aggregation does not persist consent, cache or permissions');
 assert.equal(JSON.stringify(edge.body).includes(fixture.owner),false);
 store.delete('espn:creds:u');
 assert.equal((await post({action:'myEdge'})).body.connectionState,'DISCONNECTED');
 console.log('PASS: My Edge Premium gate, private caching, provider-owned scopes, normal empty preseason and zero writes');
+
+store.set('espn:creds:u',{espn_s2:'offline',swid:fixture.owner});
+const target={platform:'espn',sport:'nba',season:2027,leagueId:fixture.selection.leagueId,teamId:String(fixture.selection.teamId)};
+let context=await post({action:'leagueContext',target});
+assert.equal(context.statusCode,200);assert.equal(context.headers['Cache-Control'],'private, no-store');
+assert.equal(context.body.scope.teamId,target.teamId);assert.equal(JSON.stringify(context.body).includes(fixture.owner),false);
+const beforeBad=edgeReads;
+assert.equal((await post({action:'leagueContext',target:{...target,leagueId:'invalid'}})).statusCode,400);
+assert.equal(edgeReads,beforeBad,'bad shape rejected before provider call');
+assert.equal((await post({action:'leagueContext',target:{...target,teamId:'9999'}})).statusCode,403);
+assert.equal((await post({action:'leagues',sport:'nba',target:{...target,teamId:'9999'}})).statusCode,403);
+assert.equal((await post({action:'leagues',sport:'nhl',target})).statusCode,400);
+premium=false;assert.equal((await post({action:'leagueContext',target})).statusCode,403);
+premium=true;store.delete('espn:creds:u');const disconnectedReads=edgeReads;
+assert.equal((await post({action:'myEdge'})).body.connectionState,'DISCONNECTED');assert.equal(edgeReads,disconnectedReads);
+console.log('PASS: validated league contexts, unowned target denial, manual inclusion and disconnected read exclusion');

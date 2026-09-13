@@ -1,3 +1,4 @@
+import { leagueTarget } from '../../leagueNavigation.js';
 import { createRecommendationLoader } from '../_lib/myEdge/recommendations.js';
 import { createRecommendationContext } from '../_lib/recommendationSnapshot.js';
 import { aggregateEspn } from '../_lib/myEdge/espn.js';
@@ -230,6 +231,7 @@ export default async function handler(req, res) {
       case 'connect':    return await connect(req, res, userId);
       case 'disconnect': return await disconnect(res, userId);
       case 'dnaChoice':  return await dnaChoice(req, res, userId);
+      case 'leagueContext': return await leagueContext(req, res, userId);
       case 'myEdge':     return await myEdge(req, res, userId);
       case 'leagues':    return await leagues(req, res, userId);
       case 'apply':      return await applyLineup(req, res, userId);
@@ -253,7 +255,22 @@ async function myEdge(req, res, userId) {
   res.setHeader('Cache-Control', 'private, no-store');
   const creds = await getCreds(redis, userId);
   if (!creds) return res.status(200).json({ mode: 'ADVISOR', connectionState: 'DISCONNECTED', actions: [], assessments: [], attentionCount: 0 });
-  return res.status(200).json(await aggregateEspn(creds, { userId, cursor: req.body?.cursor ?? null, enrich: createRecommendationLoader(redis, creds) }));
+  let manual=[],manualUnavailable=false;
+  try {manual=await getManualLeagues(redis,userId);} catch {manualUnavailable=true;}
+  return res.status(200).json(await aggregateEspn(creds, { userId, manual, manualUnavailable, cursor: req.body?.cursor ?? null, enrich: createRecommendationLoader(redis, creds) }));
+}
+
+async function leagueContext(req, res, userId) {
+  res.setHeader('Cache-Control', 'private, no-store');
+  const target = leagueTarget(req.body?.target);
+  if (!target) throw new HttpError(400, 'Invalid league context');
+  const creds = await getCreds(redis, userId);
+  if (!creds) throw new HttpError(409, 'No ESPN account connected');
+  const league = await fetchLeagueRoster(creds, { leagueId: target.leagueId, seasonId: target.season, teamId: target.teamId }, target.sport);
+  return res.json({ scope: target, leagueName: league.leagueName, teamName: league.team?.name,
+    scoringType: league.scoringType, observedAt: new Date().toISOString(), support: leagueCapabilities(target.sport),
+    roster: league.roster.map(p => ({ name:p.name,position:p.positionKnown?p.pos:'Unknown position',
+      slot:p.slotKnown?p.slot:'Unverified slot',availability:p.availability })) });
 }
 
 // Whether the user has an ESPN account connected. Returns only a boolean (+ masked
@@ -353,10 +370,13 @@ async function leagues(req, res, userId) {
   // Discover any of the 5 sports (Team Manager only sends in-season ones; Trade Center
   // may request any). The full suggestion/autopilot engine still runs for MLB only.
   const sport = TRADE_SPORTS.has(req.body?.sport) ? req.body.sport : 'mlb';
+  const target = req.body?.target == null ? null : leagueTarget(req.body.target);
+  if (req.body?.target != null && (!target || target.sport !== sport)) throw new HttpError(400, 'Invalid league context');
 
   let result;
   try {
-    result = await fetchLeaguesWithRosters(creds, { sport });
+    result = target ? { leagues: [await fetchLeagueRoster(creds, { leagueId:target.leagueId, seasonId:target.season, teamId:target.teamId }, sport)], count:1, state:'ok' }
+      : await fetchLeaguesWithRosters(creds, { sport });
   } catch (err) {
     if (err instanceof EspnAuthError) {
       // Cookies expired/revoked since they were saved — tell the UI to reconnect.
@@ -369,7 +389,7 @@ async function leagues(req, res, userId) {
 
   // Manual-league merge is an MLB-only discovery fallback (WNBA fan discovery is
   // reliable; the paste-a-league-id path was only needed for MLB).
-  if (sport === 'mlb') {
+  if (sport === 'mlb' && !target) {
     try {
       const manual = (await getManualLeagues(redis, userId)).filter(l => l.sport === sport);
       const have = new Set((result.leagues || []).filter((l) => l.teamId != null).map(leagueKeyOf));
@@ -756,6 +776,7 @@ async function buildTradeContext(creds, { sport, leagueId, season }) {
   const isRoto = !!CATS_BY_SPORT[sport];
   const isNfl = sport === 'nfl';
   const me = league.teams.find((t) => t.id === league.userTeamId) || league.teams.find((t) => t.mine);
+  if (!me) throw new HttpError(403, 'Team ownership could not be verified');
   const standings = isRoto ? computeStandings(league.teams, league.userTeamId, sport, idx) : null;
   const positions = isNfl ? computeNflPositions(league.teams, league.userTeamId, idx, league.ppr) : null;
 
