@@ -81,8 +81,10 @@ export function aggregateSnapshots(snapshots, { now = Date.now() } = {}) {
     if(Array.isArray(vacancies)) {
       assessment.checkedSignals.push('empty_required_slots');
       for(const v of vacancies) {
-        if(moves.some(m=>m.reason==='empty_slot'&&m.slot===v.slot)) continue;
-        addCard('EMPTY_SLOT',v.slotId,'A required lineup slot is empty',`${v.count} ${v.slot} slot(s) are empty. Review your lineup.`,[{kind:'slot_count',source:'lineupAdvisor.activeOpenings',value:v,observedAt}]);found++;
+        const proposed=moves.filter(m=>m.reason==='empty_slot'&&m.slot===v.slot).length;
+        const remaining=v.count-proposed;
+        if(remaining<=0) continue;
+        addCard('EMPTY_SLOT',v.slotId,'A required lineup slot is empty',`${remaining} ${v.slot} slot(s) ${proposed?'remain empty after the proposed fills':'are empty'}. Review your lineup.`,[{kind:'slot_count',source:'lineupAdvisor.activeOpenings',value:{...v,count:remaining},observedAt}]);found++;
       }
     } else {assessment.unsupportedSignals.push('empty_required_slots');}
     const unresolvedMoves=moves.some(m=>!['value','injury','empty_slot','il','waiver'].includes(m.reason));

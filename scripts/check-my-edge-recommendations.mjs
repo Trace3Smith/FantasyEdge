@@ -67,3 +67,11 @@ try {
  assert.equal(fanCalls,2);assert.equal(discovered.leagues.length,2);
 } finally {globalThis.fetch=nativeFetch;}
 console.log('PASS: discovery combines both available provider variants');
+
+const multipleVacancies=structuredClone(snap);
+multipleVacancies.vacancies=[{slotId:0,slot:'PG',count:2}];
+multipleVacancies.recommendations.suggestions.moves=[{reason:'empty_slot',in:'High',slot:'PG',gain:40}];
+const fills=aggregateSnapshots([multipleVacancies],{now});
+assert.equal(fills.actions.length,2,'one proposed fill must not hide another unfilled required slot');
+assert.ok(fills.actions.some(a=>a.evidence.some(e=>e.kind==='slot_count'&&e.value.count===1)));
+console.log('PASS: partial vacancy remedies preserve remaining empty slots');
