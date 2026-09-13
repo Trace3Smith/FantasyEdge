@@ -9,6 +9,15 @@ for(const action of ['status','myEdge','leagueContext','leagues','connect','disc
 for(const action of ['apply','autopilot','dnaChoice','addLeague','removeLeague','watchProspect','tradeScan','tradeAdvise','nflForm',undefined]) {
  const response=res();assert.equal(blockPreview({method:'POST',body:{action,on:false,dryRun:true}},response,'espn'),true);assert.equal(response.code,403);
 }
+delete process.env.FE_PREVIEW_ESPN_CREDENTIAL_TOKEN;
+for (const action of ['status','myEdge','connect','disconnect']) {
+ const missingWriter=res();
+ assert.equal(blockPreview({method:'POST',body:{action}},missingWriter,'espn'),true);
+ assert.equal(missingWriter.code,503);
+ assert.equal(missingWriter.body.reason,'preview_credential_token_missing');
+ assert.ok(!JSON.stringify(missingWriter.body).includes('test-credential'));
+}
+configurePreview();
 delete process.env.FE_PREVIEW_REDIS_READ_ONLY_TOKEN;
 const missing=res();assert.equal(blockPreview({method:'POST',body:{action:'myEdge'}},missing,'espn'),true);assert.equal(missing.code,503);
 let calls=0;globalThis.fetch=async()=>{calls++;throw new Error('Network forbidden in preview safety check');};

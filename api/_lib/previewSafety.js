@@ -8,7 +8,11 @@ export function blockPreview(req, res, surface) {
   if (surface === 'espn' && req.method === 'POST' && espnReads.has(req.body?.action)) {
     if (previewConfig()) return false;
     res.setHeader('Cache-Control', 'private, no-store');
-    res.status(503).json({ error: 'preview_read_only_storage_required' });
+    res.status(503).json({
+      error: 'preview_read_only_storage_required',
+      reason: !process.env.FE_PREVIEW_ESPN_CREDENTIAL_TOKEN
+        ? 'preview_credential_token_missing' : 'preview_configuration_invalid',
+    });
     return true;
   }
   res.setHeader('Cache-Control', 'private, no-store');
