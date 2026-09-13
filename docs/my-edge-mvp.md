@@ -1,8 +1,9 @@
 # My Edge MVP engineering design
 
-Status: first Advisor aggregation increment implemented, 2026-09-12, on `my-edge-foundation`.
+Status: shared recommendation adapters, pagination and initial Advisor UI implemented locally,
+2026-09-12, on `my-edge-foundation`. See [current payload and limits](my-edge-payload.md).
 See the final section for the shipped local scope; earlier sections retain the broader MVP design.
-My Edge UI, new provider onboarding and new automation behavior are **not implemented**.
+New provider onboarding and new automation behavior are **not implemented**.
 Read alongside [sport readiness](nba-nhl-readiness.md), [credential lifecycle](espn-credential-security.md)
 and [connector design](espn-connector-design.md). This supersedes relevant audit observations in the
 local PROJECT_HANDOFF.md; the completed Pick'em/model commit `5966a3f` must not be repeated.
