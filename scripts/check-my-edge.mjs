@@ -66,6 +66,7 @@ try {
  const p=parsed.roster.find(p=>p.id===entry.playerPoolEntry.player.id);
  assert.equal(p.lockStatusKnown,false);assert.equal(p.injuryStatusKnown,false);assert.equal(p.availability,'UNKNOWN');
  assert.equal(p.starter,null);assert.equal(p.slotKnown,false);
+ assert.ok(parsed.roster.indexOf(p)<parsed.roster.findIndex(x=>x.slotId===12),'unknown and bench slots retain input order when both have no active slot order');
  delete team.roster;
  parsed=await fetchLeagueRoster({swid:f.owner,espn_s2:'offline'},f.selection,'nba');
  assert.equal(parsed.rosterState,'UNAVAILABLE','absent roster is different from explicit empty entries');

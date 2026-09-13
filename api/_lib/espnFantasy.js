@@ -450,7 +450,8 @@ function parseRoster(entries = [], cfg = SPORTS.mlb) {
   });
   // Starters first (in lineup-slot order), then bench/IR.
   players.sort((a, b) => {
-    if (a.starter !== b.starter) return a.starter ? -1 : 1;
+    const aStarts = a.starter === true, bStarts = b.starter === true;
+    if (aStarts !== bStarts) return aStarts ? -1 : 1;
     const ai = cfg.slotOrder.indexOf(a.slotId), bi = cfg.slotOrder.indexOf(b.slotId);
     return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
   });
