@@ -82,3 +82,25 @@ blocked mutation handlers. Existing production handler/storage suites retain the
 No Upstash ACL, actual Clerk origin or live ESPN login has been certified yet; that follows configuration.
 Empty Redis has no recommendation datasets. Missing coverage remains honest; existing sanitized fixtures
 remain controlled test evidence and are never presented as live account recommendations.
+
+## Diagnosing a signed-in status503 before connecting ESPN
+
+The outer preview guard returns preview_read_only_storage_required when previewConfig fails. In contrast,
+"Isolated preview credential storage is not configured" originates AFTER that guard. The latter does not
+mean an environment variable is necessarily missing. In particular, the database bootstrap marker is a
+separate prerequisite, not an environment variable.
+
+Authenticated status/myEdge failures now include a fixed reason code (no values or provider errors):
+- preview_configuration_invalid: storage preflight configuration rejected.
+- preview_user_id_invalid: authenticated Clerk subject does not match supported user-ID format.
+- preview_redis_read_failed: marker GET failed; inspect isolated URL/read-token/ACL/connectivity securely.
+- preview_database_marker_missing: GET succeeded but fe:preview:project does not exist.
+- preview_database_marker_mismatch: marker exists but does not match project ID as a string.
+- preview_credential_read_failed: credential-key GET failed.
+- preview_credential_format_invalid: an unexpected non-version1 record exists; no plaintext imported.
+
+Never auto-create the marker from the app or convert these failures into DISCONNECTED. Provision/check
+fe:preview:project in the dedicated database using its admin console; its string value must match the
+separate project's ID exactly. This nonsecret bootstrap step needs no ESPN credentials. Once the marker
+and read path succeed, an empty database returns status connected:false and My Edge DISCONNECTED200.
+Token presence does not certify write-token ACL permissions; those must be checked separately.

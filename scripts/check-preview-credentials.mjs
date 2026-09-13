@@ -3,9 +3,10 @@ import { mock } from 'node:test';
 import { configurePreview } from './preview-test-config.mjs';
 configurePreview();
 const store=new Map([['fe:preview:project','prj_test']]),writes=[];
+let failReadKey=null;
 class Redis {
  constructor(options){assert.equal(options.url,'https://isolated-test.upstash.io');this.token=options.token;}
- async get(key){assert.equal(this.token,'test-read');return structuredClone(store.get(key)??null);}
+ async get(key){if(key===failReadKey)throw new Error('synthetic private Redis detail');assert.equal(this.token,'test-read');return structuredClone(store.get(key)??null);}
  async set(key,value,opts){assert.equal(this.token,'test-credential');assert.match(key,/^preview:espn:creds:user_/);assert.equal(opts.ex,7776000);writes.push(key);store.set(key,structuredClone(value));}
  async del(key){assert.equal(this.token,'test-credential');assert.match(key,/^preview:espn:creds:user_/);writes.push(key);store.delete(key);}
 }
@@ -49,3 +50,20 @@ process.env.FE_PREVIEW_PROJECT_ID=process.env.VERCEL_PROJECT_ID='prj_A28CS5v2BGh
 store.set('fe:preview:project','different-project');assert.equal((await post({action:'connect',swid,espn_s2:cookie})).code,503);assert.equal(writes.length,2);
 store.delete('fe:preview:project');await assert.rejects(()=>previewCredentials.disconnect('user_test'));assert.equal(writes.length,2);
 console.log('PASS: isolated encrypted connect/read/disconnect, TTL, no DNA capture, Premium connect/free revoke, migration blocked, namespace-only writes, missing/mismatched isolation denied');
+
+for(const [value,reason] of [[null,'preview_database_marker_missing'],['wrong-project','preview_database_marker_mismatch'],[{project:'prj_test'},'preview_database_marker_mismatch']]){
+ if(value===null)store.delete('fe:preview:project');else store.set('fe:preview:project',value);
+ for(const action of ['status','myEdge']){const r=await post({action});assert.equal(r.code,503);assert.equal(r.body.reason,reason);assert.equal(JSON.stringify(r.body).includes('wrong-project'),false);}
+}
+store.set('fe:preview:project','prj_test');
+await assert.rejects(()=>previewCredentials.read('unexpected-user'),e=>e.payload.reason==='preview_user_id_invalid');
+failReadKey='fe:preview:project';
+assert.equal((await post({action:'status'})).body.reason,'preview_redis_read_failed');
+failReadKey='preview:espn:creds:user_test';
+const failed=await post({action:'myEdge'});assert.equal(failed.body.reason,'preview_credential_read_failed');assert.ok(!JSON.stringify(failed.body).includes('synthetic private'));
+failReadKey=null;
+const readsBeforeEmpty=providerReads;
+assert.equal((await post({action:'status'})).body.connected,false);
+const disconnected=await post({action:'myEdge'});assert.equal(disconnected.code,200);assert.equal(disconnected.body.connectionState,'DISCONNECTED');
+assert.equal(providerReads,readsBeforeEmpty);assert.equal(writes.length,2);
+console.log('PASS: safe distinct configuration/marker/read diagnostics, no private error details, verified empty connection returns200 without provider calls or writes');
