@@ -79,8 +79,8 @@ rights; every page derives identifiers from provider discovery and revalidates o
 league IDs are used. Cursor length/offset bounds are checked. Failed roster reads remain per-league errors.
 
 This is pagination over ESPN's available discovered list, not an undocumented provider pagination protocol.
-A partial fan response is flagged; manual MLB fallback references and providers omitted by fan discovery
-remain future coverage. Re-discovery costs up to2 fan GETs/page; up to4 roster reads and, for eligible leagues,
+A partial fan response is flagged; manual MLB references are now unioned with fan discovery. Providers omitted by both paths remain
+unavailable. Manual references are resolved to the current owner team before any assessment is shown. Re-discovery costs up to2 fan GETs/page; up to4 roster reads and, for eligible leagues,
 up to4 optional free-agent reads plus cached dataset/bye reads. Per-call provider timeouts remain; no claim
 of an8-second whole-request deadline. No shared cache or stale cursor can bypass ownership.
 
@@ -95,13 +95,46 @@ cards are removed during rendering and a30-second interval. Preseason/partial/un
 remains visible. No writes, automation switches or fake sample data. All provider text uses textContent.
 
 Links are allowlisted existing Team Manager, Trade Center and Coach pages. Why shows deterministic source
-evidence inline. Tool links currently open the tool; automatic league selection, Coach context transfer,
-and a trade adapter are future work. NBA/NHL Team Manager tabs remain unchanged; the shell doesn't claim
-they gained optimizer or write support. Real-browser visual and authenticated end-to-end validation remain
-outstanding; Node DOM-contract smoke tests cover loading, pagination, duplicates, unsafe text, stale cards,
-allowlisted routing, preseason/partial states and sign-out clearing. No browser/login credentials used.
+evidence inline. Tool links preserve validated platform/sport/season/leagueId/teamId query parameters through shared
+leagueNavigation.js. These are navigation intent, never ownership proof. Targeted leagues and leagueContext
+reads revalidate the authenticated ESPN owner. Invalid/duplicate/incomplete query fields fail closed in the
+browser. Team Manager permits targeted NBA/NHL read-only views while general off-season tabs remain gated.
+Unknown NHL slots render “Unverified slot”, not Bench. Coach receives a fresh verified roster summary and
+prepares an editable question; nothing is automatically sent to an LLM. Trade Center selects the verified
+league, without automatically scanning or adding a trade recommendation adapter.
+
+## Manual and selected league coverage
+
+The current supported manual-add path is MLB only. Current/upcoming manual season references join the
+same bounded four-reference pagination as discovery, deduplicated by sport/season/league. Ownership is
+derived on each manual read; unavailable or no-longer-owned references produce no stored roster/name cards.
+Prior-calendar-year MLB references remain stored for history but are excluded from daily My Edge advice.
+Missing credentials return DISCONNECTED before discovery or manual reads. Reconnection never grants old
+references ownership or automation permission. There is no global selected-league preference in this phase;
+per-tool selection/localStorage is navigation, not an account-wide My Edge filter.
+
+Assessments add connectionSource: discovered/manual. Responses add manualCoverage: LOADED/UNAVAILABLE,
+excludedManualCount (failed references on this page), archivedManualCount (prior-season references).
+discoveredCount is retained for compatibility but counts combined candidate references; assessedCount counts
+actual assessments. The UI calls these league references and retains partial warnings across pages. A full
+page traversal does not assert exhaustive ESPN coverage. No new manual NBA/NHL path is implied.
+
+## Browser verification
+
+npm run check:my-edge-browser uses real Chromium against a local HTTP server and the actual My Edge
+aggregator with controlled authentication/provider dependencies and sanitized historical/preseason fixtures.
+Production HTML/modules are served; test-only auth and tool context endpoints isolate this from live users.
+Desktop1440px and mobile390px pass: layout, sidebar, Premium/signed-out/free gates, loading, empty, scoped
+All Clear, multiple leagues, NBA preseason, NHL partial coverage, pagination, stale labels, order/dedup,
+unsafe display checks, targeted Team Manager/Trade Center/Coach, invalid/unowned targets and read-only calls.
+Server ownership is independently exercised in check:espn-handler. This is NOT live Clerk/Vercel/Redis/ESPN
+end-to-end certification. No live account calls or transactions were made. Screenshots remain in /tmp.
+
+Install Playwright/Chromium in external test tooling; the repository dependencies are unchanged. Set
+FE_PLAYWRIGHT_MODULE to its absolute index.mjs and PLAYWRIGHT_BROWSERS_PATH to the downloaded browser
+location before running the browser command. This optional browser suite is separate from offline checks.
 
 Tests: npm run check:my-edge includes foundation, shared parity/adapters/pagination, and DOM-contract UI
 suites. Existing ESPN/handler/Autopilot/LeagueConfig/DNA/credentials/readiness and88 Coach checks also pass.
-Next: browser verification and league-aware navigation, selected/manual-league coverage, stronger provider
-scoring/slot fixtures before expanding NBA/NHL recommendation capabilities. No production rollout implied.
+Next: review this browser/navigation milestone, then stronger provider scoring/slot evidence before
+expanding NBA/NHL recommendation capabilities. See my-edge-home-integration.md for the homepage proposal. No production rollout implied.
