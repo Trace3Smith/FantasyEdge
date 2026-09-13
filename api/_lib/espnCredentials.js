@@ -47,6 +47,7 @@ export function decryptCredentials(userId, envelope, now = Date.now()) {
 // Compare-and-set prevents an offline migration from overwriting a reconnect or
 // recreating credentials deleted while it was working. No provider calls.
 export async function migrateLegacyCredentials(redis, userId, existing) {
+  if (process.env.VERCEL_ENV === 'preview') throw new HttpError(403, 'Credential migration is disabled in preview');
   if (!existing?.espn_s2 || !existing?.swid || existing.version != null) return false;
   const envelope = encryptCredentials(userId, existing);
   const changed = await redis.eval(`

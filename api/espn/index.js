@@ -1,3 +1,4 @@
+import { previewCredentials } from '../_lib/previewCredentials.js';
 import { blockPreview, isPreview } from '../_lib/previewSafety.js';
 import { leagueTarget } from '../../leagueNavigation.js';
 import { createRecommendationLoader } from '../_lib/myEdge/recommendations.js';
@@ -325,6 +326,10 @@ async function connect(req, res, userId) {
     throw err;
   }
 
+  if (isPreview()) {
+    await previewCredentials.save(userId, creds);
+    return res.json({ connected:true, swid:maskSwid(swid), leagueCount:leaguesFound.length });
+  }
   await saveCreds(redis, userId, creds);
 
   // League DNA: the connect panel shows the notice with an include box, and sends the notice version
@@ -341,6 +346,10 @@ async function connect(req, res, userId) {
 
 // Disconnect — delete the user's stored cookies from Redis.
 async function disconnect(res, userId) {
+  if (isPreview()) {
+    await previewCredentials.disconnect(userId);
+    return res.json({connected:false});
+  }
   await deleteCreds(redis, userId);
   // League DNA: stop future capture and forget the choice; a re-link shows the notice again. Configs
   // already saved stay: they carry no user id, so nothing ties them back to this account.

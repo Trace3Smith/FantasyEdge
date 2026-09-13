@@ -1,3 +1,5 @@
+import { isPreview } from './previewSafety.js';
+import { previewCredentials } from './previewCredentials.js';
 // ESPN fantasy-baseball integration helpers (Autopilot feature, step 1).
 //
 // Talks to ESPN's unofficial fantasy API using a user's own browser cookies
@@ -68,6 +70,7 @@ export async function saveCreds(redis, userId, { espn_s2, swid }) {
 }
 
 export async function getCreds(redis, userId) {
+  if (isPreview()) return previewCredentials.read(userId);
   const c = decryptCredentials(userId, await redis.get(credsKey(userId)));
   if (!(c && c.espn_s2 && c.swid)) return null;
   // Re-normalize the SWID on read so a previously-saved malformed value (e.g. a

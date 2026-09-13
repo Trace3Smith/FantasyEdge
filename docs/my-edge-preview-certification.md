@@ -1,3 +1,5 @@
+> Superseded for setup by [isolated-preview-setup.md](isolated-preview-setup.md). Shared production data is no longer an option. Preview connect/disconnect now use the isolated credential-only path. Historical review follows.
+
 # My Edge preview certification — blocked before deployment
 
 2026-09-12. Starting branch my-edge-foundation at 5cf3551, tracked tree clean.

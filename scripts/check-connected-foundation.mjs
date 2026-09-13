@@ -127,14 +127,10 @@ premium=true;store.delete('espn:creds:u');const disconnectedReads=edgeReads;
 assert.equal((await post({action:'myEdge'})).body.connectionState,'DISCONNECTED');assert.equal(edgeReads,disconnectedReads);
 console.log('PASS: validated league contexts, unowned target denial, manual inclusion and disconnected read exclusion');
 
-// Preview read paths must not persist even with connected credentials and consent.
-process.env.VERCEL_ENV='preview';process.env.KV_REST_API_READ_ONLY_TOKEN='synthetic';
-store.set('espn:creds:u',{espn_s2:'offline',swid:fixture.owner});
-const previewBefore=JSON.stringify([...store]);
-for(const body of [{action:'status'},{action:'myEdge'},{action:'leagueContext',target},{action:'leagues',sport:'nba',target}])assert.equal((await post(body)).statusCode,200);
-assert.equal(JSON.stringify([...store]),previewBefore,'preview reads leave stored state untouched');
-const readsBeforeDeny=edgeReads;
-for(const action of ['connect','disconnect','apply','autopilot','dnaChoice'])assert.equal((await post({action,on:false,include:false})).statusCode,403);
-assert.equal(edgeReads,readsBeforeDeny);assert.equal(JSON.stringify([...store]),previewBefore);
-delete process.env.VERCEL_ENV;delete process.env.KV_REST_API_READ_ONLY_TOKEN;
-console.log('PASS: preview authenticated read paths preserve storage; mutation requests stop before provider reads');
+// Incomplete isolation must fail before existing production-style test storage is used.
+process.env.VERCEL_ENV='preview';
+const beforePreview=JSON.stringify([...store]);
+assert.equal((await post({action:'connect'})).statusCode,503);
+assert.equal((await post({action:'myEdge'})).statusCode,503);
+assert.equal(JSON.stringify([...store]),beforePreview);
+delete process.env.VERCEL_ENV;
