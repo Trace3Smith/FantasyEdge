@@ -1,0 +1,826 @@
+{
+  "provenance": {
+    "source": "authenticated ESPN GET",
+    "capturedAt": "2026-09-13T00:43:15.554Z",
+    "sport": "nhl",
+    "omissions": "User/profile fields and unreviewed settings strings omitted; owners pseudonymized; player public names retained.",
+    "discoveredSeason": 2027,
+    "requestedSeason": 2026
+  },
+  "owner": "{00000000-0000-0000-0000-000000000001}",
+  "selection": {
+    "sport": "nhl",
+    "leagueId": "28525",
+    "seasonId": 2026,
+    "teamId": 6
+  },
+  "fan": {
+    "preferences": [
+      {
+        "type": {},
+        "metaData": {
+          "entry": {
+            "abbrev": "FHL",
+            "seasonId": 2027,
+            "entryId": 6,
+            "groups": [
+              {
+                "groupId": 28525
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "league": {
+    "id": 28525,
+    "seasonId": 2026,
+    "scoringPeriodId": 193,
+    "status": {
+      "activatedDate": 1756903338896,
+      "createdAsLeagueType": 0,
+      "currentLeagueType": 0,
+      "currentMatchupPeriod": 1,
+      "finalScoringPeriod": 192,
+      "firstScoringPeriod": 1,
+      "isActive": true,
+      "isExpired": false,
+      "isFull": true,
+      "isPlayoffMatchupEdited": false,
+      "isToBeDeleted": false,
+      "isViewable": true,
+      "isWaiverOrderEdited": false,
+      "latestScoringPeriod": 193,
+      "previousSeasons": [
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "requestedMatchupPeriodId": 1,
+      "standingsUpdateDate": 1776928863598,
+      "teamsJoined": 12,
+      "transactionScoringPeriod": 193,
+      "waiverLastExecutionDate": 1776582058417,
+      "waiverProcessStatus": {
+        "2025-10-07T07:38:06.149+00:00": 3,
+        "2025-10-18T07:21:01.747+00:00": 1,
+        "2025-11-08T08:48:46.188+00:00": 1,
+        "2025-12-02T08:19:39.229+00:00": 1,
+        "2025-12-09T08:40:11.086+00:00": 1,
+        "2025-12-14T08:22:11.053+00:00": 1,
+        "2026-01-04T08:44:06.106+00:00": 1,
+        "2026-03-20T07:08:57.839+00:00": 1,
+        "2026-04-10T07:02:01.177+00:00": 1,
+        "2026-04-15T07:22:58.944+00:00": 1
+      }
+    },
+    "settings": {
+      "size": 12,
+      "rosterSettings": {
+        "isBenchUnlimited": true,
+        "isUsingUndroppableList": false,
+        "lineupSlotCounts": {
+          "0": 0,
+          "1": 0,
+          "2": 0,
+          "3": 9,
+          "4": 5,
+          "5": 2,
+          "6": 1,
+          "7": 6,
+          "8": 4,
+          "9": 0
+        },
+        "lineupSlotStatLimits": {
+          "3": {
+            "limitValue": 738,
+            "statId": 30
+          },
+          "4": {
+            "limitValue": 410,
+            "statId": 30
+          },
+          "5": {
+            "limitValue": 164,
+            "statId": 30
+          },
+          "6": {
+            "limitValue": 82,
+            "statId": 30
+          }
+        },
+        "moveLimit": -1,
+        "positionLimits": {
+          "0": 0,
+          "1": -1,
+          "2": -1,
+          "3": -1,
+          "4": -1,
+          "5": 5
+        },
+        "universeIds": [
+          0
+        ]
+      },
+      "scoringSettings": {
+        "allowOutOfPositionScoring": false,
+        "homeTeamBonus": 0,
+        "matchupTieRuleBy": 0,
+        "playoffHomeTeamBonus": 0,
+        "playoffMatchupTieRuleBy": 0,
+        "scoringItems": [
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 38
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 11
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 13
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 29
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 14
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 15
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 31
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 32
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 1
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 17
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 33
+          },
+          {
+            "isReverseItem": true,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 10
+          }
+        ],
+        "statQualificationMinimum": {
+          "limitValue": 0,
+          "statId": -1
+        },
+        "scoringType": "ROTO"
+      }
+    },
+    "teams": [
+      {
+        "id": 1,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000002}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000002}"
+        ]
+      },
+      {
+        "id": 2,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000003}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000003}"
+        ]
+      },
+      {
+        "id": 3,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000004}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000004}"
+        ]
+      },
+      {
+        "id": 4,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000005}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000005}"
+        ]
+      },
+      {
+        "id": 5,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000006}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000006}"
+        ]
+      },
+      {
+        "id": 6,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000001}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000001}"
+        ],
+        "roster": {
+          "entries": [
+            {
+              "lineupSlotId": 3,
+              "playerPoolEntry": {
+                "id": 3041969,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 3041969,
+                  "defaultPositionId": 1,
+                  "proTeamId": 17,
+                  "eligibleSlots": [
+                    3,
+                    0,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Nathan MacKinnon",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 7,
+              "playerPoolEntry": {
+                "id": 3151981,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 3151981,
+                  "defaultPositionId": 5,
+                  "proTeamId": 12,
+                  "eligibleSlots": [
+                    5,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Ilya Sorokin",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 3,
+              "playerPoolEntry": {
+                "id": 5833,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 5833,
+                  "defaultPositionId": 2,
+                  "proTeamId": 25,
+                  "eligibleSlots": [
+                    3,
+                    1,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Chris Kreider",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 3,
+              "playerPoolEntry": {
+                "id": 4565236,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 4565236,
+                  "defaultPositionId": 2,
+                  "proTeamId": 10,
+                  "eligibleSlots": [
+                    3,
+                    1,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Cole Caufield",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 7,
+              "playerPoolEntry": {
+                "id": 4233566,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 4233566,
+                  "defaultPositionId": 1,
+                  "proTeamId": 22,
+                  "eligibleSlots": [
+                    3,
+                    0,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Elias Pettersson",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 4,
+              "playerPoolEntry": {
+                "id": 3988803,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 3988803,
+                  "defaultPositionId": 4,
+                  "proTeamId": 1,
+                  "eligibleSlots": [
+                    4,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Charlie McAvoy",
+                  "injuryStatus": "SUSPENSION"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 4,
+              "playerPoolEntry": {
+                "id": 2976839,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 2976839,
+                  "defaultPositionId": 4,
+                  "proTeamId": 25,
+                  "eligibleSlots": [
+                    4,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Jacob Trouba",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 3,
+              "playerPoolEntry": {
+                "id": 3899978,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 3899978,
+                  "defaultPositionId": 2,
+                  "proTeamId": 11,
+                  "eligibleSlots": [
+                    3,
+                    1,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Timo Meier",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 7,
+              "playerPoolEntry": {
+                "id": 3114766,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 3114766,
+                  "defaultPositionId": 3,
+                  "proTeamId": 2,
+                  "eligibleSlots": [
+                    3,
+                    2,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Alex Tuch",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 6,
+              "playerPoolEntry": {
+                "id": 4392072,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 4392072,
+                  "defaultPositionId": 3,
+                  "proTeamId": 15,
+                  "eligibleSlots": [
+                    3,
+                    2,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": true,
+                  "fullName": "Owen Tippett",
+                  "injuryStatus": "OUT"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 5,
+              "playerPoolEntry": {
+                "id": 3042020,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 3042020,
+                  "defaultPositionId": 5,
+                  "proTeamId": 6,
+                  "eligibleSlots": [
+                    5,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Tristan Jarry",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 3,
+              "playerPoolEntry": {
+                "id": 3124,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 3124,
+                  "defaultPositionId": 1,
+                  "proTeamId": 16,
+                  "eligibleSlots": [
+                    3,
+                    0,
+                    6,
+                    7,
+                    8,
+                    1
+                  ],
+                  "injured": false,
+                  "fullName": "Evgeni Malkin",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 3,
+              "playerPoolEntry": {
+                "id": 4565230,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 4565230,
+                  "defaultPositionId": 1,
+                  "proTeamId": 15,
+                  "eligibleSlots": [
+                    3,
+                    0,
+                    1,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Trevor Zegras",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 4,
+              "playerPoolEntry": {
+                "id": 4565235,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 4565235,
+                  "defaultPositionId": 4,
+                  "proTeamId": 15,
+                  "eligibleSlots": [
+                    4,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Cam York",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 7,
+              "playerPoolEntry": {
+                "id": 3041994,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 3041994,
+                  "defaultPositionId": 3,
+                  "proTeamId": 1,
+                  "eligibleSlots": [
+                    3,
+                    0,
+                    2,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Elias Lindholm",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 4,
+              "playerPoolEntry": {
+                "id": 4063607,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 4063607,
+                  "defaultPositionId": 4,
+                  "proTeamId": 22,
+                  "eligibleSlots": [
+                    4,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Filip Hronek",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 7,
+              "playerPoolEntry": {
+                "id": 5488,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 5488,
+                  "defaultPositionId": 4,
+                  "proTeamId": 21,
+                  "eligibleSlots": [
+                    4,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Oliver Ekman-Larsson",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 5,
+              "playerPoolEntry": {
+                "id": 4587909,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 4587909,
+                  "defaultPositionId": 5,
+                  "proTeamId": 19,
+                  "eligibleSlots": [
+                    5,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Joel Hofer",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 7,
+              "playerPoolEntry": {
+                "id": 5509,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 5509,
+                  "defaultPositionId": 3,
+                  "proTeamId": 6,
+                  "eligibleSlots": [
+                    3,
+                    2,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Zach Hyman",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 3,
+              "playerPoolEntry": {
+                "id": 2563054,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 2563054,
+                  "defaultPositionId": 1,
+                  "proTeamId": 29,
+                  "eligibleSlots": [
+                    3,
+                    0,
+                    1,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Boone Jenner",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 7,
+              "playerPoolEntry": {
+                "id": 5161,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 5161,
+                  "defaultPositionId": 1,
+                  "proTeamId": 9,
+                  "eligibleSlots": [
+                    3,
+                    0,
+                    1,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Matt Duchene",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            },
+            {
+              "lineupSlotId": 3,
+              "playerPoolEntry": {
+                "id": 4874723,
+                "lineupLocked": true,
+                "rosterLocked": true,
+                "player": {
+                  "id": 4874723,
+                  "defaultPositionId": 3,
+                  "proTeamId": 129764,
+                  "eligibleSlots": [
+                    3,
+                    2,
+                    6,
+                    7,
+                    8
+                  ],
+                  "injured": false,
+                  "fullName": "Dylan Guenther",
+                  "injuryStatus": "ACTIVE"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": 7,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000007}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000007}"
+        ]
+      },
+      {
+        "id": 8,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000008}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000008}"
+        ]
+      },
+      {
+        "id": 9,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000009}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000009}"
+        ]
+      },
+      {
+        "id": 10,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000010}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000010}"
+        ]
+      },
+      {
+        "id": 11,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000011}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000011}"
+        ]
+      },
+      {
+        "id": 12,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000012}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000012}"
+        ]
+      }
+    ]
+  }
+}

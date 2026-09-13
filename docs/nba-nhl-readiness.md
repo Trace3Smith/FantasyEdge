@@ -3,6 +3,16 @@
 Audit date: 2026-09-12. **Neither sport is enabled for recommendations, dry-run apply, real writes or
 Autopilot.** UI tabs remain off. This is a staged rollout plan, not a declaration of production readiness.
 
+## Latest authenticated evidence
+
+Authenticated 2027 and 2026 roster/settings projections are now pinned in
+`scripts/fixtures/readonly-rosters/`. This supersedes earlier statements below that only settings fixtures
+exist. Ownership, discovery and numeric roster data are regression-tested; 2027 rosters are empty.
+NBA 2026 has 15 players including bench/IR occupants; NHL 2026 has 22. Both leagues are ROTO.
+NHL semantic slot/position/team mapping remains unverified; tests do not certify reserve classification.
+No points-league, IR+, current live-game lock or transaction behavior is established. No capabilities
+were enabled. Read the fixture README before treating historical data as current readiness.
+
 ## Evidence and its limits
 
 Read `api/_lib/espnFantasy.js`, `espnScoring.js`, `lineupAdvisor.js`, `espnLeagueConfig.js`, root

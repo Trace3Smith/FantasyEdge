@@ -1,0 +1,314 @@
+{
+  "provenance": {
+    "source": "authenticated ESPN GET",
+    "capturedAt": "2026-09-13T00:42:58.344Z",
+    "sport": "nhl",
+    "omissions": "User/profile fields and unreviewed settings strings omitted; owners pseudonymized; player public names retained.",
+    "discoveredSeason": 2027,
+    "requestedSeason": 2027
+  },
+  "owner": "{00000000-0000-0000-0000-000000000001}",
+  "selection": {
+    "sport": "nhl",
+    "leagueId": "28525",
+    "seasonId": 2027,
+    "teamId": 6
+  },
+  "fan": {
+    "preferences": [
+      {
+        "type": {},
+        "metaData": {
+          "entry": {
+            "abbrev": "FHL",
+            "seasonId": 2027,
+            "entryId": 6,
+            "groups": [
+              {
+                "groupId": 28525
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "league": {
+    "id": 28525,
+    "seasonId": 2027,
+    "scoringPeriodId": 0,
+    "status": {
+      "activatedDate": 1786461389610,
+      "createdAsLeagueType": 0,
+      "currentLeagueType": 0,
+      "currentMatchupPeriod": 1,
+      "finalScoringPeriod": 194,
+      "firstScoringPeriod": 1,
+      "isActive": true,
+      "isExpired": false,
+      "isFull": true,
+      "isPlayoffMatchupEdited": false,
+      "isToBeDeleted": false,
+      "isViewable": true,
+      "isWaiverOrderEdited": false,
+      "latestScoringPeriod": 0,
+      "previousSeasons": [
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025,
+        2026
+      ],
+      "requestedMatchupPeriodId": 1,
+      "teamsJoined": 12,
+      "transactionScoringPeriod": 0,
+      "waiverLastExecutionDate": 1789196548178,
+      "waiverProcessStatus": {}
+    },
+    "settings": {
+      "size": 12,
+      "rosterSettings": {
+        "isBenchUnlimited": true,
+        "isUsingUndroppableList": false,
+        "lineupSlotCounts": {
+          "0": 0,
+          "1": 0,
+          "2": 0,
+          "3": 9,
+          "4": 5,
+          "5": 2,
+          "6": 1,
+          "7": 6,
+          "8": 4,
+          "9": 0
+        },
+        "lineupSlotStatLimits": {
+          "3": {
+            "limitValue": 738,
+            "statId": 30
+          },
+          "4": {
+            "limitValue": 410,
+            "statId": 30
+          },
+          "5": {
+            "limitValue": 164,
+            "statId": 30
+          },
+          "6": {
+            "limitValue": 82,
+            "statId": 30
+          }
+        },
+        "moveLimit": -1,
+        "positionLimits": {
+          "0": 0,
+          "1": -1,
+          "2": -1,
+          "3": -1,
+          "4": -1,
+          "5": 5
+        },
+        "universeIds": [
+          0
+        ]
+      },
+      "scoringSettings": {
+        "allowOutOfPositionScoring": false,
+        "homeTeamBonus": 0,
+        "matchupTieRuleBy": 0,
+        "playoffHomeTeamBonus": 0,
+        "playoffMatchupTieRuleBy": 0,
+        "scoringItems": [
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 38
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 11
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 13
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 29
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 14
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 15
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 31
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 32
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 1
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 17
+          },
+          {
+            "isReverseItem": false,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 33
+          },
+          {
+            "isReverseItem": true,
+            "leagueRanking": 0,
+            "leagueTotal": 0,
+            "points": 1,
+            "statId": 10
+          }
+        ],
+        "statQualificationMinimum": {
+          "limitValue": 0,
+          "statId": -1
+        },
+        "scoringType": "ROTO"
+      }
+    },
+    "teams": [
+      {
+        "id": 1,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000002}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000002}"
+        ]
+      },
+      {
+        "id": 2,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000003}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000003}"
+        ]
+      },
+      {
+        "id": 3,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000004}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000004}"
+        ]
+      },
+      {
+        "id": 4,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000005}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000005}"
+        ]
+      },
+      {
+        "id": 5,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000006}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000006}"
+        ]
+      },
+      {
+        "id": 6,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000001}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000001}"
+        ],
+        "roster": {
+          "entries": []
+        }
+      },
+      {
+        "id": 7,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000007}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000007}"
+        ]
+      },
+      {
+        "id": 8,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000008}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000008}"
+        ]
+      },
+      {
+        "id": 9,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000009}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000009}"
+        ]
+      },
+      {
+        "id": 10,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000010}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000010}"
+        ]
+      },
+      {
+        "id": 11,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000011}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000011}"
+        ]
+      },
+      {
+        "id": 12,
+        "primaryOwner": "{00000000-0000-0000-0000-000000000012}",
+        "owners": [
+          "{00000000-0000-0000-0000-000000000012}"
+        ]
+      }
+    ]
+  }
+}

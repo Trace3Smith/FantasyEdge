@@ -7,8 +7,10 @@ arguments. Preserve other environment entries. Restrict local file access to the
 Run `node --env-file=.env.local scripts/capture-readonly-fixture.mjs nba` first. After NBA validation,
 run the same command with `nhl`. The script uses existing discovery and ownership-validated roster reads,
 selects the latest discovered season, and saves only a sanitized projection to ignored
-`tmp/readonly-fixtures/{sport}.json`. It does not enable any capability or modify application state.
-Discovery may use the existing fallback request. No unrelated provider hosts, redirects or writes allowed.
+`tmp/readonly-fixtures/{sport}-{season}.json`. It does not enable any capability or modify application state.
+An optional final season argument requests historical roster evidence for the discovered league;
+discoveredSeason and requestedSeason remain separate in provenance. A failed discovery transport now
+reports capture_stopped rather than falsely reporting no leagues. Discovery may use the existing fallback request. No unrelated provider hosts, redirects or writes allowed.
 
 Raw responses stay in memory. User names, members, account details, logos and unrelated rosters are
 omitted. Owner IDs are consistently replaced with synthetic IDs. Public athlete names and technical
@@ -25,6 +27,6 @@ validation. Do not claim IR+, points leagues, transaction behavior or lock seman
 The runtime also checks that known cookie/owner values do not survive serialization. This guard supplements
 allowlist review; it does not establish that all third-party data is safe without inspection.
 
-`node scripts/check-readonly-capture.mjs` tests sanitization with synthetic data only. Real authenticated
-NBA/NHL fixtures are still outstanding. This session's attempts stopped at configuration: Node did not
-load ESPN_S2 or SWID from .env.local. No authenticated provider requests were made.
+`node scripts/check-readonly-capture.mjs` tests sanitization with synthetic data only. Authenticated NBA/NHL 2027 and 2026 projections are now committed under
+`scripts/fixtures/readonly-rosters/`; see their README for the evidence limits. Earlier configuration
+attempts failed, but the subsequent local setup allowed successful authenticated captures.
