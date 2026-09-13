@@ -1,3 +1,4 @@
+import { aggregateEspn } from '../_lib/myEdge/espn.js';
 // ESPN fantasy account integration (Premium) — a single serverless function that
 // dispatches on `action` so the four ESPN operations share one deployment slot
 // (the Hobby plan caps a deployment at 12 functions). All actions are POST and
@@ -227,6 +228,7 @@ export default async function handler(req, res) {
       case 'connect':    return await connect(req, res, userId);
       case 'disconnect': return await disconnect(res, userId);
       case 'dnaChoice':  return await dnaChoice(req, res, userId);
+      case 'myEdge':     return await myEdge(res, userId);
       case 'leagues':    return await leagues(req, res, userId);
       case 'apply':      return await applyLineup(req, res, userId);
       case 'nflForm':    return await nflForm(req, res, userId);
@@ -242,6 +244,14 @@ export default async function handler(req, res) {
   } catch (err) {
     return sendError(res, err);
   }
+}
+
+// Same Premium authentication as Team Manager. Advisor-only, no persistence or DNA collection.
+async function myEdge(res, userId) {
+  res.setHeader('Cache-Control', 'private, no-store');
+  const creds = await getCreds(redis, userId);
+  if (!creds) return res.status(200).json({ mode: 'ADVISOR', connectionState: 'DISCONNECTED', actions: [], assessments: [], attentionCount: 0 });
+  return res.status(200).json(await aggregateEspn(creds));
 }
 
 // Whether the user has an ESPN account connected. Returns only a boolean (+ masked

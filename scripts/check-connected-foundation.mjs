@@ -50,7 +50,7 @@ store.set('espn:creds:u',creds);
 assert.equal((await f.fetchLeagueRoster(creds,{leagueId:'1',seasonId:2026,teamId:'1'},'nfl')).teamId,1);
 await assert.rejects(f.fetchLeagueRoster(creds,{leagueId:'1',seasonId:2026,teamId:2},'nfl'),e=>e.status===403);
 async function post(body) {
-  const res={statusCode:200,status(n){this.statusCode=n;return this;},json(b){this.body=b;return this;}};
+  const res={headers:{},setHeader(k,v){this.headers[k]=v;},statusCode:200,status(n){this.statusCode=n;return this;},json(b){this.body=b;return this;}};
   await handler({method:'POST',headers:{},body},res);return res;
 }
 assert.equal((await post({action:'autopilot',sport:'nfl',on:true,league:{...ids,teamId:2}})).statusCode,403);
@@ -87,3 +87,24 @@ await f.saveCreds(redis, 'u', creds);
 assert.deepEqual(await f.getAutopilot(redis, 'u'), {}, 'relink also revokes automation');
 assert.equal(posts,0);
 console.log('PASS: legacy migration, overlapping sport IDs, ownership, disabled sports, free disconnect and DNA retention');
+
+assert.equal((await post({action:'myEdge'})).statusCode,403,'existing Premium entitlement preserved');
+premium=true;
+const fixture=JSON.parse((await import('node:fs')).readFileSync(new URL('fixtures/readonly-rosters/nba-2027.json',import.meta.url)));
+store.set('espn:creds:u',{espn_s2:'offline',swid:fixture.owner});
+const beforeStore=JSON.stringify([...store]);
+let edgeReads=0;
+globalThis.fetch=async(url,opts={})=>{
+  assert.ok(!opts.method || opts.method==='GET');edgeReads++;
+  return {ok:true,status:200,json:async()=>structuredClone(new URL(url).hostname==='fan.api.espn.com'?fixture.fan:fixture.league)};
+};
+const edge=await post({action:'myEdge',sport:'nfl',leagueId:'forged',teamId:'forged'});
+assert.equal(edge.statusCode,200);assert.equal(edge.headers['Cache-Control'],'private, no-store');
+assert.equal(edge.body.assessments[0].status,'EMPTY_ROSTER');
+assert.equal(edge.body.assessments[0].scope.sport,'nba','scope derives from provider, not browser');
+assert.equal(edge.body.attentionCount,0);assert.equal(edgeReads,2);
+assert.equal(JSON.stringify([...store]),beforeStore,'aggregation does not persist consent, cache or permissions');
+assert.equal(JSON.stringify(edge.body).includes(fixture.owner),false);
+store.delete('espn:creds:u');
+assert.equal((await post({action:'myEdge'})).body.connectionState,'DISCONNECTED');
+console.log('PASS: My Edge Premium gate, private caching, provider-owned scopes, normal empty preseason and zero writes');

@@ -1,7 +1,8 @@
 # My Edge MVP engineering design
 
-Status: design, 2026-09-12. Foundation fixes and capability policy exist on `my-edge-foundation`;
-My Edge UI/aggregator, new provider onboarding and new automation behavior are **not implemented**.
+Status: first Advisor aggregation increment implemented, 2026-09-12, on `my-edge-foundation`.
+See the final section for the shipped local scope; earlier sections retain the broader MVP design.
+My Edge UI, new provider onboarding and new automation behavior are **not implemented**.
 Read alongside [sport readiness](nba-nhl-readiness.md), [credential lifecycle](espn-credential-security.md)
 and [connector design](espn-connector-design.md). This supersedes relevant audit observations in the
 local PROJECT_HANDOFF.md; the completed Pick'em/model commit `5966a3f` must not be repeated.
@@ -246,3 +247,38 @@ recommendation for identical Team Manager/My Edge input; isolated user caches; c
 unknown/unsupported leagues never All Clear; no inflated action counts; bounded partial success; working
 existing-tool navigation. Run check:espn, check:espn-handler, check:autopilot, check:league-config,
 check:league-dna, check:credentials, check:sport-readiness and verify:coach.
+
+## First implementation — Advisor foundation (2026-09-12)
+
+Implemented `action: myEdge` in existing /api/espn, under its unchanged Premium authentication. New
+api/_lib/myEdge/espn.js discovers all sports once, derives identifiers from authenticated provider responses,
+validates ownership through the shared roster fetch and reads at most four leagues concurrently. Browser
+league/team parameters are ignored. Per-league errors remain partial results; no raw errors, credentials,
+owner IDs, research collection, cache writes, lineup writes or new handlers. Response is private/no-store.
+No shared/persistent cache is introduced, so no cross-user cache exists. Missing connections return
+DISCONNECTED; discovery failures/expired sessions are distinguished. More than four leagues sets
+complete:false with counts; pagination/fair selection remains future work, not silently complete coverage.
+
+Provider-neutral aggregate.js consumes normalized snapshots and returns deterministic sport/season/team/
+player-qualified action IDs, deduplicated cards, assessments and attention counts. First signal is
+provider-confirmed unavailable starters, using availability from the existing shared roster parser.
+No independent valuation or optimizer is called or duplicated. Locked issues are informational with no
+attention count. No schedule deadline is invented: urgency remains UNKNOWN. Comparator orders urgency,
+source impact band, confidence and stable identity. Actual deadline and expected-value adapters remain
+future work. All outgoing apply capabilities are READ_ONLY even for otherwise write-capable sports.
+
+Valid empty leagues return EMPTY_ROSTER with a normal connected/no-players message, never a fetch error or
+empty-slot alarm. NHL unknown slot roles return PARTIAL while preserving read-only capability. Stale (>5m),
+future/invalid timestamps and missing injury/identity evidence cannot yield All Clear. ALL_CLEAR is
+explicitly scoped to starter_availability: “No unavailable starters reported. Other lineup opportunities
+have not been assessed.” This narrow scoped check supersedes the broader proposed All Clear contract
+above for this first increment; it does not assert lineup optimality or waive disabled recommendations.
+
+No Team Manager/Coach UI, deep-link behavior, manual-league fallback, selection persistence, pagination,
+lineup upgrades, waivers, trade/category/watch adapters or notifications are implemented yet. These are
+listed as unsupported checks in assessments. Destinations name the existing tool and scope rather than
+pretending new deep links work. Next: shared recommendation snapshot extraction (same lineupAdvisor call
+and source timestamps as Team Manager) plus bounded selected-league continuation, before a UI shell.
+Tests: check:my-edge plus existing connected-foundation handler tests cover empty preseason, real historical
+rosters, NHL gaps, missing fields, scoped All Clear, stale data, priorities, deduplication, overlapping IDs,
+partial failures, bounded reads, Premium/no-store behavior and absence of persistence/provider writes.
