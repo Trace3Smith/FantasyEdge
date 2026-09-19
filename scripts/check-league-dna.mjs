@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { installLifecycleFake } from './lib/lifecycle-fake.mjs';
 // Offline checks for League DNA consent: no user's leagues are captured until they've seen the notice
 // and opted in, on EVERY capture path. Runs the REAL request handler (api/espn/index.js) and the REAL
 // Autopilot cron, with Clerk and Redis swapped for stand-ins (node:test module mocks) and ESPN stubbed
@@ -30,6 +31,7 @@ const fakeRedis = {
   smembers: async (k) => [...(sets.get(k) || [])],
 };
 
+installLifecycleFake(fakeRedis);
 let currentUser = null;
 const lib = (p) => new URL(`../api/_lib/${p}`, import.meta.url).href;
 const realKv = await import(lib('kv.js'));
@@ -260,6 +262,7 @@ console.log("\noffline — the sweep's time budget and cursor");
       kv.set(`espn:dna:ack:${id}`, { version: DNA_NOTICE_VERSION, include: true, via: 'notice' });
       kv.set(`espn:creds:${id}`, { espn_s2: 's2', swid: `{${id}}` });
     }
+    installLifecycleFake(r);
     return { r, kv };
   };
 

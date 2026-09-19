@@ -30,7 +30,8 @@ mutation capabilities; it is NOT a read-only Preview application.
 
 Run `check:espn`, `check:espn-handler`, `check:credentials`, `check:autopilot`,
 `check:league-config`, `check:league-dna`, `check:sport-readiness`, and `verify:coach`.
-`check:credential-compatibility` is included in `check:credentials`.
+`check:credential-compatibility` is included in `check:credentials`. Also run the real-Redis
+`check:credential-lifecycle` suite.
 
 `check:credential-browser` uses externally installed Playwright (or its module path via
 `FE_PLAYWRIGHT_MODULE`). It loads the actual Team Manager HTML, mocks auth/API responses,
@@ -41,20 +42,51 @@ that certified release's actual codec with its source hash; only the error depen
 is stubbed and the unused migration helper omitted. Both writer/reader directions are
 checked without requiring a sibling checkout or git history during test execution.
 
-## Remaining concurrency limits
+## Atomic lifecycle protocol
 
-This release preserves the certified branch's lifecycle semantics, not a distributed
-transaction protocol. Credential deletion/saving, permission cleanup, watch cleanup,
-and DNA cleanup are separate Redis operations. Storage failures can leave partial
-cleanup; they are reported rather than claimed successful. An already in-flight save
-can finish after a disconnect. Two reconnects are last-completion-wins. Preference
-read/modify/write operations can lose concurrent updates; a stale enable can reinsert
-a generation-bound permission, which the cron must refuse if its generation differs.
+`espn:lifecycle:{userId}` is a monotonic, persistent revision, initially zero for legacy
+accounts. Never expire or reset it: it is the disconnect tombstone for old requests.
+The server captures it immediately after authentication and before Premium/provider
+validation, ignoring any browser-supplied revision. Credential reads atomically load
+the envelope and revision; the revision is not a change to the encrypted v1 format.
 
-Apply/cron tests revoke or change the connection during planning and prove zero provider
-submissions. They do not eliminate the final check-to-submit race or recall a request
-already sent to ESPN. Serialized/atomic lifecycle and permission work is a separate
-hardening change, which must remain compatible with My Edge before rollout.
+A Redis Lua script compares the captured revision immediately before a connect commit.
+A matching commit increments the revision, writes only the encrypted envelope with its
+90-day TTL, removes automation permissions/membership, clears stale watch associations,
+and records any valid connect-time DNA choice/membership in the same atomic operation.
+Disconnect increments the revision and removes credentials, automation and DNA
+consent/memberships atomically. A stale operation returns HTTP 409 `connection_changed`
+without any state change. A new operation starting after disconnect sees the new revision.
+
+Standalone permission and consent updates also CAS/increment this revision, so a delayed
+enable cannot undo a successful disable/opt-out. Apply and cron retain connection-generation
+checks and additionally reject changed lifecycle revisions. Cron cleanup uses its observed
+revision rather than deleting a newer connection's permissions. No network request is held
+inside a lock or Redis transaction. Script types/JSON are checked before mutations because
+Lua runtime errors do not roll back earlier commands.
+
+`check:credential-lifecycle` runs the actual script against disposable local Redis via a
+private Unix socket, with TCP and persistence disabled. Provide `redis-server` on PATH or
+`FE_TEST_REDIS_SERVER`; no external Redis endpoint is accepted by this harness. Existing
+in-memory unit fixtures use a separate adapter, not the evidence for Lua atomicity.
+
+The deterministic lifecycle suite pauses before commits and during provider validation,
+checks two competing reconnects, repeats disconnect/new-connect/stale-connect sequences,
+and checks revoked permission/consent, Apply/cron, key failures and storage-type failures.
+
+Remaining boundaries: an ESPN write already submitted cannot be recalled, and the final
+revision-check-to-provider-submit window still exists. Provider/collection work started
+before revocation can finish; it cannot recreate consent or automation membership through
+the new protocol. Unrelated watch/history writers are not serialized by this change.
+A response may be lost after an atomic commit; retry starts a new lifecycle operation.
+
+ALL writers sharing this credential namespace must adopt the protocol. Certified My Edge
+`37ccd8d` does not: its unconditional SET can still bypass this tombstone. Codec/record
+interoperability does not certify mixed old/new writers as lifecycle-safe. Port the five
+runtime-file changes (lifecycle helper, credential helpers, DNA helpers, ESPN dispatcher,
+Autopilot cron) and the race tests to My Edge before any production rollout. Its separate
+Preview credential writer needs an equivalent protocol in its isolated namespace; do not
+silently route it through production Redis or widen its ACLs as part of this baseline.
 
 ## Isolated rehearsal and production prerequisites
 

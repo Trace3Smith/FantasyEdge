@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { installLifecycleFake } from './lib/lifecycle-fake.mjs';
 // Offline regression checks for api/espn/index.js, run through the REAL request handler with its two
 // outside dependencies swapped out: Clerk (auth.js) and Redis (kv.js). ESPN is a stubbed fetch, so
 // every URL the handler asks for is recorded and asserted on.
@@ -25,6 +26,7 @@ const fakeRedis = {
   set: async (k, v) => { store.set(k, structuredClone(v)); return 'OK'; },
 };
 
+installLifecycleFake(fakeRedis);
 const lib = (p) => new URL(`../api/_lib/${p}`, import.meta.url).href;
 const realKv = await import(lib('kv.js'));
 // nflForm needs the cron-built NFL dataset to exist (it 503s without one). A single player with no
@@ -32,7 +34,7 @@ const realKv = await import(lib('kv.js'));
 store.set(realKv.NFL_DATASET_KEY, { players: [{ id: 1, name: 'Placeholder WR', pos: 'WR' }] });
 const realAuth = await import(lib('auth.js'));
 mock.module(lib('kv.js'), { namedExports: { ...realKv, redis: fakeRedis } });
-mock.module(lib('auth.js'), { namedExports: { ...realAuth, requirePremium: async () => ({ userId: USER }) } });
+mock.module(lib('auth.js'), { namedExports: { ...realAuth, requireUser: async () => ({ userId: USER }), requirePremium: async () => ({ userId: USER }) } });
 const { default: handler } = await import('../api/espn/index.js');
 const { scoringKey } = await import(lib('espnScoring.js'));
 

@@ -1,3 +1,4 @@
+import { beginLifecycle } from '../_lib/espnLifecycle.js';
 // ESPN fantasy account integration (Premium) — a single serverless function that
 // dispatches on `action` so the four ESPN operations share one deployment slot
 // (the Hobby plan caps a deployment at 12 functions). All actions are POST and
@@ -24,7 +25,7 @@ import {
 } from '../_lib/espnFantasy.js';
 import { recordLeagueConfig } from '../_lib/leagueConfig.js';
 import {
-  DNA_NOTICE_VERSION, dnaNoticeStatus, getDnaConsent, recordDnaChoice, clearDnaConsent, dnaCaptureAllowed,
+  DNA_NOTICE_VERSION, dnaNoticeStatus, getDnaConsent, recordDnaChoice, dnaChoiceRecord, dnaCaptureAllowed,
 } from '../_lib/leagueDnaConsent.js';
 import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
 import { parseScoringSettings, scoringKey, categoryRanks } from '../_lib/espnScoring.js';
@@ -220,17 +221,23 @@ export default async function handler(req, res) {
     const revocation = action === 'disconnect'
       || (action === 'autopilot' && req.body?.on === false)
       || (action === 'dnaChoice' && req.body?.include === false);
-    const { userId } = await (revocation ? requireUser(req) : requirePremium(req));
+    // Capture lifecycle state as soon as the user is authenticated, BEFORE Premium
+    // lookup/provider validation. Browser-supplied revisions are never accepted.
+    const lifecycleAction = ['connect', 'autopilot', 'dnaChoice'].includes(action);
+    const identity = lifecycleAction ? await requireUser(req) : null;
+    const revision = identity ? await beginLifecycle(redis, identity.userId) : undefined;
+    const { userId } = await (revocation ? (identity || requireUser(req)) : requirePremium(req));
+    if (identity && identity.userId !== userId) throw new HttpError(403, 'Account changed');
 
     switch (action) {
       case 'status':     return await status(res, userId);
-      case 'connect':    return await connect(req, res, userId);
+      case 'connect':    return await connect(req, res, userId, revision);
       case 'disconnect': return await disconnect(res, userId);
-      case 'dnaChoice':  return await dnaChoice(req, res, userId);
+      case 'dnaChoice':  return await dnaChoice(req, res, userId, revision);
       case 'leagues':    return await leagues(req, res, userId);
       case 'apply':      return await applyLineup(req, res, userId);
       case 'nflForm':    return await nflForm(req, res, userId);
-      case 'autopilot':  return await autopilotPref(req, res, userId);
+      case 'autopilot':  return await autopilotPref(req, res, userId, revision);
       case 'addLeague':  return await addLeague(req, res, userId);
       case 'removeLeague': return await removeLeague(req, res, userId);
       case 'watchProspect': return await watchProspect(req, res, userId);
@@ -271,7 +278,7 @@ async function captureAllLeagues(creds) {
 
 // Connect an ESPN account: verify the pasted cookies against ESPN BEFORE persisting,
 // so we never store dead credentials.
-async function connect(req, res, userId) {
+async function connect(req, res, userId, revision) {
   const espn_s2 = normalizeS2(req.body?.espn_s2);
   const swid = normalizeSwid(req.body?.swid);
   if (!espn_s2 || !swid || swid === '{}') {
@@ -294,15 +301,11 @@ async function connect(req, res, userId) {
     throw err;
   }
 
-  await saveCreds(redis, userId, creds);
-
-  // League DNA: the connect panel shows the notice with an include box, and sends the notice version
-  // it displayed. Only a choice made on the current notice is recorded, and only an opt-in captures.
-  // A missing or stale one (an old cached page) records nothing, so the one-time notice asks later.
   const n = req.body?.dnaNotice;
   const choice = n && typeof n === 'object'
-    ? await recordDnaChoice(redis, userId, { version: Number(n.version), include: n.include, via: 'connect' }).catch(() => null)
-    : null;
+    ? dnaChoiceRecord({ version: Number(n.version), include: n.include, via: 'connect' }) : null;
+  await saveCreds(redis, userId, creds, revision, choice);
+
   if (choice?.include) await captureAllLeagues(creds);
 
   return res.json({ connected: true, swid: maskSwid(swid), leagueCount: leaguesFound.length });
@@ -313,7 +316,6 @@ async function disconnect(res, userId) {
   await deleteCreds(redis, userId);
   // League DNA: stop future capture and forget the choice; a re-link shows the notice again. Configs
   // already saved stay: they carry no user id, so nothing ties them back to this account.
-  await clearDnaConsent(redis, userId);
   return res.json({ connected: false });
 }
 
@@ -321,12 +323,12 @@ async function disconnect(res, userId) {
 // ('settings'). Body: { version, include, via }. An answer to a stale notice version is refused and
 // recorded nowhere. Opting in captures every linked league straight away, as linking does. Opting out
 // stops future capture; configs already saved stay, as on disconnect.
-async function dnaChoice(req, res, userId) {
+async function dnaChoice(req, res, userId, revision) {
   const optingOut = req.body?.include === false;
   const creds = optingOut ? null : await getCreds(redis, userId);
   if (!optingOut && !creds) throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
   const via = req.body?.via === 'settings' ? 'settings' : 'notice';
-  const rec = await recordDnaChoice(redis, userId, { version: Number(req.body?.version), include: req.body?.include, via });
+  const rec = await recordDnaChoice(redis, userId, { version: Number(req.body?.version), include: req.body?.include, via }, revision);
   if (!rec) throw new HttpError(400, 'That notice is out of date', { error: 'stale_notice', version: DNA_NOTICE_VERSION });
   if (rec.include) await captureAllLeagues(creds);
   return res.json({ dnaNotice: dnaNoticeStatus(rec) });
@@ -575,7 +577,7 @@ async function applyLineup(req, res, userId) {
   if (!sugg.plan.length) return res.json({ applied: 0, moves: [], message: 'Lineup already optimal' });
 
   const currentCreds = await getCreds(redis, userId);
-  if (!currentCreds || (currentCreds.connectionId || 'legacy') !== (creds.connectionId || 'legacy')) {
+  if (!currentCreds || currentCreds.lifecycleRevision !== creds.lifecycleRevision || (currentCreds.connectionId || 'legacy') !== (creds.connectionId || 'legacy')) {
     throw new HttpError(409, 'ESPN connection changed; refresh before applying', { error: 'connection_changed' });
   }
   let result;
@@ -640,7 +642,7 @@ async function nflForm(req, res, userId) {
 
 // Get or set the per-league autopilot preference. Body { league:{leagueId,season,
 // teamId}, on } toggles; omitting `on` just returns the current prefs map.
-async function autopilotPref(req, res, userId) {
+async function autopilotPref(req, res, userId, revision) {
   const { league, on } = req.body || {};
   // Refused rather than substituted, for the same reason as applyLineup: the sport recorded here
   // is what the nightly cron later reads back to decide which dataset and slot rules to value a
@@ -659,7 +661,7 @@ async function autopilotPref(req, res, userId) {
       if (!creds) throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
       await fetchLeagueRoster(creds, { leagueId: String(league.leagueId), seasonId: Number(league.season), teamId: league.teamId }, sport);
     }
-    const prefs = await setAutopilotLeague(redis, userId, leagueKeyOf({ ...league, sport }), on, sport, creds?.connectionId || 'legacy');
+    const prefs = await setAutopilotLeague(redis, userId, leagueKeyOf({ ...league, sport }), on, sport, creds?.connectionId || 'legacy', revision);
     return res.json({ on, prefs });
   }
   return res.json({ prefs: await getAutopilot(redis, userId) });

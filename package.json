@@ -21,7 +21,8 @@
     "check:credentials": "node scripts/check-espn-credentials.mjs && npm run check:credential-compatibility",
     "check:credential-compatibility": "node --experimental-test-module-mocks scripts/check-credential-compatibility.mjs",
     "check:sport-readiness": "node scripts/check-sport-readiness.mjs",
-    "check:credential-browser": "node scripts/check-credential-browser.mjs"
+    "check:credential-browser": "node scripts/check-credential-browser.mjs",
+    "check:credential-lifecycle": "node --experimental-test-module-mocks scripts/check-credential-lifecycle.mjs"
   },
   "dependencies": {
     "@clerk/backend": "^1.21.0",

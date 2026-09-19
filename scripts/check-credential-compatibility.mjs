@@ -1,3 +1,4 @@
+import { installLifecycleFake } from './lib/lifecycle-fake.mjs';
 // Actual credential storage + API dispatcher; all storage/provider/auth calls are synthetic.
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
@@ -27,6 +28,7 @@ const redis={
  srem:async(k,u)=>{mutations.push(['srem',k]);sets.get(k)?.delete(u);},
  smembers:async k=>[...(sets.get(k)||[])],
 };
+installLifecycleFake(redis);
 // Any accidentally unmocked network request fails this offline suite.
 globalThis.fetch=async()=>{throw new Error('Unexpected network request in compatibility test');};
 const lib=p=>new URL(`../api/_lib/${p}`,import.meta.url).href;
@@ -58,7 +60,7 @@ const seedPermissions=()=>{
  sets.set('espn:dna:users',new Set([user]));
 };
 reset();store.set(credKey,creds);delete process.env.ESPN_CREDENTIAL_ENCRYPTION_KEY;
-let before=snapshot();assert.deepEqual(await f.getCreds(redis,user),creds);assert.equal(snapshot(),before);assert.equal(mutations.length,0);
+let before=snapshot();assert.deepEqual(await f.getCreds(redis,user),{...creds,lifecycleRevision:'0'});assert.equal(snapshot(),before);assert.equal(mutations.length,0);
 assert.equal((await post({action:'status'})).body.connected,true);
 console.log('PASS: plaintext reads without a key never write or migrate');
 
@@ -122,11 +124,12 @@ console.log('PASS: supported Apply/Autopilot unchanged; stale Apply generations 
 // Freeze the real certified codec: verify both directions, not two copies of this branch's codec.
 reset();await f.saveCreds(redis,user,creds);
 const baseline=await f.getCreds(redis,user);
-assert.deepEqual(certified.decryptCredentials(user,store.get(credKey)),baseline);
-const edgeCreds={...baseline,connectionId:'synthetic-my-edge-generation'};
+const withoutRevision=({lifecycleRevision,...rest})=>rest;
+assert.deepEqual(certified.decryptCredentials(user,store.get(credKey)),withoutRevision(baseline));
+const edgeCreds={...withoutRevision(baseline),connectionId:'synthetic-my-edge-generation'};
 store.set(credKey,certified.encryptCredentials(user,edgeCreds));
 const returned=await f.getCreds(redis,user);assert.equal(returned.connectionId,edgeCreds.connectionId);assert.equal(returned.espn_s2,creds.espn_s2);
 await f.saveCreds(redis,user,creds);
-assert.deepEqual(certified.decryptCredentials(user,store.get(credKey)),await f.getCreds(redis,user));
+assert.deepEqual(certified.decryptCredentials(user,store.get(credKey)),withoutRevision(await f.getCreds(redis,user)));
 await f.deleteCreds(redis,user);assert.equal(certified.decryptCredentials(user,store.get(credKey)),null);
 console.log('PASS: baseline → certified My Edge v1 → baseline interoperability; revocation survives rollback');

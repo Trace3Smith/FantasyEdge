@@ -12,6 +12,7 @@
 // connected boolean and a masked SWID at most. Paid operations are premium-gated; revocation requires sign-in only.
 
 import { encryptCredentials, decryptCredentials, CREDENTIAL_TTL_SECONDS } from './espnCredentials.js';
+import { beginLifecycle, readLifecycle, transitionLifecycle, lifecycleConflict } from './espnLifecycle.js';
 import { randomUUID } from 'node:crypto';
 import { HttpError } from './auth.js';
 import { leagueKeyOf, qualifiedLeagueKey } from '../../leagueIdentity.js';
@@ -19,8 +20,6 @@ export { leagueKeyOf };
 
 import { normName } from './golf.js';
 import { espnLeagueConfig } from './espnLeagueConfig.js';
-
-const credsKey = (userId) => `espn:creds:${userId}`;
 
 // A thrown EspnAuthError means ESPN rejected the cookies (expired/invalid) — the
 // endpoints turn it into a "reconnect" signal for the UI rather than a 500.
@@ -58,40 +57,27 @@ export function normalizeS2(raw) {
   return String(raw || '').trim().replace(/^["']|["']$/g, '').trim();
 }
 
-export async function saveCreds(redis, userId, { espn_s2, swid }) {
+export async function saveCreds(redis, userId, { espn_s2, swid }, revision, consent = null) {
   const creds = { espn_s2: normalizeS2(espn_s2), swid: normalizeSwid(swid), savedAt: new Date().toISOString(), connectionId: randomUUID() };
-  const encrypted = encryptCredentials(userId, creds); // validate key before touching saved state
-  await clearAutopilot(redis, userId);
-  await suspendWatchAssociations(redis, userId);
-  await redis.set(credsKey(userId), encrypted, { ex: CREDENTIAL_TTL_SECONDS });
-  return creds;
+  const encrypted = encryptCredentials(userId, creds); // no mutation before valid encryption
+  // Direct callers start here. HTTP connects MUST supply their pre-validation revision.
+  const expected = revision ?? await beginLifecycle(redis, userId);
+  const lifecycleRevision = await transitionLifecycle(redis, userId, 'connect', expected,
+    { envelope: encrypted, consent }, CREDENTIAL_TTL_SECONDS);
+  return { ...creds, lifecycleRevision };
 }
 
 export async function getCreds(redis, userId) {
-  const c = decryptCredentials(userId, await redis.get(credsKey(userId)));
+  const snapshot = await readLifecycle(redis, userId);
+  const c = decryptCredentials(userId, snapshot.credentials);
   if (!(c && c.espn_s2 && c.swid)) return null;
-  // Re-normalize the SWID on read so a previously-saved malformed value (e.g. a
-  // missing brace) is healed transparently for both the fan path and the write
-  // memberId — no reconnect required.
-  return { ...c, swid: normalizeSwid(c.swid) };
+  return { ...c, swid: normalizeSwid(c.swid), lifecycleRevision: snapshot.revision };
 }
 
 export async function deleteCreds(redis, userId) {
-  await redis.del(credsKey(userId));
-  await clearAutopilot(redis, userId);
-  await suspendWatchAssociations(redis, userId);
-}
-
-// A user's watch wishes/history survive, but a previous ESPN team's association
-// cannot generate an alert after relinking a different account with overlapping IDs.
-async function suspendWatchAssociations(redis, userId) {
-  const key = `espn:prospectwatch:${userId}`;
-  const watch = await redis.get(key);
-  if (!watch || typeof watch !== 'object') return;
-  const next = Object.fromEntries(Object.entries(watch).map(([id, entry]) => [id, {
-    ...entry, previousLeague: entry.lg || entry.previousLeague || null, lg: '', leagueName: '',
-  }]));
-  await redis.set(key, next);
+  // Also removes consent and memberships in the same atomic transition. No later cleanup
+  // may race a genuinely new connection that starts after this commit.
+  await transitionLifecycle(redis, userId, 'disconnect', '');
 }
 
 // Mask the SWID for display ("{ABCD…WXYZ}") so the UI can confirm WHICH account is
@@ -767,10 +753,8 @@ export async function removeManualLeague(redis, userId, { leagueId, season, spor
 // only iterates opted-in users. Keys include sport; old three-part keys remain readable.
 const autopilotKey = (userId) => `espn:autopilot:${userId}`;
 const AUTOPILOT_USERS = 'espn:autopilot:users';
-export async function clearAutopilot(redis, userId) {
-  // Remove permissions first. A stale membership is harmless to the cron.
-  await redis.del(autopilotKey(userId));
-  await redis.srem(AUTOPILOT_USERS, userId);
+export async function clearAutopilot(redis, userId, revision) {
+  await transitionLifecycle(redis, userId, 'clear', revision ?? await beginLifecycle(redis, userId));
 }
 
 export async function getAutopilot(redis, userId) {
@@ -788,14 +772,16 @@ export async function getAutopilot(redis, userId) {
 // stored as the bare boolean `true` (MLB-only era) — treat those as MLB.
 export const autopilotSportOf = (v) => (v && typeof v === 'object' && v.sport) ? v.sport : 'mlb';
 
-export async function setAutopilotLeague(redis, userId, leagueKey, on, sport = 'mlb', connectionId = 'legacy') {
-  const prefs = await getAutopilot(redis, userId);
+export async function setAutopilotLeague(redis, userId, leagueKey, on, sport = 'mlb', connectionId = 'legacy', revision) {
+  const snapshot = on ? await getCreds(redis, userId) : null;
+  if (on && (!snapshot || (snapshot.connectionId || 'legacy') !== connectionId)) throw lifecycleConflict();
+  const expected = revision ?? snapshot?.lifecycleRevision ?? await beginLifecycle(redis, userId);
   leagueKey = qualifiedLeagueKey(leagueKey, sport);
-  if (on) prefs[leagueKey] = { sport, connectionId }; else delete prefs[leagueKey];
-  await redis.set(autopilotKey(userId), prefs);
-  if (Object.keys(prefs).length) await redis.sadd(AUTOPILOT_USERS, userId);
-  else await redis.srem(AUTOPILOT_USERS, userId);
-  return prefs;
+  const raw = (await redis.get(autopilotKey(userId))) || {};
+  const aliases = Object.entries(raw).filter(([key, value]) => qualifiedLeagueKey(key, autopilotSportOf(value)) === leagueKey).map(([key]) => key);
+  await transitionLifecycle(redis, userId, 'permission', expected,
+    { key: leagueKey, aliases, on, value: { sport, connectionId } });
+  return getAutopilot(redis, userId);
 }
 
 export async function listAutopilotUsers(redis) {

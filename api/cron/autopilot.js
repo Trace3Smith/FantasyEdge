@@ -1,3 +1,4 @@
+import { beginLifecycle } from '../_lib/espnLifecycle.js';
 // Daily Lineup Autopilot cron (scheduled in vercel.json). For every user who has
 // opted IN on at least one league, re-fetch that league's roster, compute the optimal
 // legal lineup from our valuations for that league's sport, and apply it to ESPN.
@@ -111,10 +112,12 @@ export default async function handler(req, res) {
 
     const users = await listAutopilotUsers(redis);
     for (const userId of users) {
+      let revision;
       try {
+        revision = await beginLifecycle(redis, userId);
         if (!await premiumForUser(userId)) {
           summary.skippedEntitlement++;
-          await clearAutopilot(redis, userId);
+          await clearAutopilot(redis, userId, revision);
           continue;
         }
       } catch {
@@ -127,7 +130,7 @@ export default async function handler(req, res) {
       try { creds = await getCreds(redis, userId); }
       catch { summary.errors++; continue; } // one unreadable record must not abort the run/sweep
       if (!creds) {
-        await clearAutopilot(redis, userId).catch(() => { summary.errors++; });
+        await clearAutopilot(redis, userId, revision).catch(() => { summary.errors++; });
         continue;
       }
       summary.users++;
@@ -162,12 +165,12 @@ export default async function handler(req, res) {
           catch { summary.entitlementErrors++; break; }
           if (!premium) {
             summary.skippedEntitlement++;
-            await clearAutopilot(redis, userId);
+            await clearAutopilot(redis, userId, creds.lifecycleRevision);
             break;
           }
           const currentCreds = await getCreds(redis, userId);
           const currentPrefs = await getAutopilot(redis, userId);
-          if (!currentCreds || !currentPrefs[leagueKey]
+          if (!currentCreds || currentCreds.lifecycleRevision !== creds.lifecycleRevision || !currentPrefs[leagueKey]
             || (currentCreds.connectionId || 'legacy') !== (creds.connectionId || 'legacy')
             || (currentPrefs[leagueKey].connectionId || 'legacy') !== (creds.connectionId || 'legacy')) break;
           const applyRes = await setLineup(creds, {
@@ -178,7 +181,7 @@ export default async function handler(req, res) {
         } catch (err) {
           if (err instanceof EspnAuthError) {
             summary.expired++;
-            await setAutopilotLeague(redis, userId, leagueKey, false).catch(() => {});
+            await setAutopilotLeague(redis, userId, leagueKey, false, sport, 'legacy', creds.lifecycleRevision).catch(() => {});
           } else {
             summary.errors++;
           }
