@@ -282,10 +282,11 @@ async function status(res, userId) {
   const creds = await getCreds(redis, userId);
   return res.json({
     connected: !!creds,
+    previewReadOnly: isPreview(),
     swid: creds ? maskSwid(creds.swid) : null,
     savedAt: creds?.savedAt || null,
     // League DNA notice state, so a linked user who hasn't answered the current notice is asked once.
-    dnaNotice: creds ? dnaNoticeStatus(await getDnaConsent(redis, userId).catch(() => null)) : null,
+    dnaNotice: creds && !isPreview() ? dnaNoticeStatus(await getDnaConsent(redis, userId).catch(() => null)) : null,
   });
 }
 

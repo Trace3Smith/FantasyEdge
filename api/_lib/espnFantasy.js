@@ -126,7 +126,8 @@ export function credsShape(creds) {
 // --- per-sport ESPN config (game code, fan abbrev, id → label maps) --------------------------
 // The cookies (espn_s2/SWID) work across ALL of a user's ESPN fantasy games, so the only
 // per-sport differences are the v3 game code, the fan-API abbreviation, and the id maps.
-// MLB (flb) uses one id scheme for both a player's default position and lineup slot.
+// MLB defaultPositionId and lineupSlotId are separate ID spaces.
+const MLB_POS = { 1: 'SP', 2: 'C', 3: '1B', 4: '2B', 5: '3B', 6: 'SS', 7: 'LF', 8: 'CF', 9: 'RF', 10: 'DH', 11: 'RP' };
 const MLB_SLOTS = {
   0: 'C', 1: '1B', 2: '2B', 3: '3B', 4: 'SS', 5: 'OF', 6: '2B/SS', 7: '1B/3B',
   8: 'LF', 9: 'CF', 10: 'RF', 11: 'DH', 12: 'UTIL', 13: 'P', 14: 'SP', 15: 'RP',
@@ -180,7 +181,7 @@ const NFL_POS = {
 const SPORTS = {
   mlb: {
     game: 'flb', abbrev: 'FLB',
-    slots: MLB_SLOTS, positions: MLB_SLOTS,
+    slots: MLB_SLOTS, positions: MLB_POS,
     bench: new Set([16, 17]),
     slotOrder: [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 5, 11, 12, 14, 15, 13, 18, 19],
     teams: {
@@ -226,7 +227,9 @@ function injuryLabelOf(status) {
   return status in INJURY_LABEL ? INJURY_LABEL[status] : 'O';
 }
 
-const posOf = (id, cfg) => (cfg.positions || cfg.slots)[id] || 'UTIL';
+const posOf = (id, cfg) => cfg === SPORTS.mlb
+  ? (Object.hasOwn(MLB_POS, id) ? MLB_POS[id] : 'Unknown position')
+  : (cfg.positions || cfg.slots)[id] || 'UTIL';
 const slotOf = (id, cfg) => cfg.slots[id] ?? String(id);
 const teamOf = (id, cfg) => (cfg.teams || {})[id] || '';
 
@@ -562,7 +565,7 @@ export async function fetchLeagueAllTeams(creds, { leagueId, seasonId }, sport =
   const owns = (t) => [t.primaryOwner, ...(Array.isArray(t.owners) ? t.owners : [])]
     .filter(Boolean).some((o) => String(o).toUpperCase() === mySwid);
   const name = (t) => `${t.location || ''} ${t.nickname || ''}`.trim() || t.name || t.abbrev || `Team ${t.id}`;
-  const rec = (t) => (t.record?.overall && t.record.overall.wins != null)
+  const rec = (t) => data?.settings?.scoringSettings?.scoringType !== 'ROTO' && (t.record?.overall && t.record.overall.wins != null)
     ? `${t.record.overall.wins}-${t.record.overall.losses}${t.record.overall.ties ? '-' + t.record.overall.ties : ''}` : '';
   const parsed = teams.map((t) => ({
     id: t.id, name: name(t), abbrev: t.abbrev || '', mine: owns(t), record: rec(t),
@@ -618,6 +621,7 @@ export async function fetchFreeAgents(creds, { leagueId, seasonId, limit = 50 },
       id: pl.id ?? null,
       name: pl.fullName || 'Unknown',
       pos: posOf(pl.defaultPositionId, cfg),
+      ...(cfg === SPORTS.mlb ? { positionId: pl.defaultPositionId ?? null, positionKnown: Object.hasOwn(cfg.positions, pl.defaultPositionId) } : {}),
       proTeam: teamOf(pl.proTeamId, cfg),
       proTeamId: pl.proTeamId != null ? Number(pl.proTeamId) : null, // keys the bye lookup — no name matching
       eligibleSlots: Array.isArray(pl.eligibleSlots) ? pl.eligibleSlots : [],

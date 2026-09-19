@@ -16,7 +16,7 @@
     "check:my-edge": "node scripts/check-my-edge.mjs && node scripts/check-my-edge-recommendations.mjs && node scripts/check-my-edge-ui.mjs && node scripts/check-my-edge-navigation.mjs",
     "check:sport-readiness": "node scripts/check-sport-readiness.mjs && node scripts/check-authenticated-fixtures.mjs && node scripts/check-readonly-capture.mjs",
     "check:credentials": "node scripts/check-espn-credentials.mjs && node scripts/check-credential-migration.mjs",
-    "check:espn": "node scripts/check-espn-fantasy.mjs",
+    "check:espn": "node scripts/check-espn-fantasy.mjs && node scripts/check-mlb-positions.mjs",
     "check:league-config": "node scripts/check-league-config.mjs",
     "check:league-dna": "node --experimental-test-module-mocks scripts/check-league-dna.mjs",
     "capture:league-settings": "node scripts/capture-league-settings.mjs",

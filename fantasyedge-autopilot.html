@@ -282,10 +282,11 @@
         stored describes the league, not you. Anything already saved stays, for the same reason.
       </p>
     </div>
-    <label class="hint" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+    <label id="dnaIncludeLabel" class="hint" style="display:flex;align-items:center;gap:8px;cursor:pointer">
       <input type="checkbox" id="dnaInclude" checked>
       <span>Include my leagues</span>
     </label>
+    <p class="hint hidden" id="previewDnaNote">League DNA collection is disabled in this preview.</p>
     <label class="fld">
       <span class="lbl"><code>espn_s2</code> cookie</span>
       <textarea class="txt" id="s2Input" rows="3" placeholder="AEB... (a long string)" autocomplete="off" spellcheck="false"></textarea>
@@ -432,6 +433,8 @@ const navigation = targetFromSearch(location.search);
 
   // ---- connection status ---------------------------------------------------------
   let connectionStatusVerified = false;
+  let previewReadOnly = true; // Fail closed until authenticated server status supplies capabilities.
+  const canMutateLeague = () => connectionStatusVerified && !previewReadOnly;
   $('retryConnection').addEventListener('click', () => refreshStatus());
   async function refreshStatus() {
     connectionStatusVerified = false;
@@ -440,6 +443,11 @@ const navigation = targetFromSearch(location.search);
     if (status === 401) { show('connectPanel', false); show('connectedWrap', false); show('signedOut', true); return; }
     if (!ok || typeof data?.connected !== 'boolean') { show('connectionError', true); return; }
     connectionStatusVerified = true;
+    previewReadOnly = data.previewReadOnly !== false;
+    show('leagueDnaNote', !previewReadOnly);
+    show('dnaIncludeLabel', !previewReadOnly);
+    $('dnaInclude').disabled = previewReadOnly;
+    show('previewDnaNote', previewReadOnly);
     if (data.connected) {
       show('connectPanel', false);
       show('connectedWrap', true);
@@ -463,6 +471,11 @@ const navigation = targetFromSearch(location.search);
   // Everyone who has answered gets a one-line setting to change it. Nothing is captured until
   // they answer.
   function renderDna(st) {
+    if (previewReadOnly) {
+      show('dnaNoticePanel', false);
+      $('dnaSetting').textContent = 'League DNA collection is disabled in this preview.';
+      return;
+    }
     const needed = !!(st && st.needed);
     $('dnaNoticeText').innerHTML = $('leagueDnaNote').innerHTML; // the same disclosure as the connect panel
     show('dnaNoticePanel', needed);
@@ -475,6 +488,7 @@ const navigation = targetFromSearch(location.search);
   }
 
   async function sendDnaChoice(include, via) {
+    if (!canMutateLeague()) return;
     const btns = ['dnaYesBtn', 'dnaNoBtn', 'dnaToggle'].map((id) => $(id)).filter(Boolean);
     btns.forEach((b) => { b.disabled = true; });
     setMsg('dnaNoticeMsg', '');
@@ -540,7 +554,7 @@ const navigation = targetFromSearch(location.search);
     $('connectBtn').textContent = 'Verifying with ESPN…';
     setMsg('connectMsg', '');
     // League DNA: send the notice version this panel displayed, and the include box's state.
-    const dnaNotice = { version: DNA_NOTICE_VERSION, include: $('dnaInclude').checked };
+    const dnaNotice = previewReadOnly ? undefined : { version: DNA_NOTICE_VERSION, include: $('dnaInclude').checked };
     const { ok, status, data } = await api('/api/espn', { action: 'connect', espn_s2, swid, dnaNotice });
     $('connectBtn').disabled = false;
     $('connectBtn').textContent = 'Connect ESPN';
@@ -699,7 +713,7 @@ const navigation = targetFromSearch(location.search);
         <div class="lc-meta">ESPN didn't return your roster for this league.</div>
       </div></div></div>`;
     }
-    const rec = (team.wins != null) ? `${team.wins}-${team.losses}${team.ties ? '-' + team.ties : ''}` : '';
+    const rec = lg.scoringType !== 'ROTO' && (team.wins != null) ? `${team.wins}-${team.losses}${team.ties ? '-' + team.ties : ''}` : '';
     const rows = renderRoster(lg.roster || []);
     return `<div class="league-card">
       <div class="lc-head">
@@ -813,6 +827,7 @@ const navigation = targetFromSearch(location.search);
   const AUTOPILOT_SPORTS = { mlb: 1, wnba: 1, nfl: 1 };
   function renderControls(lg) {
     if (!ENGINE_SPORTS[currentSport]) return '';
+    if (!canMutateLeague()) return '<div class="lc-controls"><span class="sugg-meta">Read-only preview: Autopilot, lineup Apply and dry-run are unavailable.</span></div>';
     const teamId = lg.teamId != null ? lg.teamId : (lg.team && lg.team.id);
     if (teamId == null) return '';
     const data = `data-league-id="${escapeHtml(String(lg.leagueId))}" data-season="${escapeHtml(String(lg.season))}" data-team-id="${escapeHtml(String(teamId))}"`;
@@ -840,6 +855,7 @@ const navigation = targetFromSearch(location.search);
   }
 
   async function applyLineupClick(btn) {
+    if (!canMutateLeague()) return;
     const { leagueId, season, teamId } = btn.dataset;
     const msg = btn.closest('.lc-controls').querySelector('.ap-msg');
     if (!confirm('Apply the suggested optimal lineup to this ESPN league now? This changes your starting lineup on ESPN.')) return;
@@ -862,6 +878,7 @@ const navigation = targetFromSearch(location.search);
   // Dry run of apply: the server re-fetches the roster and recomputes the plan exactly as apply
   // would, then returns the transaction items instead of posting them. Nothing reaches ESPN.
   async function previewLineupClick(btn) {
+    if (!canMutateLeague()) return;
     const { leagueId, season, teamId } = btn.dataset;
     const controls = btn.closest('.lc-controls');
     const msg = controls.querySelector('.ap-msg');
@@ -890,6 +907,7 @@ const navigation = targetFromSearch(location.search);
   }
 
   async function toggleAutopilot(input) {
+    if (!canMutateLeague()) { input.checked = false; return; }
     const { leagueId, season, teamId } = input.dataset;
     const on = input.checked;
     const controls = input.closest('.lc-controls');

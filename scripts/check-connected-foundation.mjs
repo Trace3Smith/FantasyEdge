@@ -53,6 +53,8 @@ async function post(body) {
   const res={headers:{},setHeader(k,v){this.headers[k]=v;},statusCode:200,status(n){this.statusCode=n;return this;},json(b){this.body=b;return this;}};
   await handler({method:'POST',headers:{},body},res);return res;
 }
+const normalStatus=(await post({action:'status'})).body;
+assert.equal(normalStatus.previewReadOnly,false);assert.ok(normalStatus.dnaNotice);
 assert.equal((await post({action:'autopilot',sport:'nfl',on:true,league:{...ids,teamId:2}})).statusCode,403);
 assert.equal((await post({action:'apply',sport:'nfl',...ids,teamId:2})).statusCode,403);
 assert.equal(posts,0);

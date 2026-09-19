@@ -9,6 +9,7 @@ import { fetchLeagueRoster } from '../api/_lib/espnFantasy.js';
 import { toolLink, leagueTarget, leagueMatches } from '../leagueNavigation.js';
 import { mergePages } from '../assets/my-edge.js';
 import { aggregateEspn } from '../api/_lib/myEdge/espn.js';
+import { checkTeamManagerBrowser } from './lib/check-team-manager-browser.mjs';
 const root=resolve('.'),originalFetch=globalThis.fetch,leagues=[];
 try {
  for(const [sport,season] of [['nba',2026],['nba',2027],['nhl',2026]]) {
@@ -39,7 +40,7 @@ const server=createServer(async(req,res)=>{
    if(input.action==='myEdge')result=await aggregateEspn({connectionId:'test'}, {userId:'test',cursor:input.cursor||null,
     discover:async()=>({diag:{ok:true,prefCount:Math.max(1,source.length),error:scenario==='partial'?'fixture_failure':null},leagues:source.map(l=>({...l,seasonId:l.season}))}),
     roster:async(c,l)=>source.find(s=>s.leagueId===l.leagueId)});
-   else if(input.action==='status')result={connected:true,dnaNotice:{version:2,acknowledged:true,include:false}};
+   else if(input.action==='status')result={connected:true,previewReadOnly:false,dnaNotice:{version:2,acknowledged:true,include:false}};
    else if(input.action==='leagues') {
     const target=input.target?leagueTarget(input.target):null;
     if(input.target&&!target){res.statusCode=400;result={error:'invalid_target'};}
@@ -117,6 +118,7 @@ try {
   await page.goto(base+'/'+toolLink('teamManager',target));await page.waitForSelector('#connectionError:not(.hidden)');
   assert.equal(await page.locator('#connectPanel').isVisible(),false,'failed status never invites credential entry');
   await page.unroute('**/api/espn');await page.locator('#retryConnection').click();await page.waitForSelector('.league-card');
+  await checkTeamManagerBrowser(page,base);
   assert.deepEqual(errors,[]);await page.close();
  }
  assert.ok(requests.every(r=>['myEdge','status','leagues','leagueContext'].includes(r.action)));
