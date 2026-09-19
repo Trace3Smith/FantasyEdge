@@ -1,3 +1,4 @@
+import { beginLifecycle, transitionLifecycle } from './espnLifecycle.js';
 // League DNA consent: whether a user has seen the League DNA notice, and what they chose.
 //
 // Every capture path checks this before recording a league config: the capture at linking, the
@@ -47,18 +48,21 @@ export function dnaNoticeStatus(rec) {
 
 // Record a choice. `version` is the notice version the client actually displayed. A stale or missing
 // version records nothing and returns null: the user saw different text from what's current.
-export async function recordDnaChoice(redis, userId, { version, include, via }) {
+export function dnaChoiceRecord({ version, include, via }) {
   if (version !== DNA_NOTICE_VERSION || typeof include !== 'boolean' || !VIA.has(via)) return null;
   const rec = { version, include, via, at: new Date().toISOString() };
-  await redis.set(ackKey(userId), rec);
-  if (include) await redis.sadd(DNA_USERS, userId);
-  else await redis.srem(DNA_USERS, userId);
+  return rec;
+}
+
+export async function recordDnaChoice(redis, userId, choice, revision) {
+  const rec = dnaChoiceRecord(choice);
+  if (!rec) return null;
+  await transitionLifecycle(redis, userId, 'dna', revision ?? await beginLifecycle(redis, userId), rec);
   return rec;
 }
 
 // Disconnect: forget the choice and leave the sweep list, so a re-link shows the notice again. Configs
 // already saved are left alone: they carry no user id, so there is nothing to tie back to this account.
-export async function clearDnaConsent(redis, userId) {
-  await redis.del(ackKey(userId));
-  await redis.srem(DNA_USERS, userId);
+export async function clearDnaConsent(redis, userId, revision) {
+  await transitionLifecycle(redis, userId, 'dna-clear', revision ?? await beginLifecycle(redis, userId));
 }

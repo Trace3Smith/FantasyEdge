@@ -7,8 +7,17 @@ let failReadKey=null;
 class Redis {
  constructor(options){assert.equal(options.url,'https://isolated-test.upstash.io');this.token=options.token;}
  async get(key){if(key===failReadKey)throw new Error('synthetic private Redis detail');assert.equal(this.token,'test-read');return structuredClone(store.get(key)??null);}
- async set(key,value,opts){assert.equal(this.token,'test-credential');assert.match(key,/^preview:espn:creds:user_/);assert.equal(opts.ex,7776000);writes.push(key);store.set(key,structuredClone(value));}
- async del(key){assert.equal(this.token,'test-credential');assert.match(key,/^preview:espn:creds:user_/);writes.push(key);store.delete(key);}
+ async eval(script,keys,args){
+  assert.equal(this.token,'test-credential');
+  for(const key of keys)assert.match(key,/^preview:espn:creds:user_/);
+  const [key,revision]=keys,[op,expected,json,ttl]=args;
+  const current=String(store.get(revision)??0);
+  if(op!=='disconnect'&&current!==expected)return null;
+  const next=String(Number(current)+1);store.set(revision,next);writes.push(key);
+  if(op==='connect'){const envelope=JSON.parse(json);assert.equal(envelope.version,1);assert.equal(Number(ttl),7776000);store.set(key,envelope);}
+  else {assert.equal(op,'disconnect');store.delete(key);}
+  return next;
+ }
 }
 mock.module('@upstash/redis',{namedExports:{Redis}});
 const auth=await import('../api/_lib/auth.js');
@@ -31,7 +40,7 @@ assert.ok(!JSON.stringify(encrypted).includes(cookie));assert.ok(!JSON.stringify
 assert.equal((await previewCredentials.read('user_test')).espn_s2,cookie);
 const previewStatus=(await post({action:'status'})).body;
 assert.equal(previewStatus.connected,true);assert.equal(previewStatus.previewReadOnly,true);assert.equal(previewStatus.dnaNotice,null);
-assert.deepEqual([...store.keys()].sort(),['fe:preview:project','preview:espn:creds:user_test']);
+assert.deepEqual([...store.keys()].sort(),['fe:preview:project','preview:espn:creds:user_test','preview:espn:creds:user_test:lifecycle']);
 const before=JSON.stringify([...store]),count=providerReads;
 for(const action of ['apply','autopilot','dnaChoice','tradeScan'])assert.equal((await post({action,on:false,include:true})).code,403);
 assert.equal(JSON.stringify([...store]),before);assert.equal(providerReads,count);

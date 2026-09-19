@@ -96,6 +96,6 @@ non-Premium revokes permissions; Clerk uncertainty fails closed. Provider roster
 primaryOwner/owners matching the authenticated SWID; commissioner visibility alone grants no permission.
 Apply recomputes plans server-side and verifies the connection generation before submission. Cron also
 rechecks the saved permission. An already submitted provider request cannot be recalled by disconnect;
-there remains a small check-to-submit race. Per-user preference objects still use read-modify-write, so
-simultaneous toggles can lose an update. Atomic permission updates/serialized execution belong in a future
-hardening step before expanding automation. No live Autopilot checks or user lineup writes were performed.
+there remains a small check-to-submit race. Credential, permission and consent transitions now use a persistent lifecycle revision and atomic Redis CAS;
+concurrent stale transitions return 409 rather than overwriting a newer operation. All writers sharing a
+namespace must implement this protocol. See [lifecycle revision](espn-lifecycle-revision.md). No live Autopilot checks or user lineup writes were performed.

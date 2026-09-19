@@ -1,3 +1,4 @@
+import { installLifecycleFake } from './lib/lifecycle-fake.mjs';
 // Offline execution-boundary regression: real cron, no provider or account writes.
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
@@ -13,6 +14,7 @@ const redis = {
   srem: async (k,u) => members.delete(u),
   smembers: async k => k === 'espn:autopilot:users' ? [...members] : [],
 };
+installLifecycleFake(redis);
 let answers, writes, reads, duringRead;
 const kv = await import(lib('kv.js'));
 const auth = await import(lib('auth.js'));

@@ -1,3 +1,4 @@
+import { previewCredentialKeys, PREVIEW_CREDENTIAL_SCRIPT } from './previewCredentialLifecycle.js';
 import { Redis } from '@upstash/redis';
 import { randomUUID } from 'node:crypto';
 import { previewConfig } from './previewIsolation.js';
@@ -19,28 +20,50 @@ export function createPreviewCredentials(makeClient = options => new Redis(optio
     catch { throw fail('preview_redis_read_failed'); }
     if (marker == null) throw fail('preview_database_marker_missing');
     if (marker !== c.project) throw fail('preview_database_marker_mismatch');
-    return { c, reader, key:`preview:espn:creds:${userId}` };
+    const [key, revisionKey] = previewCredentialKeys(userId);
+    return { c, reader, key, revisionKey };
+  }
+  const conflict = () => new HttpError(409, 'ESPN connection changed; retry the operation', { error:'connection_changed' });
+  const revision = async ({reader,revisionKey}) => {
+    try { return String(await reader.get(revisionKey) ?? 0); }
+    catch { throw fail('preview_credential_read_failed'); }
+  };
+  async function transition(state, op, expected, encrypted = null) {
+    let result;
+    try {
+      result = await makeClient({url:state.c.url,token:state.c.credentialToken}).eval(
+        PREVIEW_CREDENTIAL_SCRIPT, [state.key,state.revisionKey],
+        [op,String(expected),JSON.stringify(encrypted),String(CREDENTIAL_TTL_SECONDS)]);
+    } catch { throw fail('preview_credential_write_failed'); }
+    if (result === null || result === false) throw conflict();
+    return String(result);
   }
   return {
+    async begin(userId) { return revision(await storage(userId)); },
     async read(userId) {
-      const {reader,key} = await storage(userId);
+      const state = await storage(userId);
+      const before = await revision(state);
       let envelope;
-      try { envelope = await reader.get(key); }
+      try { envelope = await state.reader.get(state.key); }
       catch { throw fail('preview_credential_read_failed'); }
-      // Never import legacy plaintext into isolated preview.
+      // Read-only token uses GET only. Detect a concurrent transition rather than
+      // combining an old envelope with a new revision or inferring disconnection.
+      if (before !== await revision(state)) throw conflict();
       if (envelope && envelope.version !== 1) throw fail('preview_credential_format_invalid');
-      return decryptCredentials(userId,envelope);
+      const creds = decryptCredentials(userId,envelope);
+      return creds ? {...creds,lifecycleRevision:before} : null;
     },
-    async save(userId,credentials) {
-      const {c,key} = await storage(userId);
+    async save(userId,credentials,expectedRevision) {
+      const state = await storage(userId);
+      // HTTP caller passes the revision captured before provider validation.
+      const expected = expectedRevision ?? await revision(state);
       const value = {espn_s2:credentials.espn_s2,swid:credentials.swid,
         savedAt:new Date().toISOString(),connectionId:randomUUID()};
       const encrypted = encryptCredentials(userId,value);
-      await makeClient({url:c.url,token:c.credentialToken}).set(key,encrypted,{ex:CREDENTIAL_TTL_SECONDS});
+      return transition(state,'connect',expected,encrypted);
     },
     async disconnect(userId) {
-      const {c,key} = await storage(userId);
-      await makeClient({url:c.url,token:c.credentialToken}).del(key);
+      return transition(await storage(userId),'disconnect','');
     },
   };
 }

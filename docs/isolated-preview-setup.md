@@ -11,7 +11,7 @@ Create the separate Vercel project first to obtain its project ID, then use the 
 creates or changes it. Never set this marker in production.
 
 Obtain the HTTPS REST URL and database read-only token. Create a separate Redis ACL user with only
-GET/SET/DEL access to `preview:espn:creds:*` (no other keys/commands), then obtain its REST token. This is
+GET/SET/DEL plus EVAL access to `preview:espn:creds:user_*` (no other keys/commands), then obtain its REST token. This is
 FE_PREVIEW_ESPN_CREDENTIAL_TOKEN. Do not use the default full-access token. Provision the ACL through
 Upstash's ACL console/secure tooling; keep its password and token out of logs/chat. The application
 never receives the administrative token. See https://upstash.com/docs/redis/features/restapi for ACL
@@ -104,3 +104,29 @@ fe:preview:project in the dedicated database using its admin console; its string
 separate project's ID exactly. This nonsecret bootstrap step needs no ESPN credentials. Once the marker
 and read path succeed, an empty database returns status connected:false and My Edge DISCONNECTED200.
 Token presence does not certify write-token ACL permissions; those must be checked separately.
+
+
+## Credential lifecycle revision (local implementation; hosted ACL review pending)
+
+Credential envelopes keep their existing key `preview:espn:creds:{userId}`, v1 format,
+and 90-day TTL. The permanent revision key is `preview:espn:creds:{userId}:lifecycle`.
+Both remain within the restricted credential prefix; neither uses production aliases.
+The revision key contains only a monotonically increasing number and has no TTL.
+Never delete/reset it while old requests could still be in flight.
+
+The server captures the revision after authentication and before ESPN validation. A
+fixed Lua script compares the revision, advances it, and saves the encrypted envelope
+atomically. Disconnect atomically advances the revision and deletes the envelope.
+Stale saves return 409 `connection_changed`. The read-only client uses only GET and
+checks the revision before/after the envelope read; no write token is used for reads.
+
+The prior GET/SET/DEL-only writer ACL cannot execute this CAS. EVAL must be separately
+reviewed/authorized within the existing namespace before live Preview recertification.
+This code change does not alter hosted ACLs, tokens, markers, or configuration. Missing
+EVAL permission yields sanitized 503 `preview_credential_write_failed`, with no fallback
+to non-atomic writes or production storage. Do not grant default/full-access credentials.
+The script uses only GET/SET/DEL and cannot mutate the marker, automation or DNA keys.
+Local real-Redis ACL tests verify both allowed operations and denied keys/commands.
+
+See [lifecycle protocol and verification](espn-lifecycle-revision.md). These local tests
+do not replace a separately authorized hosted ACL check and isolated live recertification.

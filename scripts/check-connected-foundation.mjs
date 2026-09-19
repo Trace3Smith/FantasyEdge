@@ -1,3 +1,4 @@
+import { installLifecycleFake } from './lib/lifecycle-fake.mjs';
 // Uses the actual storage, provider parser and API dispatcher against offline fakes.
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
@@ -14,6 +15,7 @@ const redis = {
   sadd: async (k,u) => members.add(u), srem: async (k,u) => members.delete(u),
   smembers: async () => [...members],
 };
+installLifecycleFake(redis);
 const kv = await import(lib('kv.js')), auth = await import(lib('auth.js'));
 let premium = true;
 mock.module(lib('kv.js'), { namedExports: { ...kv, redis } });
@@ -24,6 +26,7 @@ mock.module(lib('auth.js'), { namedExports: { ...auth,
 const f = await import(lib('espnFantasy.js'));
 const { default: handler } = await import('../api/espn/index.js');
 const ids = { season: 2026, leagueId: '1', teamId: 1 };
+store.set('espn:creds:u',{espn_s2:'offline',swid:'{11111111-2222-3333-4444-555555555555}'});
 store.set('espn:autopilot:u', { '2026:1:1': true });
 await f.setAutopilotLeague(redis,'u',leagueKeyOf({...ids,sport:'nfl'}),true,'nfl');
 let prefs = await f.getAutopilot(redis,'u');
@@ -84,7 +87,7 @@ assert.equal(store.get('espn:prospectwatch:u')['99'].reclaim, true);
 await f.saveCreds(redis, 'u', creds);
 assert.deepEqual(await f.getAutopilot(redis, 'u'), {});
 assert.ok((await f.getCreds(redis, 'u')).connectionId);
-await f.setAutopilotLeague(redis, 'u', 'mlb:2026:1:1', true);
+await f.setAutopilotLeague(redis, 'u', 'mlb:2026:1:1', true, 'mlb', (await f.getCreds(redis,'u')).connectionId);
 await f.saveCreds(redis, 'u', creds);
 assert.deepEqual(await f.getAutopilot(redis, 'u'), {}, 'relink also revokes automation');
 assert.equal(posts,0);
