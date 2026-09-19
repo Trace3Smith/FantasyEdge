@@ -9,7 +9,13 @@
 //
 // SECURITY: the cookies are bearer-equivalent secrets. They live ONLY in Redis
 // (server-side) and are never returned to the browser — status checks expose a
-// connected boolean and a masked SWID at most. Every caller is premium-gated.
+// connected boolean and a masked SWID at most. Paid operations are premium-gated; revocation requires sign-in only.
+
+import { encryptCredentials, decryptCredentials, CREDENTIAL_TTL_SECONDS } from './espnCredentials.js';
+import { randomUUID } from 'node:crypto';
+import { HttpError } from './auth.js';
+import { leagueKeyOf, qualifiedLeagueKey } from '../../leagueIdentity.js';
+export { leagueKeyOf };
 
 import { normName } from './golf.js';
 import { espnLeagueConfig } from './espnLeagueConfig.js';
@@ -53,13 +59,16 @@ export function normalizeS2(raw) {
 }
 
 export async function saveCreds(redis, userId, { espn_s2, swid }) {
-  const creds = { espn_s2: normalizeS2(espn_s2), swid: normalizeSwid(swid), savedAt: new Date().toISOString() };
-  await redis.set(credsKey(userId), creds);
+  const creds = { espn_s2: normalizeS2(espn_s2), swid: normalizeSwid(swid), savedAt: new Date().toISOString(), connectionId: randomUUID() };
+  const encrypted = encryptCredentials(userId, creds); // validate key before touching saved state
+  await clearAutopilot(redis, userId);
+  await suspendWatchAssociations(redis, userId);
+  await redis.set(credsKey(userId), encrypted, { ex: CREDENTIAL_TTL_SECONDS });
   return creds;
 }
 
 export async function getCreds(redis, userId) {
-  const c = await redis.get(credsKey(userId));
+  const c = decryptCredentials(userId, await redis.get(credsKey(userId)));
   if (!(c && c.espn_s2 && c.swid)) return null;
   // Re-normalize the SWID on read so a previously-saved malformed value (e.g. a
   // missing brace) is healed transparently for both the fan path and the write
@@ -69,6 +78,20 @@ export async function getCreds(redis, userId) {
 
 export async function deleteCreds(redis, userId) {
   await redis.del(credsKey(userId));
+  await clearAutopilot(redis, userId);
+  await suspendWatchAssociations(redis, userId);
+}
+
+// A user's watch wishes/history survive, but a previous ESPN team's association
+// cannot generate an alert after relinking a different account with overlapping IDs.
+async function suspendWatchAssociations(redis, userId) {
+  const key = `espn:prospectwatch:${userId}`;
+  const watch = await redis.get(key);
+  if (!watch || typeof watch !== 'object') return;
+  const next = Object.fromEntries(Object.entries(watch).map(([id, entry]) => [id, {
+    ...entry, previousLeague: entry.lg || entry.previousLeague || null, lg: '', leagueName: '',
+  }]));
+  await redis.set(key, next);
 }
 
 // Mask the SWID for display ("{ABCD…WXYZ}") so the UI can confirm WHICH account is
@@ -230,17 +253,18 @@ async function espnGet(url, creds, { headers = {} } = {}) {
       headers: { Cookie: cookieHeader(creds), 'User-Agent': UA, Accept: 'application/json', ...headers },
       signal: ctrl.signal,
     });
+  } catch {
+    throw new Error('ESPN request failed');
   } finally {
     clearTimeout(t);
   }
   if (res.status === 401 || res.status === 403) throw new EspnAuthError();
   if (!res.ok) {
-    // Include ESPN's response body — its 400s usually name what they rejected.
-    const body = await res.text().catch(() => '');
-    const snip = body ? `: ${body.replace(/\s+/g, ' ').slice(0, 200)}` : '';
-    throw new Error(`ESPN HTTP ${res.status} for ${url}${snip}`);
+    // The fan URL contains the full SWID. Provider bodies can echo cookies or
+    // member IDs, so neither belongs in browser diagnostics or application logs.
+    throw new Error(`ESPN HTTP ${res.status}`);
   }
-  return res.json();
+  return res.json().catch(() => { throw new Error('ESPN returned an invalid response'); });
 }
 
 // --- league discovery (fan API) --------------------------------------------------------------
@@ -430,6 +454,7 @@ function buildLeagueResult(data, team, { leagueId, seasonId, cfg = SPORTS.mlb, s
   const name = (t) => `${t.location || ''} ${t.nickname || ''}`.trim() || t.name || t.abbrev || `Team ${t.id}`;
   return {
     leagueId,
+    sport,
     season: seasonId,
     teamId: team ? team.id : null,
     // Current scoring period (the day, for MLB) — required by the lineup-set write.
@@ -504,7 +529,12 @@ export async function fetchLeagueRoster(creds, { leagueId, seasonId, teamId }, s
   const cfg = sportCfg(sport);
   const data = await espnGet(leagueUrl(leagueId, seasonId, cfg.game), creds);
   const teams = Array.isArray(data?.teams) ? data.teams : [];
-  const team = teams.find((t) => t.id === teamId) || null;
+  const team = teams.find((t) => String(t.id) === String(teamId));
+  const owner = normalizeSwid(creds.swid).toLowerCase();
+  if (!team || ![team.primaryOwner, ...(Array.isArray(team.owners) ? team.owners : [])].some(
+    id => id && normalizeSwid(id).toLowerCase() === owner)) {
+    throw new HttpError(403, 'Team ownership could not be verified', { error: 'not_team_owner' });
+  }
   return buildLeagueResult(data, team, { leagueId, seasonId, cfg, sport });
 }
 
@@ -617,6 +647,8 @@ async function postLineupTxn(creds, { leagueId, seasonId, teamId, scoringPeriodI
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
+  } catch {
+    throw new Error('ESPN lineup request failed');
   } finally { clearTimeout(t); }
   const txt = await res.text().catch(() => '');
   return { ok: res.ok, status: res.status, body: txt };
@@ -671,12 +703,11 @@ export async function setLineup(creds, ids, items = [], { roster = [], sport = '
   const game = sportCfg(sport).game;
   const skippedLocked = [];
   let alreadySet = 0;
-  let lockedBody = null; // raw 409 text from the first recovered lock, for diagnosing the wording
   let attempt = items.slice();
 
   for (let tries = 0; tries < 6 && attempt.length; tries++) {
     const r = await postLineupTxn(creds, { ...ids, game }, attempt);
-    if (r.ok) return { applied: attempt.length, skippedLocked, alreadySet, lockedBody };
+    if (r.ok) return { applied: attempt.length, skippedLocked, alreadySet };
     if (r.status === 401 || r.status === 403) throw new EspnAuthError();
 
     if (r.status === 409) {
@@ -687,29 +718,21 @@ export async function setLineup(creds, ids, items = [], { roster = [], sport = '
       const dropIds = new Set([...lockedIds, ...alreadyIds]);
       const next = attempt.filter((it) => !dropIds.has(it.playerId));
       if (dropIds.size && next.length < attempt.length) {
-        // Keep the raw body from the FIRST recovered 409. It is the only place ESPN states its exact
-        // rejection wording, and parse409Names is built on that wording — currently on MLB-shaped
-        // evidence only ("Spencer Horwitz is locked"). NFL is unverified and has a likely break: its
-        // D/ST entries are named "Bills D/ST", and the parser's character class excludes '/', so such
-        // a name would capture as "ST" and never match a roster entry. Logging it here means the next
-        // genuine locked rejection in production supplies the evidence, with no need to provoke a
-        // failing write against a real team.
-        if (!lockedBody && lockedNames.length) lockedBody = String(r.body || '').slice(0, 400);
-        if (lockedNames.length) console.warn(`[setLineup] ${game} 409 locked-player body: ${String(r.body || '').slice(0, 400)}`);
-        skippedLocked.push(...lockedNames);
+        // Parse internally, but report only known roster names and counts. Raw
+        // provider responses can echo credential/member fields and must not escape.
+        if (lockedNames.length) console.warn(`[setLineup] ${game} 409: ${lockedNames.length} locked players identified`);
+        skippedLocked.push(...roster.filter(rp => lockedIds.has(rp.id)).map(rp => rp.name));
         alreadySet += alreadyIds.size;
         attempt = next;
         continue; // retry without the locked / already-correct player(s)
       }
-      // A 409 we could NOT attribute to a named player — the phrasing did not match. Log it verbatim:
-      // this is exactly how an unhandled rejection class (a sport's different wording, or the
-      // IR-designated-to-return timing rule) would first show up.
-      console.warn(`[setLineup] ${game} unparsed 409 body: ${String(r.body || '').slice(0, 400)}`);
+      // Unknown provider wording is a fail-closed error; no response-body logging.
+      console.warn(`[setLineup] ${game} unparsed 409; no retry`);
     }
-    throw new Error(`ESPN lineup write HTTP ${r.status}${r.body ? ': ' + r.body.slice(0, 180) : ''}`);
+    throw new Error(`ESPN lineup write HTTP ${r.status}`);
   }
   // Everything left was redundant (already correct) — a successful no-op.
-  return { applied: attempt.length, skippedLocked, alreadySet, lockedBody };
+  return { applied: attempt.length, skippedLocked, alreadySet };
 }
 
 // --- manually-added leagues (Redis, per Clerk user) ------------------------------------------
@@ -719,21 +742,21 @@ const manualLeaguesKey = (userId) => `espn:manualleagues:${userId}`;
 
 export async function getManualLeagues(redis, userId) {
   const list = await redis.get(manualLeaguesKey(userId));
-  return Array.isArray(list) ? list : [];
+  return Array.isArray(list) ? list.map(l => ({ ...l, sport: l.sport || 'mlb' })) : [];
 }
 
-export async function addManualLeague(redis, userId, { leagueId, season }) {
+export async function addManualLeague(redis, userId, { leagueId, season, sport = 'mlb' }) {
   const list = await getManualLeagues(redis, userId);
-  if (!list.some((l) => String(l.leagueId) === String(leagueId) && String(l.season) === String(season))) {
-    list.push({ leagueId: String(leagueId), season });
+  if (!list.some((l) => l.sport === sport && String(l.leagueId) === String(leagueId) && String(l.season) === String(season))) {
+    list.push({ leagueId: String(leagueId), season, sport });
   }
   await redis.set(manualLeaguesKey(userId), list);
   return list;
 }
 
-export async function removeManualLeague(redis, userId, { leagueId, season }) {
+export async function removeManualLeague(redis, userId, { leagueId, season, sport = 'mlb' }) {
   const list = (await getManualLeagues(redis, userId))
-    .filter((l) => !(String(l.leagueId) === String(leagueId) && String(l.season) === String(season)));
+    .filter((l) => !(l.sport === sport && String(l.leagueId) === String(leagueId) && String(l.season) === String(season)));
   await redis.set(manualLeaguesKey(userId), list);
   return list;
 }
@@ -741,22 +764,34 @@ export async function removeManualLeague(redis, userId, { leagueId, season }) {
 // --- autopilot preferences (Redis, per Clerk user) -------------------------------------------
 // A user's enabled leagues live at espn:autopilot:{userId} = { [leagueKey]: true }.
 // A set espn:autopilot:users tracks who has ANY league enabled, so the daily cron
-// only iterates opted-in users. leagueKey is "season:leagueId:teamId".
+// only iterates opted-in users. Keys include sport; old three-part keys remain readable.
 const autopilotKey = (userId) => `espn:autopilot:${userId}`;
 const AUTOPILOT_USERS = 'espn:autopilot:users';
-export const leagueKeyOf = (lg) => `${lg.season ?? lg.seasonId}:${lg.leagueId}:${lg.teamId}`;
+export async function clearAutopilot(redis, userId) {
+  // Remove permissions first. A stale membership is harmless to the cron.
+  await redis.del(autopilotKey(userId));
+  await redis.srem(AUTOPILOT_USERS, userId);
+}
 
 export async function getAutopilot(redis, userId) {
-  return (await redis.get(autopilotKey(userId))) || {};
+  const raw = (await redis.get(autopilotKey(userId))) || {};
+  const prefs = {};
+  // Modern entries win if both formats exist; legacy booleans mean MLB only.
+  for (const [key, value] of Object.entries(raw)) {
+    const qualified = qualifiedLeagueKey(key, autopilotSportOf(value));
+    if (!(qualified in prefs) || key === qualified) prefs[qualified] = value;
+  }
+  return prefs;
 }
 
 // A pref value records which sport's engine to run for that league. Legacy prefs were
 // stored as the bare boolean `true` (MLB-only era) — treat those as MLB.
 export const autopilotSportOf = (v) => (v && typeof v === 'object' && v.sport) ? v.sport : 'mlb';
 
-export async function setAutopilotLeague(redis, userId, leagueKey, on, sport = 'mlb') {
+export async function setAutopilotLeague(redis, userId, leagueKey, on, sport = 'mlb', connectionId = 'legacy') {
   const prefs = await getAutopilot(redis, userId);
-  if (on) prefs[leagueKey] = { sport }; else delete prefs[leagueKey];
+  leagueKey = qualifiedLeagueKey(leagueKey, sport);
+  if (on) prefs[leagueKey] = { sport, connectionId }; else delete prefs[leagueKey];
   await redis.set(autopilotKey(userId), prefs);
   if (Object.keys(prefs).length) await redis.sadd(AUTOPILOT_USERS, userId);
   else await redis.srem(AUTOPILOT_USERS, userId);

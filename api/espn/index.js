@@ -9,7 +9,10 @@
 //   action: 'connect'    -> verify cookies vs ESPN, persist; { connected, swid, leagueCount }
 //   action: 'disconnect' -> delete stored cookies; { connected: false }
 //   action: 'leagues'    -> { leagues: [...] } with rosters
-import { requirePremium, sendError, HttpError } from '../_lib/auth.js';
+import { ENGINE_SPORTS, WRITE_SPORTS, AUTOPILOT_SPORTS, leagueCapabilities } from '../../leagueCapabilities.js';
+export { AUTOPILOT_SPORTS };
+import { parseLeagueKey } from '../../leagueIdentity.js';
+import { requireUser, requirePremium, sendError, HttpError } from '../_lib/auth.js';
 import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, NFL_DVP_KEY, nflDvpPriorKey } from '../_lib/kv.js';
 import { nflMatchupFor } from '../_lib/nflDvp.js';
 import {
@@ -50,9 +53,7 @@ const TRADE_SPORTS = new Set(['mlb', 'wnba', 'nfl', 'nba', 'nhl']);
 // Thu/Sun/Mon): a player ESPN's roster read flags as locked is pinned by the engine, and one it
 // doesn't flag is caught by ESPN's 409, which setLineup drops and reports as skippedLocked. A 409
 // it cannot attribute to a named player aborts the whole write, and ESPN applies nothing partial.
-const ENGINE_SPORTS = new Set(['mlb', 'wnba', 'nfl']);
-const WRITE_SPORTS = new Set(['mlb', 'wnba', 'nfl']);
-export const AUTOPILOT_SPORTS = new Set(['mlb', 'wnba', 'nfl']); // each needs a cron dataset — see check:autopilot
+// Allowlists live in leagueCapabilities.js and are shared with the cron.
 
 // A bye is not an injury: a healthy player on bye scores nothing and must not start, but must
 // never be sent to IR for it (see suggestLineup). The cron has always passed this; the request
@@ -214,8 +215,12 @@ function decorateNflProposals(proposals, idx, ppr, positions) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
-    const { userId } = await requirePremium(req);
     const action = req.body?.action;
+    // Revoking a connection/permission must remain possible after Premium ends.
+    const revocation = action === 'disconnect'
+      || (action === 'autopilot' && req.body?.on === false)
+      || (action === 'dnaChoice' && req.body?.include === false);
+    const { userId } = await (revocation ? requireUser(req) : requirePremium(req));
 
     switch (action) {
       case 'status':     return await status(res, userId);
@@ -308,7 +313,7 @@ async function disconnect(res, userId) {
   await deleteCreds(redis, userId);
   // League DNA: stop future capture and forget the choice; a re-link shows the notice again. Configs
   // already saved stay: they carry no user id, so nothing ties them back to this account.
-  await clearDnaConsent(redis, userId).catch(() => {});
+  await clearDnaConsent(redis, userId);
   return res.json({ connected: false });
 }
 
@@ -317,8 +322,9 @@ async function disconnect(res, userId) {
 // recorded nowhere. Opting in captures every linked league straight away, as linking does. Opting out
 // stops future capture; configs already saved stay, as on disconnect.
 async function dnaChoice(req, res, userId) {
-  const creds = await getCreds(redis, userId);
-  if (!creds) throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
+  const optingOut = req.body?.include === false;
+  const creds = optingOut ? null : await getCreds(redis, userId);
+  if (!optingOut && !creds) throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
   const via = req.body?.via === 'settings' ? 'settings' : 'notice';
   const rec = await recordDnaChoice(redis, userId, { version: Number(req.body?.version), include: req.body?.include, via });
   if (!rec) throw new HttpError(400, 'That notice is out of date', { error: 'stale_notice', version: DNA_NOTICE_VERSION });
@@ -347,12 +353,13 @@ async function leagues(req, res, userId) {
     throw err;
   }
   result.sport = sport;
+  result.support = leagueCapabilities(sport);
 
   // Manual-league merge is an MLB-only discovery fallback (WNBA fan discovery is
   // reliable; the paste-a-league-id path was only needed for MLB).
   if (sport === 'mlb') {
     try {
-      const manual = await getManualLeagues(redis, userId);
+      const manual = (await getManualLeagues(redis, userId)).filter(l => l.sport === sport);
       const have = new Set((result.leagues || []).filter((l) => l.teamId != null).map(leagueKeyOf));
       for (const m of manual) {
         try {
@@ -429,7 +436,7 @@ async function leagues(req, res, userId) {
             const reclaimIds = new Set(Object.values(nextWatch).filter((e) => e.reclaim).map((e) => String(e.id)));
             for (const lg of (result.leagues || [])) {
               if (!lg || !lg.team) continue;
-              const b = byLeague[`${lg.season}:${lg.leagueId}:${lg.teamId ?? lg.team.id}`];
+              const b = byLeague[leagueKeyOf(lg)];
               if (!b) continue;
               if (b.callUps.length) lg.callUps = b.callUps;
               // Annotate drop/waiver moves naming a stashed prospect (part 3 + 4).
@@ -523,7 +530,7 @@ async function applyLineup(req, res, userId) {
   if (!dryRun && !WRITE_SPORTS.has(sport)) {
     throw new HttpError(400, `Lineup apply isn't switched on for ${sport} yet`, { error: 'apply_not_enabled', sport });
   }
-  if (!leagueId || !season || teamId == null) {
+  if (!parseLeagueKey(leagueKeyOf({ leagueId, season, teamId, sport }))) {
     throw new HttpError(400, 'Missing league', { error: 'missing_league' });
   }
 
@@ -567,6 +574,10 @@ async function applyLineup(req, res, userId) {
   }
   if (!sugg.plan.length) return res.json({ applied: 0, moves: [], message: 'Lineup already optimal' });
 
+  const currentCreds = await getCreds(redis, userId);
+  if (!currentCreds || (currentCreds.connectionId || 'legacy') !== (creds.connectionId || 'legacy')) {
+    throw new HttpError(409, 'ESPN connection changed; refresh before applying', { error: 'connection_changed' });
+  }
   let result;
   try {
     result = await setLineup(creds, {
@@ -640,10 +651,15 @@ async function autopilotPref(req, res, userId) {
     throw new HttpError(400, `Autopilot isn't switched on for ${sport}`, { error: 'no_autopilot', sport });
   }
   if (typeof on === 'boolean') {
-    if (!league || !league.leagueId || !league.season || league.teamId == null) {
+    if (!league || !parseLeagueKey(leagueKeyOf({ ...league, sport }))) {
       throw new HttpError(400, 'Missing league', { error: 'missing_league' });
     }
-    const prefs = await setAutopilotLeague(redis, userId, leagueKeyOf(league), on, sport);
+    const creds = on ? await getCreds(redis, userId) : null;
+    if (on) {
+      if (!creds) throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
+      await fetchLeagueRoster(creds, { leagueId: String(league.leagueId), seasonId: Number(league.season), teamId: league.teamId }, sport);
+    }
+    const prefs = await setAutopilotLeague(redis, userId, leagueKeyOf({ ...league, sport }), on, sport, creds?.connectionId || 'legacy');
     return res.json({ on, prefs });
   }
   return res.json({ prefs: await getAutopilot(redis, userId) });
@@ -652,6 +668,7 @@ async function autopilotPref(req, res, userId) {
 // Manually add a league by id (fan-discovery fallback). Verifies the SWID owns a team
 // in it BEFORE saving, so we never store a league the user isn't actually in.
 async function addLeague(req, res, userId) {
+  if (req.body?.sport && req.body.sport !== 'mlb') throw new HttpError(400, 'Manual league fallback currently supports MLB only');
   const creds = await getCreds(redis, userId);
   if (!creds) throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
 
@@ -674,6 +691,7 @@ async function addLeague(req, res, userId) {
 }
 
 async function removeLeague(req, res, userId) {
+  if (req.body?.sport && req.body.sport !== 'mlb') throw new HttpError(400, 'Manual league fallback currently supports MLB only');
   const leagueId = String(req.body?.leagueId || '').trim();
   const season = Number(req.body?.season) || new Date().getFullYear();
   const list = await removeManualLeague(redis, userId, { leagueId, season });
@@ -684,12 +702,13 @@ async function removeLeague(req, res, userId) {
 // Sets the reclaim intent so a call-up produces a high-priority reclaim prompt — we
 // never execute the roster transaction ourselves (the user confirms it on ESPN).
 async function watchProspect(req, res, userId) {
+  if (req.body?.sport && req.body.sport !== 'mlb') throw new HttpError(400, 'Prospect watch supports MLB only');
   const op = ['watch', 'unwatch', 'ack'].includes(req.body?.op) ? req.body.op : 'watch';
   const playerId = req.body?.playerId;
   if (playerId == null) throw new HttpError(400, 'playerId required', { error: 'bad_request' });
   const { name, pos, leagueName } = req.body || {};
   const lg = (req.body?.leagueId != null && req.body?.season != null && req.body?.teamId != null)
-    ? `${req.body.season}:${req.body.leagueId}:${req.body.teamId}` : undefined;
+    ? leagueKeyOf({ ...req.body, sport: 'mlb' }) : undefined;
   const watch = await getWatch(redis, userId);
   const next = applyWatchOp(watch, { op, playerId, name, pos, lg, leagueName });
   await setWatch(redis, userId, next);
