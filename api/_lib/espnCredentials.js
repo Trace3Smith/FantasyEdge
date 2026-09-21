@@ -24,7 +24,7 @@ export function encryptCredentials(userId, credentials, now = Date.now(), expiry
 export function decryptCredentials(userId, envelope, now = Date.now()) {
   if (!envelope) return null;
   if (envelope.version == null && envelope.espn_s2 && envelope.swid) {
-    // Compatibility window: legacy data stays readable until explicitly migrated.
+    // Operator bootstrap/codec compatibility only; runtime calls decryptActive first.
     // Do not write on read: a concurrent disconnect must never be resurrected.
     return envelope;
   }

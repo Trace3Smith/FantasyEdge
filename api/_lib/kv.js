@@ -146,6 +146,8 @@ export const redisConfigured = Boolean(
 );
 
 export const redis = epochRedis(new Redis({
+  automaticDeserialization: false, // epoch codec decodes exactly once, including JSON-looking strings
+
   url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL,
   token: process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN,
 }));

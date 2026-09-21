@@ -409,10 +409,14 @@ async function leagues(req, res, userId) {
   // suggestions and the autopilot toggle state. Each reads its own cached dataset and
   // valuation. Other sports show leagues + rosters only.
   if (ENGINE_SPORTS.has(sport)) {
+    result.recommendationsAvailable = false;
+    result.recommendationsUnavailableReason = 'no_dataset';
     try {
       const ds = await redis.get(DATASET_BY_SPORT[sport]);
       const players = (ds?.players || []).filter((p) => !p.searchOnly);
       if (players.length) {
+        result.recommendationsAvailable = true;
+        delete result.recommendationsUnavailableReason;
         // Leagues on default scoring share one cached index; each detected custom
         // weighting builds its own (keyed by weight signature).
         // One bye lookup for every league in the response; null for non-NFL sports.

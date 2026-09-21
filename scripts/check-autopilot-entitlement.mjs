@@ -86,3 +86,7 @@ assert.equal(writes,0);assert.ok(store.has('espn:creds:user'));assert.ok(store.h
 await run([true],null,()=>{store.set('espn:creds:user',encryptCredentials('user',{espn_s2:'offline',swid:'{offline}'},Date.now()-CREDENTIAL_TTL_SECONDS*1000-1000));});
 assert.equal(writes,0);assert.equal(store.has('espn:autopilot:user'),false);
 console.log('PASS: encrypted Autopilot, stale/revoked generations, wrong-key preservation and expiry');
+
+s = await run([true],null,()=>store.delete(kv.DATASET_KEY));
+assert.equal(writes,0);assert.equal(reads,0);assert.equal(s.noData,1);
+console.log('PASS: cold epoch Autopilot skips provider writes and reports noData');

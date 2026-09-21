@@ -34,8 +34,10 @@ local op = ARGV[1]
 if op == 'quotaBlocked' then return tonumber(ARGV[2]) < ctl.quotaNotBefore and 1 or 0 end
 if op == 'get' then return redis.call('GET', KEYS[1]) end
 if op == 'set' then
- if ARGV[3] ~= '' then return redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3]) end
- return redis.call('SET', KEYS[1], ARGV[2])
+ local options = {}
+ if ARGV[3] ~= '' then options = {ARGV[3], ARGV[4]} end
+ if ARGV[5] == '1' then options[#options+1] = 'NX' end
+ return redis.call('SET', KEYS[1], ARGV[2], unpack(options))
 end
 if op == 'del' then return redis.call('DEL', unpack(KEYS)) end
 if op == 'exists' then return redis.call('EXISTS', unpack(KEYS)) end
@@ -64,8 +66,8 @@ export function epochRedis(raw) {
     get: async k => decode(await cmd('get', [k])),
     set: (k, v, opts = {}) => {
       if (/^(espn:(creds|lifecycle|ready|generation|autopilot|dna:ack|dna:users|prospectwatch|manualleagues):?|bootstrap:)/.test(k)) throw new Error('Lifecycle operation required');
-      if (Object.keys(opts).some(x => x !== 'ex') || (opts.ex !== undefined && (!Number.isInteger(opts.ex) || opts.ex <= 0))) throw new Error('Unsupported epoch SET options');
-      return cmd('set', [k], [JSON.stringify(v), opts.ex ?? '']);
+      if (Object.keys(opts).some(x => !['ex','px','nx'].includes(x)) || (opts.ex !== undefined && opts.px !== undefined) || ['ex','px'].some(x => opts[x] !== undefined && (!Number.isSafeInteger(opts[x]) || opts[x] <= 0)) || (opts.nx !== undefined && typeof opts.nx !== 'boolean')) throw new Error('Unsupported epoch SET options');
+      return cmd('set', [k], [JSON.stringify(v), opts.ex !== undefined ? 'EX' : opts.px !== undefined ? 'PX' : '', opts.ex ?? opts.px ?? '', opts.nx ? '1' : '0']);
     },
     del: (...keys) => cmd('del', keys), exists: (...keys) => cmd('exists', keys),
     type: k => cmd('type', [k]), incr: k => cmd('incr', [k]),

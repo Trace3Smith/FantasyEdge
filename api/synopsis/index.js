@@ -50,7 +50,8 @@ export default async function handler(req, res) {
 
   try {
     const dataset = await redis.get(key);
-    const players = dataset?.players || [];
+    if (!dataset?.players?.length) return res.status(503).json({ error: 'no_dataset' });
+    const players = dataset.players;
     const player = players.find((p) => String(p.id) === String(playerId));
     if (!player) return res.status(404).json({ error: 'player not found' });
 

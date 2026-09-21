@@ -154,3 +154,10 @@ Hosted isolated certification remains outstanding: new SCAN/PTTL/TIME/PXAT/set-m
 and guarded-EVAL paths, SDK serialization, Free command budget/latency, cold dataset
 refresh, sealed-control behavior, deployment snapshot and protected test execution.
 Do not mark105 Ready or merge based solely on local tests.
+
+## Review follow-up
+
+See [security/SDK/cost review](storage-epoch-review.md) and
+[isolated certification packet](storage-epoch-certification.md). NX/PX cache operations and
+single-pass SDK decoding are covered; all14 local suites pass. Hosted execution remains blocked
+on an approved synthetic-only capability path. Do not push, deploy, merge or change ACLs.
