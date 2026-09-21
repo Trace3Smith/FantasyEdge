@@ -11,7 +11,7 @@
 // (server-side) and are never returned to the browser — status checks expose a
 // connected boolean and a masked SWID at most. Paid operations are premium-gated; revocation requires sign-in only.
 
-import { encryptCredentials, decryptCredentials, CREDENTIAL_TTL_SECONDS } from './espnCredentials.js';
+import { encryptCredentials, decryptActive, CREDENTIAL_TTL_SECONDS } from './espnCredentials.js';
 import { beginLifecycle, readLifecycle, transitionLifecycle, lifecycleConflict } from './espnLifecycle.js';
 import { randomUUID } from 'node:crypto';
 import { HttpError } from './auth.js';
@@ -58,19 +58,20 @@ export function normalizeS2(raw) {
 }
 
 export async function saveCreds(redis, userId, { espn_s2, swid }, revision, consent = null) {
-  const creds = { espn_s2: normalizeS2(espn_s2), swid: normalizeSwid(swid), savedAt: new Date().toISOString(), connectionId: randomUUID() };
+  const creds = { espn_s2: normalizeS2(espn_s2), swid: normalizeSwid(swid), savedAt: new Date().toISOString(), connectionId: randomUUID(), storageEpoch: 'e1' };
   const encrypted = encryptCredentials(userId, creds); // no mutation before valid encryption
   // Direct callers start here. HTTP connects MUST supply their pre-validation revision.
   const expected = revision ?? await beginLifecycle(redis, userId);
   const lifecycleRevision = await transitionLifecycle(redis, userId, 'connect', expected,
-    { envelope: encrypted, consent }, CREDENTIAL_TTL_SECONDS);
+    { envelope: encrypted, consent, connectionId: creds.connectionId }, CREDENTIAL_TTL_SECONDS);
   return { ...creds, lifecycleRevision };
 }
 
 export async function getCreds(redis, userId) {
   const snapshot = await readLifecycle(redis, userId);
-  const c = decryptCredentials(userId, snapshot.credentials);
+  const c = decryptActive(userId, snapshot.credentials);
   if (!(c && c.espn_s2 && c.swid)) return null;
+  if (!snapshot.ready || c.connectionId !== snapshot.generation) throw lifecycleConflict();
   return { ...c, swid: normalizeSwid(c.swid), lifecycleRevision: snapshot.revision };
 }
 
@@ -727,23 +728,21 @@ export async function setLineup(creds, ids, items = [], { roster = [], sport = '
 const manualLeaguesKey = (userId) => `espn:manualleagues:${userId}`;
 
 export async function getManualLeagues(redis, userId) {
-  const list = await redis.get(manualLeaguesKey(userId));
-  return Array.isArray(list) ? list.map(l => ({ ...l, sport: l.sport || 'mlb' })) : [];
+  const creds = await getCreds(redis, userId);
+  const value = await redis.get(manualLeaguesKey(userId));
+  return creds && value?.connectionId === creds.connectionId && Array.isArray(value.entries) ? value.entries : [];
 }
-
-export async function addManualLeague(redis, userId, { leagueId, season, sport = 'mlb' }) {
+export async function addManualLeague(redis, userId, { leagueId, season, sport = 'mlb' }, snapshot) {
+  if (!snapshot) throw lifecycleConflict();
   const list = await getManualLeagues(redis, userId);
-  if (!list.some((l) => l.sport === sport && String(l.leagueId) === String(leagueId) && String(l.season) === String(season))) {
-    list.push({ leagueId: String(leagueId), season, sport });
-  }
-  await redis.set(manualLeaguesKey(userId), list);
+  if (!list.some(l => l.sport === sport && l.leagueId === String(leagueId) && String(l.season) === String(season))) list.push({ leagueId: String(leagueId), season, sport });
+  await transitionLifecycle(redis, userId, 'manual', snapshot.lifecycleRevision, {connectionId: snapshot.connectionId, entries: list});
   return list;
 }
-
-export async function removeManualLeague(redis, userId, { leagueId, season, sport = 'mlb' }) {
-  const list = (await getManualLeagues(redis, userId))
-    .filter((l) => !(l.sport === sport && String(l.leagueId) === String(leagueId) && String(l.season) === String(season)));
-  await redis.set(manualLeaguesKey(userId), list);
+export async function removeManualLeague(redis, userId, { leagueId, season, sport = 'mlb' }, snapshot) {
+  if (!snapshot) throw lifecycleConflict();
+  const list = (await getManualLeagues(redis, userId)).filter(l => !(l.sport === sport && l.leagueId === String(leagueId) && String(l.season) === String(season)));
+  await transitionLifecycle(redis, userId, 'manual', snapshot.lifecycleRevision, {connectionId: snapshot.connectionId, entries: list});
   return list;
 }
 
@@ -759,9 +758,11 @@ export async function clearAutopilot(redis, userId, revision) {
 
 export async function getAutopilot(redis, userId) {
   const raw = (await redis.get(autopilotKey(userId))) || {};
+  const generation = await redis.get(`espn:generation:${userId}`);
   const prefs = {};
   // Modern entries win if both formats exist; legacy booleans mean MLB only.
   for (const [key, value] of Object.entries(raw)) {
+    if (!generation || !value || typeof value !== 'object' || !['mlb','wnba','nfl'].includes(value.sport) || value.connectionId !== generation) continue;
     const qualified = qualifiedLeagueKey(key, autopilotSportOf(value));
     if (!(qualified in prefs) || key === qualified) prefs[qualified] = value;
   }
@@ -772,9 +773,9 @@ export async function getAutopilot(redis, userId) {
 // stored as the bare boolean `true` (MLB-only era) — treat those as MLB.
 export const autopilotSportOf = (v) => (v && typeof v === 'object' && v.sport) ? v.sport : 'mlb';
 
-export async function setAutopilotLeague(redis, userId, leagueKey, on, sport = 'mlb', connectionId = 'legacy', revision) {
+export async function setAutopilotLeague(redis, userId, leagueKey, on, sport = 'mlb', connectionId = null, revision) {
   const snapshot = on ? await getCreds(redis, userId) : null;
-  if (on && (!snapshot || (snapshot.connectionId || 'legacy') !== connectionId)) throw lifecycleConflict();
+  if (on && (!snapshot || snapshot.connectionId !== connectionId)) throw lifecycleConflict();
   const expected = revision ?? snapshot?.lifecycleRevision ?? await beginLifecycle(redis, userId);
   leagueKey = qualifiedLeagueKey(leagueKey, sport);
   const raw = (await redis.get(autopilotKey(userId))) || {};

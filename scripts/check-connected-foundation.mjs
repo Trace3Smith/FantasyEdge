@@ -1,3 +1,4 @@
+import { seedEpochCredential } from './lib/epoch-fixture.mjs';
 import { installLifecycleFake } from './lib/lifecycle-fake.mjs';
 // Uses the actual storage, provider parser and API dispatcher against offline fakes.
 import assert from 'node:assert/strict';
@@ -26,18 +27,18 @@ mock.module(lib('auth.js'), { namedExports: { ...auth,
 const f = await import(lib('espnFantasy.js'));
 const { default: handler } = await import('../api/espn/index.js');
 const ids = { season: 2026, leagueId: '1', teamId: 1 };
-store.set('espn:creds:u',{espn_s2:'offline',swid:'{11111111-2222-3333-4444-555555555555}'});
-store.set('espn:autopilot:u', { '2026:1:1': true });
-await f.setAutopilotLeague(redis,'u',leagueKeyOf({...ids,sport:'nfl'}),true,'nfl');
+seedEpochCredential(store,'u',{espn_s2:'offline',swid:'{11111111-2222-3333-4444-555555555555}'});
+store.set('espn:autopilot:u', { '2026:1:1': {sport:'mlb',connectionId:'fixture-u'} });
+await f.setAutopilotLeague(redis,'u',leagueKeyOf({...ids,sport:'nfl'}),true,'nfl','fixture-u');
 let prefs = await f.getAutopilot(redis,'u');
 assert.ok(prefs['mlb:2026:1:1']); assert.ok(prefs['nfl:2026:1:1']);
 await f.setAutopilotLeague(redis,'u',leagueKeyOf({...ids,sport:'nfl'}),false,'nfl');
 assert.ok((await f.getAutopilot(redis,'u'))['mlb:2026:1:1']);
-store.set('espn:autopilot:u', { '2026:1:1': {sport:'wnba'} });
+store.set('espn:autopilot:u', { '2026:1:1': {sport:'wnba',connectionId:'fixture-u'} });
 assert.ok((await f.getAutopilot(redis,'u'))['wnba:2026:1:1']);
-store.set('espn:manualleagues:u', [{leagueId:'1', season:2026}]);
-await f.addManualLeague(redis,'u',{...ids,sport:'nba'});
-await f.removeManualLeague(redis,'u',{...ids,sport:'nba'});
+store.set('espn:manualleagues:u', {connectionId:'fixture-u',entries:[{leagueId:'1', season:2026,sport:'mlb'}]});
+await f.addManualLeague(redis,'u',{...ids,sport:'nba'},await f.getCreds(redis,'u'));
+await f.removeManualLeague(redis,'u',{...ids,sport:'nba'},await f.getCreds(redis,'u'));
 assert.deepEqual(await f.getManualLeagues(redis,'u'),[{leagueId:'1',season:2026,sport:'mlb'}]);
 const swid = '{11111111-2222-3333-4444-555555555555}';
 let calls=0, posts=0;
@@ -49,7 +50,7 @@ globalThis.fetch = async (url,opts={}) => {
   ]})};
 };
 const creds={espn_s2:'offline',swid};
-store.set('espn:creds:u',creds);
+seedEpochCredential(store,'u',creds);
 assert.equal((await f.fetchLeagueRoster(creds,{leagueId:'1',seasonId:2026,teamId:'1'},'nfl')).teamId,1);
 await assert.rejects(f.fetchLeagueRoster(creds,{leagueId:'1',seasonId:2026,teamId:2},'nfl'),e=>e.status===403);
 async function post(body) {
@@ -67,7 +68,7 @@ assert.equal((await post({action:'watchProspect',sport:'nhl',playerId:1})).statu
 store.set('league:espn:mlb:1:2026:config',{history:'retain'});
 store.set('espn:prospectwatch:u', { '99': { name:'Watch fixture',lg:'2026:1:1',reclaim:true } });
 store.set('espn:dna:ack:u',{version:2,include:true});
-await f.setAutopilotLeague(redis,'u','mlb:2026:1:1',true);
+await f.setAutopilotLeague(redis,'u','mlb:2026:1:1',true,'mlb','fixture-u');
 premium=false;
 // Revocation must work even when the encryption key for a stored connection is unavailable.
 store.set('espn:creds:u', { version: 1, data: 'unreadable' });
@@ -79,9 +80,8 @@ assert.equal(store.has('espn:creds:u'),false);
 assert.deepEqual(await f.getAutopilot(redis,'u'),{});
 assert.equal(store.has('espn:dna:ack:u'),false);
 assert.ok(store.has('league:espn:mlb:1:2026:config'));
-assert.ok(store.has('espn:manualleagues:u'));
-assert.equal(store.get('espn:prospectwatch:u')['99'].lg, '');
-assert.equal(store.get('espn:prospectwatch:u')['99'].reclaim, true);
+assert.equal(store.has('espn:manualleagues:u'),false);
+assert.equal(store.has('espn:prospectwatch:u'),false);
 await f.saveCreds(redis, 'u', creds);
 assert.deepEqual(await f.getAutopilot(redis, 'u'), {});
 assert.ok((await f.getCreds(redis, 'u')).connectionId);

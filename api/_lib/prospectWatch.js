@@ -1,3 +1,5 @@
+import { getCreds } from './espnFantasy.js';
+import { transitionLifecycle, lifecycleConflict } from './espnLifecycle.js';
 // Prospect call-up monitoring (Premium). Tracks the minor-league prospects a user
 // stashes on an ESPN roster — plus any they explicitly Watch on a drop suggestion — and
 // detects when one is CALLED UP, i.e. their status flips from "in the minors" to "on an
@@ -25,10 +27,13 @@ export const LONG_STASH_DAYS = 60;   // "long-stashed" threshold for the drop-re
 const CALLUP_ALERT_DAYS = 21;        // keep surfacing a call-up alert this long until acked
 
 export async function getWatch(redis, userId) {
-  return (await redis.get(watchKey(userId))) || {};
+  const creds = await getCreds(redis, userId);
+  const record = await redis.get(watchKey(userId));
+  return creds && record?.connectionId === creds.connectionId ? record.entries || {} : {};
 }
-export async function setWatch(redis, userId, map) {
-  await redis.set(watchKey(userId), map || {});
+export async function setWatch(redis, userId, map, snapshot) {
+  if (!snapshot) throw lifecycleConflict();
+  await transitionLifecycle(redis, userId, 'watch', snapshot.lifecycleRevision, {connectionId: snapshot.connectionId, entries: map || {}});
 }
 
 export function daysSince(iso, now = Date.now()) {

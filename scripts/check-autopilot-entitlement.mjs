@@ -1,3 +1,4 @@
+import { seedEpochCredential } from './lib/epoch-fixture.mjs';
 import { installLifecycleFake } from './lib/lifecycle-fake.mjs';
 // Offline execution-boundary regression: real cron, no provider or account writes.
 import assert from 'node:assert/strict';
@@ -37,8 +38,9 @@ const { default: cron } = await import('../api/cron/autopilot.js');
 async function run(values, hook = null, setup = null) {
   duringRead = hook;
   store.clear(); members.clear(); members.add('user');
-  store.set('espn:creds:user', { espn_s2: 'offline', swid: '{offline}' });
-  store.set('espn:autopilot:user', { '2026:1:1': { sport: 'mlb' } });
+  process.env.ESPN_CREDENTIAL_ENCRYPTION_KEY=Buffer.alloc(32,31).toString('base64');
+  seedEpochCredential(store,'user',{espn_s2:'offline',swid:'{offline}'});
+  store.set('espn:autopilot:user', { '2026:1:1': { sport: 'mlb', connectionId:'fixture-user' } });
   store.set(kv.DATASET_KEY, { players: [{ name: 'fixture' }] });
   if (setup) setup();
   answers = values; writes = reads = 0;
@@ -64,17 +66,17 @@ await run([true], () => store.delete('espn:creds:user'));
 assert.equal(writes, 0, 'disconnect during provider read blocks submission');
 await run([true], () => store.delete('espn:autopilot:user'));
 assert.equal(writes, 0, 'permission revocation during provider read blocks submission');
-await run([true], () => store.set('espn:creds:user', {espn_s2:'offline-new',swid:'{offline}',connectionId:'new'}));
+await run([true], () => seedEpochCredential(store,'user',{espn_s2:'offline-new',swid:'{offline}'},'new'));
 assert.equal(writes, 0, 'reconnect during provider read blocks submission');
 console.log('PASS: 8 Autopilot entitlement and revocation scenarios; no live calls');
 
 process.env.ESPN_CREDENTIAL_ENCRYPTION_KEY=Buffer.alloc(32,31).toString('base64');
 const seedEncrypted=()=>{
- store.set('espn:creds:user',encryptCredentials('user',{espn_s2:'offline',swid:'{offline}',connectionId:'generation-one'}));
+ seedEpochCredential(store,'user',{espn_s2:'offline',swid:'{offline}'},'generation-one');
  store.set('espn:autopilot:user',{'mlb:2026:1:1':{sport:'mlb',connectionId:'generation-one'}});
 };
 await run([true],null,seedEncrypted);assert.equal(writes,1);
-await run([true],()=>store.set('espn:creds:user',encryptCredentials('user',{espn_s2:'offline-new',swid:'{offline}',connectionId:'generation-two'})),seedEncrypted);
+await run([true],()=>seedEpochCredential(store,'user',{espn_s2:'offline-new',swid:'{offline}'},'generation-two'),seedEncrypted);
 assert.equal(writes,0,'encrypted reconnect invalidates in-flight generation');
 await run([true],()=>store.delete('espn:autopilot:user'),seedEncrypted);assert.equal(writes,0);
 await run([true],()=>store.delete('espn:creds:user'),seedEncrypted);assert.equal(writes,0);

@@ -1,122 +1,156 @@
-# ESPN credential compatibility baseline
+# Secure ESPN compatibility foundation — DO NOT MERGE OR DEPLOY
 
-Based on production/main `9f06d0f`, with selected credential/lifecycle changes from
-`6306489`, `85846d3`, `625cfea` and the status-error UI fix from `c9b8885`.
-Key-format coverage is also taken from `c986ef4`. This is not the My Edge release.
+Draft PR #105 is the prerequisite for My Edge, not the My Edge product release.
+The fixed storage epoch replaces the previous shared-key compatibility plan.
+Production activation, bootstrap, WAF publication and any hosted deployment require
+separate authorization. Do not rotate Redis or encryption credentials for this work.
 
-## Storage and behavior
+## Runtime boundary and schema
 
-- Read legacy `{espn_s2, swid, savedAt?}` records without a key; never migrate on read.
-- Read user-bound AES-256-GCM v1 envelopes with current/optional previous key.
-- Every new save uses encryption, a fresh connection generation, and 90-day Redis TTL
-  plus authenticated absolute expiry. Missing/malformed current keys fail before
-  credentials, permissions, or watch associations are modified. No plaintext fallback.
-- Wrong/missing decryption keys raise a configuration error without deleting a record.
-  Team Manager shows status unavailable rather than a disconnected/connect form.
-- Reconnect revokes automation. Disconnect removes credentials, automation membership,
-  and DNA consent/sweep membership. Revocation remains available to signed-in free users
-  and does not require decrypting the credential. Shared historical DNA is retained.
-- Preserve sport-qualified permissions and legacy permission reads, ownership validation,
-  Premium checks and generation checks before provider writes. NBA/NHL writes and
-  Autopilot remain disabled. Existing MLB/WNBA/NFL allowlists and decision logic remain.
-- Preserve prospect history but clear stale team associations on disconnect/reconnect.
+`api/_lib/storageEpoch.js` is the only runtime Redis boundary. `kv.js` exports its
+wrapped client; every logical key receives the fixed `fe:e1:` prefix. The raw client
+is not exported. Every runtime command checks the epoch control atomically in Lua.
+Missing/malformed/preparing/sealed control fails closed. Unknown Lua and SDK escape
+hatches (pipelines, multi, evalsha, sendCommand, scans) are not exposed. No consumer
+currently requires them; adding one requires an explicit wrapped implementation/test.
 
-No My Edge UI/aggregation, MLB-position/ROTO corrections, Preview infrastructure,
-credential migration runner, homepage changes, billing changes or cron schedule changes.
-Existing production DNA behavior remains consent-gated. This baseline has production
-mutation capabilities; it is NOT a read-only Preview application.
+Physical keys include:
 
-## Offline verification
+| Logical key (all prefixed `fe:e1:`) | Meaning |
+|---|---|
+| `control` | Persistent schema1/e1/runId/phase/manifestClosed/quotaNotBefore |
+| `espn:creds:<user>` | Active user-bound AES-256-GCM v1 envelope |
+| `espn:lifecycle:<user>` | Persistent CAS revision/revocation tombstone |
+| `espn:generation:<user>` | Must match authenticated payload connectionId |
+| `espn:ready:<user>` | Set only by completed active connect/confirmation |
+| `espn:autopilot:<user>`, `espn:autopilot:users` | Fresh generation-bound opt-ins |
+| `espn:dna:ack:<user>`, `espn:dna:users` | Fresh generation-bound consent/membership |
+| `espn:prospectwatch:<user>`, `espn:manualleagues:<user>` | Generation-bound associations |
+| `bootstrap:creds:<user>` | Encrypted pending candidate, never active credentials |
+| `bootstrap:user:<user>`, `bootstrap:manifest`, `bootstrap:completed` | Import progress |
 
-Run `check:espn`, `check:espn-handler`, `check:credentials`, `check:autopilot`,
-`check:league-config`, `check:league-dna`, `check:sport-readiness`, and `verify:coach`.
-`check:credential-compatibility` is included in `check:credentials`. Also run the real-Redis
-`check:credential-lifecycle` suite.
+The v1 envelope format and user AAD are preserved. Active payloads additionally require
+`storageEpoch: e1` and nonempty `connectionId`. Plaintext in an active credential key
+is an error, not fallback. All active reads atomically load envelope/revision/generation/
+readiness; malformed revision fails closed. Normal connect/confirmation has90-day TTL
+and authenticated expiry. Wrong/missing keys never trigger plaintext writes or deletion.
 
-`check:credential-browser` uses externally installed Playwright (or its module path via
-`FE_PLAYWRIGHT_MODULE`). It loads the actual Team Manager HTML, mocks auth/API responses,
-and blocks all external page requests, at desktop and mobile sizes.
+Lifecycle Lua retains compare/advance and disconnect tombstones. Connect/disconnect
+clear automation, consent, pending candidates, manual associations and watch state.
+Permission, consent, manual and watch changes participate in CAS. Association callers
+carry the snapshot from before provider work, so reconnect cannot inherit old results.
+NBA/NHL write gates, ownership and Premium checks are preserved. Signed-in free users
+can still revoke without decrypting credentials.
 
-All credential inputs are synthetic. The fixture `my-edge-37ccd8d-codec.mjs` freezes
-that certified release's actual codec with its source hash; only the error dependency
-is stubbed and the unused migration helper omitted. Both writer/reader directions are
-checked without requiring a sibling checkout or git history during test execution.
+## Bootstrap policy and operator tool
 
-## Atomic lifecycle protocol
+`node scripts/bootstrap-storage-epoch.mjs <operation> <runId>` is an operator-only tool,
+not an HTTP endpoint or a normal build step. Operations: `prepare`, `import`, `seal`,
+`verify`, `activate`. It requires Production context and an explicit authorization flag;
+this flag is not a new authentication boundary. Use only an approved secure execution
+mechanism with existing in-memory secrets. Never env-pull, print credentials, place
+secrets in shell arguments or retrieve the encryption key into operator reports.
+Do not execute these commands against Production as part of implementation/certification.
 
-`espn:lifecycle:{userId}` is a monotonic, persistent revision, initially zero for legacy
-accounts. Never expire or reset it: it is the disconnect tombstone for old requests.
-The server captures it immediately after authentication and before Premium/provider
-validation, ignoring any browser-supplied revision. Credential reads atomically load
-the envelope and revision; the revision is not a change to the encrypted v1 format.
+- `prepare`: refuse an occupied epoch without matching preparing control; initialize
+  unique run; filtered SCAN of legacy `espn:creds:*`; deduplicate fixed manifest; close it.
+  SCAN traverses the keyspace internally but no unrelated values are retrieved.
+- `import`: every source read rechecks preparing/run/manifest inside Lua. Strictly
+  validate plaintext or authenticate/decrypt v1 in memory. Import encrypted pending
+  candidates only; malformed, absent and expired records receive safe dispositions.
+  Each user's candidate/revision/generation/completion is committed atomically. Same-run
+  completed import is a no-op, even if legacy data changes later. Interrupted runs resume.
+- Candidate lifetime is24 hours from capture. A reliable shorter Redis TTL or encrypted
+  expiry wins. This is new pending retention, not an inferred historical expiry. No
+  credential becomes active merely by existing in the source. No old permission,
+  consent, membership, manual league or watch association is copied.
+- `seal`: atomically require completed manifest and preparing -> sealed. All subsequent
+  legacy reads/import commits reject, including an importer paused before its commit.
+- `verify`: sealed-only in-memory envelope/user/expiry verification and sanitized counts.
+- `activate`: verify, then atomically sealed -> active. No transition back to legacy.
+  Absent users remain disconnected, but may perform a normal authenticated fresh connect.
 
-A Redis Lua script compares the captured revision immediately before a connect commit.
-A matching commit increments the revision, writes only the encrypted envelope with its
-90-day TTL, removes automation permissions/membership, clears stale watch associations,
-and records any valid connect-time DNA choice/membership in the same atomic operation.
-Disconnect increments the revision and removes credentials, automation and DNA
-consent/memberships atomically. A stale operation returns HTTP 409 `connection_changed`
-without any state change. A new operation starting after disconnect sees the new revision.
+The only legacy decoder is used by bootstrap/codec tests, never active credential reads.
+The CLI emits counts or one fixed failure category. Its Redis credential is broad;
+operator authorization and private execution are essential. Hosted execution mechanism
+and per-command capability certification remain prerequisites before Production use.
 
-Standalone permission and consent updates also CAS/increment this revision, so a delayed
-enable cannot undo a successful disable/opt-out. Apply and cron retain connection-generation
-checks and additionally reject changed lifecycle revisions. Cron cleanup uses its observed
-revision rather than deleting a newer connection's permissions. No network request is held
-inside a lock or Redis transaction. Script types/JSON are checked before mutations because
-Lua runtime errors do not roll back earlier commands.
+## Confirmation and fresh authorization
 
-`check:credential-lifecycle` runs the actual script against disposable local Redis via a
-private Unix socket, with TCP and persistence disabled. Provide `redis-server` on PATH or
-`FE_TEST_REDIS_SERVER`; no external Redis endpoint is accepted by this harness. Existing
-in-memory unit fixtures use a separate adapter, not the evidence for Lua atomicity.
+Team Manager shows a minimal confirmation prompt for a pending candidate. It never
+returns cookies or submits confirmation automatically. Authenticated Premium confirmation
+requires an explicit action, successful fresh all-sport discovery AND an owned-league
+read. Empty discovery, provider failure, wrong account/key, expiry, disconnect/reconnect
+or stale revision prevent activation. If validation cannot succeed, reconnect normally.
+The final Lua operation compares the exact pending record and checks Redis TIME, then
+creates the normal active lifecycle with the candidate's new generation. It consumes
+the candidate; successful confirmation does not enable Autopilot or DNA.
 
-The deterministic lifecycle suite pauses before commits and during provider validation,
-checks two competing reconnects, repeats disconnect/new-connect/stale-connect sequences,
-and checks revoked permission/consent, Apply/cron, key failures and storage-type failures.
+Autopilot starts OFF. DNA consent is missing/denied and the current notice must be
+accepted explicitly. Watch/manual associations rebuild through fresh authorized actions.
+This small confirmation UI is not My Edge navigation or aggregation UI.
 
-Remaining boundaries: an ESPN write already submitted cannot be recalled, and the final
-revision-check-to-provider-submit window still exists. Provider/collection work started
-before revocation can finish; it cannot recreate consent or automation membership through
-the new protocol. Unrelated watch/history writers are not serialized by this change.
-A response may be lost after an atomic commit; retry starts a new lifecycle operation.
+## Redis consumer audit
 
-ALL writers sharing this credential namespace must adopt the protocol. Certified My Edge
-`37ccd8d` does not: its unconditional SET can still bypass this tombstone. Codec/record
-interoperability does not certify mixed old/new writers as lifecycle-safe. Port the five
-runtime-file changes (lifecycle helper, credential helpers, DNA helpers, ESPN dispatcher,
-Autopilot cron) and the race tests to My Edge before any production rollout. Its separate
-Preview credential writer needs an equivalent protocol in its isolated namespace; do not
-silently route it through production Redis or widen its ACLs as part of this baseline.
+All27 runtime Redis-consuming modules use the same wrapped client or receive it from
+an audited caller. `check:redis-boundary` rejects new raw clients, unregistered runtime
+Lua, dynamic command escapes and runtime bootstrap imports. Coverage includes:
 
-## Isolated rehearsal and production prerequisites
+- ESPN credential/lifecycle/generation/permission/consent/watch/manual state;
+- Autopilot and DNA sweep membership/cursors;
+- refresh cron, all sport datasets/rankings, DvP/Pick'em/brackets;
+- ESPN scoring and league configuration, provider/team/boxscore/weather caches;
+- prospect enrichment/crosswalk state, projections/ADP;
+- synopsis, Draft/Coach context and mock-draft quotas.
 
-Local tests establish format compatibility, not a certified production rollback artifact.
-Next, rehearse with synthetic users/records, isolated storage and stubbed ESPN/Clerk.
-Do not deploy this baseline over the existing My Edge certification environment:
-it intentionally lacks that branch's Preview isolation and mutation guards. Do not
-reuse production-project Preview variables or live connected accounts for rehearsal.
-Any hosting/storage configuration needs separate authorization.
+All rebuild in e1; no read-through on cache miss. Provider failures may leave cold
+features unavailable until refresh succeeds. Shared historical DNA/configuration stays
+in legacy storage, but is not read as current authority. No legacy data is deleted.
 
-Before production encrypted writes, provision `ESPN_CREDENTIAL_ENCRYPTION_KEY` in the
-approved secret store and establish controlled recovery custody. It must decode to
-32 random bytes and re-encode identically as canonical padded base64 (44 characters,
-one trailing `=` after application whitespace trimming). A trusted process must run
-that validation and a synthetic in-memory round trip, outputting only PASS/FAIL.
-Do not print the key, ciphertext, cookies, environment dumps or secret-bearing exceptions.
-Keep the previous-key variable absent initially; a malformed configured previous key
-also prevents encrypted reads. Keys must be independent of nonproduction credentials.
+Premium entitlement remains in Clerk. Free mock-draft allowance is conservatively
+unavailable until the next UTC day after activation. This prevents granting a second
+allowance while avoiding mutable legacy-counter reads. No billing change or silent quota
+reset. Hosted performance matters: the epoch wrapper uses guarded EVAL for each command,
+so evaluate command budget/latency on Free before cutover. No new dependency is required.
 
-Keep recovery material in an approved secret manager, record only its reference and
-custodians, and test recovery privately. All deployments sharing the namespace must
-have compatible keys. Environment changes do not retrofit an old deployment snapshot.
+## Cutover and rollback contract
 
-Separately authorize the compatibility production release, verify its exact deployment
-and environment, and preserve it as the rollback predecessor before My Edge ships.
-Confirm artifact retention and rollback eligibility; source code alone is insufficient.
-Old main `9f06d0f`/`4a4dce7` is unsafe after the first encrypted save. Never restore stale
-plaintext backups or remove keys to force fallback. Rollback preserves current records
-and revocations. Full deployment/rollback rehearsal and production key custody remain
-outstanding; no production action is performed by these tests.
+Freeze releases/builds; certify exact source; account for cron; activate all-host WAF
+maintenance only with authorization. Drain active invocations using the audited bound
+and investigate already-sent ESPN transactions. Legacy Redis settlement is no longer
+an activation gate: old audited code targets legacy keys and all import paths close.
 
-Migration is a later, explicitly approved operation after stable compatible deployment.
-Legacy reads remain available in the meantime; no automatic migration/cutoff is added.
+Deploy revised105 under maintenance; bootstrap/seal/verify/activate; rebuild and verify
+decision datasets; establish permanent old-host/selector fencing; reopen canonical new
+routes. Runtime e1 isolation is not an ACL against a compromised broad Redis credential.
+Rotation is optional defense in depth, not required for audited old-code correctness.
+
+After activation, pre-epoch deployments are permanently retired as normal rollback
+choices even if their Redis credential still works. Record actual verified105 as My
+Edge's immediate predecessor.104 must adopt the identical epoch/activation/codec/CAS
+contract. No reverse migration or epoch switch during rollback. Retention and cron-host
+fence must be rechecked. The current104 code is NOT certified by a future-contract fixture.
+
+## Verification
+
+Run `check:redis-boundary`, `check:storage-epoch`, `check:credential-lifecycle`,
+`check:credentials`, `check:espn-handler`, `check:espn`, `check:autopilot`,
+`check:league-dna`, `check:league-config`, `check:sport-readiness`, `verify:coach`,
+plus `check:credential-browser` at desktop/mobile sizes.
+
+The epoch and lifecycle suites use actual Lua against disposable Redis on a private
+Unix socket (TCP/persistence disabled). Provide redis-server on PATH or
+FE_TEST_REDIS_SERVER. The browser test requires Playwright or FE_PLAYWRIGHT_MODULE;
+all page requests/auth/providers are synthetic and external requests are blocked.
+
+The exact-source epoch rehearsal covers legacy capture -> encrypted pending import ->
+seal -> activate -> late legacy writes -> unchanged trusted state; provider/auth confirmation;
+shorter/24h expiry; missing/malformed phases; interrupted/duplicate import and sealing
+interleavings; expiry/disconnect during validation; no legacy cache/permission/consent/
+watch/manual fallback; and compatibility ->future My Edge CONTRACT fixture ->compatibility
+rollback. The separate frozen prior My Edge codec fixture verifies v1 interoperability.
+
+Hosted isolated certification remains outstanding: new SCAN/PTTL/TIME/PXAT/set-membership
+and guarded-EVAL paths, SDK serialization, Free command budget/latency, cold dataset
+refresh, sealed-control behavior, deployment snapshot and protected test execution.
+Do not mark105 Ready or merge based solely on local tests.

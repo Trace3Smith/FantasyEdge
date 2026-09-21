@@ -38,7 +38,7 @@ export async function localRedis() {
   });
   return {
     command,
-    get:async key=>{const raw=await command('GET',key);return raw===null?null:JSON.parse(raw);},
+    get:async key=>{const raw=await command('GET',key);if(raw===null)return null;try{return JSON.parse(raw);}catch{return raw;}},
     set:(key,value,options)=>command('SET',key,JSON.stringify(value),...(options?.ex?['EX',options.ex]:[])),
     del:(...keys)=>command('DEL',...keys),sadd:(...args)=>command('SADD',...args),srem:(...args)=>command('SREM',...args),
     smembers:key=>command('SMEMBERS',key),

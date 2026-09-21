@@ -302,6 +302,13 @@
     <div id="connectGuide"></div>
   </div>
 
+  <div class="panel hidden" id="confirmationPanel">
+    <h2>Confirm your ESPN connection</h2>
+    <p>Your saved connection needs confirmation. We will check it with ESPN before enabling it. Autopilot stays off and League DNA requires a new choice.</p>
+    <button class="btn btn-gold" id="confirmConnectionBtn">Confirm with ESPN</button>
+    <div class="msg" id="confirmationMsg"></div>
+  </div>
+
   <!-- Connected state (premium, connected) -->
   <div id="connectedWrap" class="hidden">
     <!-- League DNA one-time notice, for linked users who haven't answered the current notice (they
@@ -422,7 +429,7 @@
     show('locked', signedIn && !premium);
     show('signedOut', !signedIn);
     // Hide both premium surfaces until we know the connection status.
-    if (!signedIn || !premium) { show('connectionError', false); show('connectPanel', false); show('connectedWrap', false); return; }
+    if (!signedIn || !premium) { show('confirmationPanel', false); show('connectionError', false); show('connectPanel', false); show('connectedWrap', false); return; }
     if (!loadedOnce) { loadedOnce = true; await refreshStatus(); }
   }
 
@@ -431,7 +438,7 @@
   $('retryConnection').addEventListener('click', () => refreshStatus());
   async function refreshStatus() {
     connectionStatusVerified = false;
-    show('connectionError', false); show('connectPanel', false); show('connectedWrap', false);
+    show('confirmationPanel', false); show('connectionError', false); show('connectPanel', false); show('connectedWrap', false);
     const { ok, status, data } = await api('/api/espn', { action: 'status' }).catch(() => ({ok:false}));
     if (status === 401) { show('connectPanel', false); show('connectedWrap', false); show('signedOut', true); return; }
     if (!ok || typeof data?.connected !== 'boolean') { show('connectionError', true); return; }
@@ -445,10 +452,25 @@
       selectSport(currentSport); // loads the active sport's leagues, or shows 'Coming {month}'
     } else {
       show('connectedWrap', false);
-      show('connectPanel', true);
+      show('confirmationPanel', data.confirmationPending === true);
+      show('connectPanel', data.confirmationPending !== true);
       $('reconnectNote').classList.add('hidden'); // first-time connect, not a reconnect
     }
   }
+
+  $('confirmConnectionBtn').addEventListener('click', async () => {
+    $('confirmConnectionBtn').disabled = true;
+    setMsg('confirmationMsg', 'Checking with ESPN…');
+    try {
+      const { ok, data } = await api('/api/espn', { action: 'confirmConnection', confirm: true });
+      if (ok) { await refreshStatus(); return; }
+      if (data?.error === 'reconnect_required' || data?.error === 'espn_auth') {
+        show('confirmationPanel', false); show('connectPanel', true);
+        setMsg('connectMsg', 'Please reconnect using your current ESPN cookies.', 'err');
+      } else setMsg('confirmationMsg', 'Confirmation failed. Sign in again or retry shortly.', 'err');
+    } catch { setMsg('confirmationMsg', 'Could not reach ESPN. Please retry.', 'err'); }
+    finally { $('confirmConnectionBtn').disabled = false; }
+  });
 
   // ---- League DNA notice ------------------------------------------------------------
   // Must match DNA_NOTICE_VERSION in api/_lib/leagueDnaConsent.js. The server records a choice only

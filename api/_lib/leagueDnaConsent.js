@@ -33,7 +33,9 @@ export const isCurrent = (rec) => !!rec && rec.version === DNA_NOTICE_VERSION;
 export const captureAllowedBy = (rec) => isCurrent(rec) && rec.include === true;
 
 export async function getDnaConsent(redis, userId) {
-  return (await redis.get(ackKey(userId))) || null;
+  const rec = await redis.get(ackKey(userId));
+  const gen = await redis.get(`espn:generation:${userId}`);
+  return gen && rec?.connectionId === gen ? rec : null;
 }
 
 // The gate every capture path calls. Fails closed: an error reading the record means no capture.

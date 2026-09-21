@@ -60,9 +60,9 @@ const seedPermissions=()=>{
  sets.set('espn:dna:users',new Set([user]));
 };
 reset();store.set(credKey,creds);delete process.env.ESPN_CREDENTIAL_ENCRYPTION_KEY;
-let before=snapshot();assert.deepEqual(await f.getCreds(redis,user),{...creds,lifecycleRevision:'0'});assert.equal(snapshot(),before);assert.equal(mutations.length,0);
-assert.equal((await post({action:'status'})).body.connected,true);
-console.log('PASS: plaintext reads without a key never write or migrate');
+let before=snapshot();await assert.rejects(f.getCreds(redis,user),e=>e.status===503);
+assert.equal(snapshot(),before);assert.equal(mutations.length,0);
+console.log('PASS: plaintext is refused in epoch runtime, without writes or fallback');
 
 for(const bad of [undefined,'malformed',Buffer.alloc(31).toString('base64'),key.slice(0,-1)]){
  for(const existing of [null,creds,certified.encryptCredentials]){
@@ -128,6 +128,8 @@ const withoutRevision=({lifecycleRevision,...rest})=>rest;
 assert.deepEqual(certified.decryptCredentials(user,store.get(credKey)),withoutRevision(baseline));
 const edgeCreds={...withoutRevision(baseline),connectionId:'synthetic-my-edge-generation'};
 store.set(credKey,certified.encryptCredentials(user,edgeCreds));
+store.set(`espn:generation:${user}`,edgeCreds.connectionId);
+store.set(`espn:ready:${user}`,'1');
 const returned=await f.getCreds(redis,user);assert.equal(returned.connectionId,edgeCreds.connectionId);assert.equal(returned.espn_s2,creds.espn_s2);
 await f.saveCreds(redis,user,creds);
 assert.deepEqual(certified.decryptCredentials(user,store.get(credKey)),withoutRevision(await f.getCreds(redis,user)));

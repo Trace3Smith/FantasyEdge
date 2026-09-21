@@ -1,3 +1,4 @@
+import { pendingCandidate, commitConfirmation } from '../_lib/espnPending.js';
 import { beginLifecycle } from '../_lib/espnLifecycle.js';
 // ESPN fantasy account integration (Premium) — a single serverless function that
 // dispatches on `action` so the four ESPN operations share one deployment slot
@@ -18,7 +19,7 @@ import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY,
 import { nflMatchupFor } from '../_lib/nflDvp.js';
 import {
   normalizeS2, normalizeSwid, isValidSwid, saveCreds, getCreds, deleteCreds,
-  fetchFanLeagues, fetchLeaguesWithRosters, fetchLeagueRoster, fetchLeagueByOwner, fetchLeagueAllTeams, fetchFreeAgents, setLineup,
+  fetchFanLeagues, discoverFanLeagues, fetchLeaguesWithRosters, fetchLeagueRoster, fetchLeagueByOwner, fetchLeagueAllTeams, fetchFreeAgents, setLineup,
   getAutopilot, setAutopilotLeague, leagueKeyOf,
   getManualLeagues, addManualLeague, removeManualLeague,
   maskSwid, credsShape, EspnAuthError, fetchNflByes, fetchNflSchedule, slotLabel, fetchAllLeagueConfigs,
@@ -223,7 +224,7 @@ export default async function handler(req, res) {
       || (action === 'dnaChoice' && req.body?.include === false);
     // Capture lifecycle state as soon as the user is authenticated, BEFORE Premium
     // lookup/provider validation. Browser-supplied revisions are never accepted.
-    const lifecycleAction = ['connect', 'autopilot', 'dnaChoice'].includes(action);
+    const lifecycleAction = ['connect', 'confirmConnection', 'autopilot', 'dnaChoice'].includes(action);
     const identity = lifecycleAction ? await requireUser(req) : null;
     const revision = identity ? await beginLifecycle(redis, identity.userId) : undefined;
     const { userId } = await (revocation ? (identity || requireUser(req)) : requirePremium(req));
@@ -231,6 +232,7 @@ export default async function handler(req, res) {
 
     switch (action) {
       case 'status':     return await status(res, userId);
+      case 'confirmConnection': return await confirmConnection(req, res, userId, revision);
       case 'connect':    return await connect(req, res, userId, revision);
       case 'disconnect': return await disconnect(res, userId);
       case 'dnaChoice':  return await dnaChoice(req, res, userId, revision);
@@ -257,6 +259,7 @@ async function status(res, userId) {
   const creds = await getCreds(redis, userId);
   return res.json({
     connected: !!creds,
+    confirmationPending: !creds && !!await pendingCandidate(redis, userId),
     swid: creds ? maskSwid(creds.swid) : null,
     savedAt: creds?.savedAt || null,
     // League DNA notice state, so a linked user who hasn't answered the current notice is asked once.
@@ -309,6 +312,23 @@ async function connect(req, res, userId, revision) {
   if (choice?.include) await captureAllLeagues(creds);
 
   return res.json({ connected: true, swid: maskSwid(swid), leagueCount: leaguesFound.length });
+}
+
+// A fresh, explicit action; never confirmation during status/read/background work.
+async function confirmConnection(req, res, userId, revision) {
+  if (req.body?.confirm !== true) throw new HttpError(400, 'Explicit confirmation required');
+  const pending = await pendingCandidate(redis, userId);
+  if (!pending) throw new HttpError(409, 'Confirmation expired; reconnect', {error: 'reconnect_required'});
+  // Same fresh ownership-discovery validation as normal connect. No provider writes.
+  try {
+    const discovery = await discoverFanLeagues(pending.creds, 'all');
+    if (!discovery.diag?.ok || !discovery.leagues?.length) throw new Error('No verified league');
+    const league = discovery.leagues[0];
+    await fetchLeagueRoster(pending.creds, {leagueId: league.leagueId, seasonId: Number(league.seasonId), teamId: Number(league.teamId)}, league.sport);
+  }
+  catch { throw new HttpError(401, 'ESPN validation failed; reconnect', {error: 'espn_auth'}); }
+  await commitConfirmation(redis, userId, pending, revision);
+  return res.json({connected: true, confirmationPending: false});
 }
 
 // Disconnect — delete the user's stored cookies from Redis.
@@ -434,7 +454,7 @@ async function leagues(req, res, userId) {
             const pIdx = prospectIndex(ds?.players || []);
             const watch = await getWatch(redis, userId);
             const { watch: nextWatch, byLeague } = reconcileWatch({ watch, leagues: result.leagues || [], idx: pIdx });
-            setWatch(redis, userId, nextWatch).catch(() => {});
+            setWatch(redis, userId, nextWatch, creds).catch(() => {});
             const reclaimIds = new Set(Object.values(nextWatch).filter((e) => e.reclaim).map((e) => String(e.id)));
             for (const lg of (result.leagues || [])) {
               if (!lg || !lg.team) continue;
@@ -577,7 +597,7 @@ async function applyLineup(req, res, userId) {
   if (!sugg.plan.length) return res.json({ applied: 0, moves: [], message: 'Lineup already optimal' });
 
   const currentCreds = await getCreds(redis, userId);
-  if (!currentCreds || currentCreds.lifecycleRevision !== creds.lifecycleRevision || (currentCreds.connectionId || 'legacy') !== (creds.connectionId || 'legacy')) {
+  if (!currentCreds || currentCreds.lifecycleRevision !== creds.lifecycleRevision || currentCreds.connectionId !== creds.connectionId) {
     throw new HttpError(409, 'ESPN connection changed; refresh before applying', { error: 'connection_changed' });
   }
   let result;
@@ -661,7 +681,7 @@ async function autopilotPref(req, res, userId, revision) {
       if (!creds) throw new HttpError(409, 'No ESPN account connected', { error: 'not_connected' });
       await fetchLeagueRoster(creds, { leagueId: String(league.leagueId), seasonId: Number(league.season), teamId: league.teamId }, sport);
     }
-    const prefs = await setAutopilotLeague(redis, userId, leagueKeyOf({ ...league, sport }), on, sport, creds?.connectionId || 'legacy', revision);
+    const prefs = await setAutopilotLeague(redis, userId, leagueKeyOf({ ...league, sport }), on, sport, creds?.connectionId, revision);
     return res.json({ on, prefs });
   }
   return res.json({ prefs: await getAutopilot(redis, userId) });
@@ -688,7 +708,7 @@ async function addLeague(req, res, userId) {
     throw new HttpError(404, 'League not found', { error: 'league_not_found', detail: String(err.message || err) });
   }
 
-  await addManualLeague(redis, userId, { leagueId, season });
+  await addManualLeague(redis, userId, { leagueId, season }, creds);
   return res.json({ added: true, league: { leagueId, season, teamName: lg.team?.name || null, leagueName: lg.leagueName } });
 }
 
@@ -696,7 +716,7 @@ async function removeLeague(req, res, userId) {
   if (req.body?.sport && req.body.sport !== 'mlb') throw new HttpError(400, 'Manual league fallback currently supports MLB only');
   const leagueId = String(req.body?.leagueId || '').trim();
   const season = Number(req.body?.season) || new Date().getFullYear();
-  const list = await removeManualLeague(redis, userId, { leagueId, season });
+  const list = await removeManualLeague(redis, userId, { leagueId, season }, await getCreds(redis, userId));
   return res.json({ removed: true, count: list.length });
 }
 
@@ -705,15 +725,18 @@ async function removeLeague(req, res, userId) {
 // never execute the roster transaction ourselves (the user confirms it on ESPN).
 async function watchProspect(req, res, userId) {
   if (req.body?.sport && req.body.sport !== 'mlb') throw new HttpError(400, 'Prospect watch supports MLB only');
+  const creds = await getCreds(redis, userId);
+  if (!creds) throw new HttpError(409, 'No ESPN account connected');
   const op = ['watch', 'unwatch', 'ack'].includes(req.body?.op) ? req.body.op : 'watch';
   const playerId = req.body?.playerId;
   if (playerId == null) throw new HttpError(400, 'playerId required', { error: 'bad_request' });
   const { name, pos, leagueName } = req.body || {};
   const lg = (req.body?.leagueId != null && req.body?.season != null && req.body?.teamId != null)
     ? leagueKeyOf({ ...req.body, sport: 'mlb' }) : undefined;
+  if (lg) await fetchLeagueRoster(creds, {leagueId: String(req.body.leagueId), seasonId: Number(req.body.season), teamId: Number(req.body.teamId)}, 'mlb');
   const watch = await getWatch(redis, userId);
   const next = applyWatchOp(watch, { op, playerId, name, pos, lg, leagueName });
-  await setWatch(redis, userId, next);
+  await setWatch(redis, userId, next, creds);
   const e = next[String(playerId)];
   return res.json({ ok: true, op, watching: !!(e && e.reclaim) });
 }

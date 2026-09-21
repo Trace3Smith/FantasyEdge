@@ -1,4 +1,5 @@
-#!/usr/bin/env node
+import { seedEpochCredential } from './lib/epoch-fixture.mjs';
+process.env.ESPN_CREDENTIAL_ENCRYPTION_KEY=Buffer.alloc(32,7).toString('base64');
 import { installLifecycleFake } from './lib/lifecycle-fake.mjs';
 // Offline regression checks for api/espn/index.js, run through the REAL request handler with its two
 // outside dependencies swapped out: Clerk (auth.js) and Redis (kv.js). ESPN is a stubbed fetch, so
@@ -20,7 +21,8 @@ const check = (n, ok, d) => { if (!ok) failed++; console.log(`   ${ok ? '✅' : 
 
 const SWID = '{11111111-2222-3333-4444-555555555555}';
 const USER = 'user_offline';
-const store = new Map([[`espn:creds:${USER}`, { espn_s2: 's2', swid: SWID }]]);
+const store = new Map();
+seedEpochCredential(store,USER,{espn_s2:'s2',swid:SWID});
 const fakeRedis = {
   get: async (k) => (store.has(k) ? structuredClone(store.get(k)) : null),
   set: async (k, v) => { store.set(k, structuredClone(v)); return 'OK'; },

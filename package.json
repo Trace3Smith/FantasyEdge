@@ -22,7 +22,9 @@
     "check:credential-compatibility": "node --experimental-test-module-mocks scripts/check-credential-compatibility.mjs",
     "check:sport-readiness": "node scripts/check-sport-readiness.mjs",
     "check:credential-browser": "node scripts/check-credential-browser.mjs",
-    "check:credential-lifecycle": "node --experimental-test-module-mocks scripts/check-credential-lifecycle.mjs"
+    "check:credential-lifecycle": "node --experimental-test-module-mocks scripts/check-credential-lifecycle.mjs",
+    "check:storage-epoch": "node --experimental-test-module-mocks scripts/check-storage-epoch.mjs",
+    "check:redis-boundary": "node scripts/check-redis-boundary.mjs"
   },
   "dependencies": {
     "@clerk/backend": "^1.21.0",

@@ -144,7 +144,7 @@ export default async function handler(req, res) {
         if (!ids || !AUTOPILOT_SPORTS.has(ids.sport) || !prefVal) continue;
         const { season, leagueId, teamId, sport } = ids;
         if (sport !== autopilotSportOf(prefVal)) continue;
-        if ((prefVal.connectionId || 'legacy') !== (creds.connectionId || 'legacy')) continue;
+        if (prefVal.connectionId !== creds.connectionId) continue;
         summary.leagues++;
         try {
           const players = await playersFor(sport);
@@ -171,8 +171,8 @@ export default async function handler(req, res) {
           const currentCreds = await getCreds(redis, userId);
           const currentPrefs = await getAutopilot(redis, userId);
           if (!currentCreds || currentCreds.lifecycleRevision !== creds.lifecycleRevision || !currentPrefs[leagueKey]
-            || (currentCreds.connectionId || 'legacy') !== (creds.connectionId || 'legacy')
-            || (currentPrefs[leagueKey].connectionId || 'legacy') !== (creds.connectionId || 'legacy')) break;
+            || currentCreds.connectionId !== creds.connectionId
+            || currentPrefs[leagueKey].connectionId !== creds.connectionId) break;
           const applyRes = await setLineup(creds, {
             leagueId, seasonId: Number(season), teamId: Number(teamId), scoringPeriodId: league.scoringPeriodId,
           }, sugg.plan, { roster: league.roster, sport });
@@ -195,7 +195,7 @@ export default async function handler(req, res) {
           if (idx) {
             const watch = await getWatch(redis, userId);
             const { watch: next, byLeague } = reconcileWatch({ watch, leagues: mlbLeagues, idx });
-            await setWatch(redis, userId, next);
+            await setWatch(redis, userId, next, creds);
             summary.callUps += Object.values(byLeague).reduce((n, b) => n + b.callUps.length, 0);
           }
         } catch { /* monitoring is best-effort */ }

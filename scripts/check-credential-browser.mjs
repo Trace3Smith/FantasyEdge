@@ -17,7 +17,8 @@ try {
    if(url.pathname==='/auth.js')return route.fulfill({contentType:'text/javascript',body:auth});
    if(url.pathname==='/api/espn'){
     const body=route.request().postDataJSON();calls.push(body);
-    if(body.action==='status')return route.fulfill({status:mode==='error'?503:200,contentType:'application/json',body:JSON.stringify(mode==='error'?{error:'Synthetic unavailable configuration'}:{connected:mode==='connected',dnaNotice:{needed:false,include:false}})});
+    if(body.action==='status')return route.fulfill({status:mode==='error'?503:200,contentType:'application/json',body:JSON.stringify(mode==='error'?{error:'Synthetic unavailable configuration'}:{connected:mode==='connected',confirmationPending:mode==='pending',dnaNotice:{needed:false,include:false}})});
+    if(body.action==='confirmConnection'){assert.equal(body.confirm,true);mode='connected';return route.fulfill({contentType:'application/json',body:JSON.stringify({connected:true})});}
     if(body.action==='leagues')return route.fulfill({contentType:'application/json',body:JSON.stringify({leagues:[],state:'no_leagues'})});
     throw new Error('Unexpected mutation in browser test');
    }
@@ -34,6 +35,11 @@ try {
   mode='disconnected';await page.locator('#retryConnection').click();
   await page.waitForSelector('#connectPanel:not(.hidden)');
   assert.equal(await page.locator('#connectionError').isVisible(),false);
+  mode='pending';await page.reload();await page.waitForSelector('#confirmationPanel:not(.hidden)');
+  assert.equal(await page.locator('#connectPanel').isVisible(),false);
+  assert.equal(calls.some(c=>c.action==='confirmConnection'),false);
+  await page.locator('#confirmConnectionBtn').click();await page.waitForSelector('#connectedWrap:not(.hidden)');
+  assert.equal(calls.filter(c=>c.action==='confirmConnection').length,1);
   mode='connected';await page.reload();await page.waitForSelector('#connectedWrap:not(.hidden)');
   assert.equal(await page.locator('#connectPanel').isVisible(),false);
   assert.equal(await page.locator('a[href*="my-edge"]').count(),0);
