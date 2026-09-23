@@ -15,6 +15,9 @@
 // labels/iteration; each cat's sign is already folded into the stored z (GAA is inverted).
 import { rotoOpenSlots } from './draftRoster.js'; // shared greedy open-slot assignment (single source)
 
+// DEF (defensemen points) is a skater category that only D-eligible players can contribute to,
+// so it is standardized over the defensemen pool alone and left at 0 for forwards — the same
+// "own group filled, other group 0" rule that separates skaters from goalies.
 export const NHL_CATS = [
   { key: 'g', label: 'G', group: 's' },
   { key: 'a', label: 'A', group: 's' },
@@ -22,13 +25,12 @@ export const NHL_CATS = [
   { key: 'pim', label: 'PIM', group: 's' },
   { key: 'ppp', label: 'PPP', group: 's' },
   { key: 'sog', label: 'SOG', group: 's' },
-  { key: 'fow', label: 'FOW', group: 's' },
-  { key: 'gwg', label: 'GWG', group: 's' },
+  { key: 'hit', label: 'HIT', group: 's' },
+  { key: 'blk', label: 'BLK', group: 's' },
+  { key: 'def', label: 'DEF', group: 's' },
   { key: 'w', label: 'W', group: 'g' },
   { key: 'gaa', label: 'GAA', group: 'g' },
   { key: 'svpct', label: 'SV%', group: 'g' },
-  { key: 'so', label: 'SO', group: 'g' },
-  { key: 'sv', label: 'SV', group: 'g' },
 ];
 export const CAT_KEYS = NHL_CATS.map((c) => c.key);
 export const CAT_LABEL = Object.fromEntries(NHL_CATS.map((c) => [c.key, c.label]));
@@ -38,22 +40,25 @@ export function value(p) {
 }
 
 // ---- Roster slots + positional eligibility --------------------------------------------------
-// A standard fantasy-hockey lineup: two of each forward position, four defensemen, two goalies.
-// Bench depth lives in `rounds`.
-export const DEFAULT_LINEUP = { C: 2, LW: 2, RW: 2, D: 4, G: 2 };
+// A standard fantasy-hockey lineup: a pooled forward group, a deep blue line, two goalies and
+// one UTIL that takes any skater. Bench depth lives in `rounds`. Leagues that split forwards
+// into C/LW/RW slots are still supported through `settings.lineup` and the eligibility below.
+export const DEFAULT_LINEUP = { F: 9, D: 5, G: 2, UTIL: 1 };
 
-// A generic forward (ESPN 'F') can fill any forward slot; specific forwards fill their own slot.
+// Slots each position can fill, ordered tight -> flex, so the greedy assignment in
+// rotoOpenSlots claims the most specific slot first. UTIL takes any SKATER: goalies are
+// deliberately excluded so a spare goalie can never absorb a skater slot.
 const SLOT_ELIGIBILITY = {
-  C: ['C'],
-  LW: ['LW'],
-  RW: ['RW'],
-  D: ['D'],
+  C: ['C', 'F', 'UTIL'],
+  LW: ['LW', 'F', 'UTIL'],
+  RW: ['RW', 'F', 'UTIL'],
+  D: ['D', 'UTIL'],
   G: ['G'],
-  F: ['C', 'LW', 'RW'],
+  F: ['C', 'LW', 'RW', 'F', 'UTIL'],
 };
 
 export function eligibleSlots(pos) {
-  return SLOT_ELIGIBILITY[pos] || ['C', 'LW', 'RW'];
+  return SLOT_ELIGIBILITY[pos] || ['F', 'UTIL'];
 }
 
 export function rosterSlots(settings = {}) {
@@ -73,9 +78,27 @@ export function bestOpenSlot(pos, open) {
   return null;
 }
 
-// Every NHL slot is positionally meaningful (no UTIL), so specific == all open slots.
+// Open slots that are positionally MEANINGFUL: everything except UTIL, which takes any skater
+// and so never represents scarcity or forces a pick. Mirrors mlbScoring/nbaScoring.
 export function specificOpenSlots(roster, settings = {}) {
-  return openSlots(roster, settings);
+  const open = openSlots(roster, settings);
+  delete open.UTIL;
+  return open;
+}
+
+// Roster-construction caps, the hockey analog of nflPosCaps' QB/TE rule. `demand` is how many
+// starting slots the position can actually fill; past that a player is bench depth, and past
+// `cap` he is dead weight the engine won't rank at all.
+//
+// Goalies are the tight one: only two start, and a season GP cap means a third goalie's starts
+// mostly cannot be used. So goalies get exactly one backup (cap 3, never a 4th), while skaters
+// keep real bench room for injuries and off-nights.
+export function posCap(pos, settings = {}) {
+  const lineup = rosterSlots(settings);
+  let demand = 0;
+  for (const slot of eligibleSlots(pos)) demand += Number(lineup[slot]) || 0;
+  const cap = pos === 'G' ? (Number(lineup.G) || 0) + 1 : demand + 2;
+  return { demand, cap };
 }
 
 // ---- Category balance -----------------------------------------------------------------------

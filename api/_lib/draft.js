@@ -46,6 +46,9 @@ const ROTO = {
     value: NHL.value, adjustedValue: NHL.adjustedValue, categoryNeed: NHL.categoryNeed,
     replacementLevel: NHL.replacementLevel, bestOpenSlot: NHL.bestOpenSlot, specificOpenSlots: NHL.specificOpenSlots,
     CAT_KEYS: NHL.CAT_KEYS, CAT_LABEL: NHL.CAT_LABEL,
+    // Optional per-sport roster-construction cap (see recommendRoto). Only NHL defines one
+    // today; NBA/WNBA/MLB keep their existing uncapped behaviour.
+    posCap: NHL.posCap,
   },
 };
 ROTO.wnba = ROTO.nba; // WNBA shares the basketball module
@@ -343,8 +346,9 @@ function nflReasonLabel({ pos, need, forced, falling, consistency, form, teCappe
 // Structured reason-label for a roto candidate: which of the ROSTER'S weak categories this player fills
 // (the team-balance point), else his elite categories, plus an open lineup slot. `weight` is categoryNeed's
 // per-cat up-weighting (>1 = the roster is light there); z is the player's per-cat standardized value.
-function rotoReasonLabel(p, weight, cfg, slotPos) {
+function rotoReasonLabel(p, weight, cfg, slotPos, capped) {
   const chips = [];
+  if (capped) chips.push(`extra ${p.pos} — bench only, every starting ${p.pos} slot is filled`);
   const z = p.z || {};
   const gapCats = cfg.CAT_KEYS
     .filter((k) => (weight[k] ?? 1) > 1.1 && (z[k] ?? 0) >= 0.6)  // roster light here AND he's strong here
@@ -410,6 +414,21 @@ function recommendRoto(players, drafted, roster = [], settings = {}, round = 1, 
   const totalRounds = settings.rounds || 13;
   const available = players.filter((p) => !taken.has(p.id) && typeof p.zTotal === 'number');
 
+  // Roster-construction caps, the roto analog of the NFL QB/TE rule (see nflPosCaps). Without
+  // one, categoryNeed alone would happily stack a position: a skater-heavy roster shows a
+  // deficit in EVERY goalie category at once, so it up-weights all of them together and the
+  // engine keeps taking goalies it can never start. `demand` = the starting slots the position
+  // can fill; `cap` = demand plus real bench room (tighter for goalies, whose starts are the
+  // scarce resource). Past demand a player is bench depth and is damped so only genuine value
+  // surfaces; past cap he is dead weight and is not ranked at all.
+  const rosterCounts = {};
+  for (const p of roster) if (p && p.pos) rosterCounts[p.pos] = (rosterCounts[p.pos] || 0) + 1;
+  const capOf = (pos) => (M.posCap ? M.posCap(pos, settings) : { demand: Infinity, cap: Infinity });
+  // Scarcity below is a LEAGUE-wide read, so it stays on the unfiltered pool; only the
+  // candidate list is capped. If the cap would empty the board, it yields.
+  const uncapped = available.filter((p) => (rosterCounts[p.pos] || 0) < capOf(p.pos).cap);
+  const eligible = uncapped.length ? uncapped : available;
+
   const replacement = M.replacementLevel(players, settings);
   const weight = M.categoryNeed(roster);    // up-weights the roster's lagging categories
   // Open starting slots (flex-aware). Flex/UTIL takes anyone, so only the SPECIFIC slots can
@@ -428,12 +447,17 @@ function recommendRoto(players, drafted, roster = [], settings = {}, round = 1, 
   const runs = positionRuns(recentPicks);
   const runSet = new Set(runs);
 
-  const scored = available
+  const scored = eligible
     .map((p) => {
       const v = M.value(p);
       const adj = M.adjustedValue(p, weight); // category-balanced value
       const slot = M.bestOpenSlot(p.pos, open); // tightest specific open slot he fills (or null)
       const fills = slot != null;              // addresses a real positional gap (not just flex)
+      // Beyond the position's starting demand: bench depth, not a starter. Damped rather than
+      // dropped, so a genuinely elite name still surfaces. Subtracted (never multiplied) so a
+      // below-replacement candidate can't be *raised* by the haircut.
+      const capped = (rosterCounts[p.pos] || 0) >= capOf(p.pos).demand;
+      const capPenalty = capped ? Math.abs(adj) * 0.25 : 0;
       // Slot urgency: a nudge for filling an open specific slot, surging as the cushion runs out
       // so we lock a legal lineup before chasing luxury depth (roto analog of the NFL forced tier).
       const slotBoost = fills ? (slack <= 0 ? 1.6 : slack <= 2 ? 1.2 : 1.05) : 1;
@@ -442,7 +466,7 @@ function recommendRoto(players, drafted, roster = [], settings = {}, round = 1, 
         id: p.id, name: p.name, team: p.team, pos: p.pos, rank: p.rank,
         value: Math.round(v * 100) / 100,
         vorp: Math.round((v - replacement) * 100) / 100,
-        score: Math.round(adj * slotBoost * runBump * 100) / 100,
+        score: Math.round((adj * slotBoost * runBump - capPenalty) * 100) / 100,
         need: fills,                       // fills an open specific starting slot
         forced: fills && slack <= 0,       // out of spare picks — must lock a starter now
         adp: null, picksPastAdp: 0, falling: false, proj: null, // no roto ADP/projections in v1
@@ -450,7 +474,7 @@ function recommendRoto(players, drafted, roster = [], settings = {}, round = 1, 
         form: (p.tag === 'hot' || p.tag === 'cold') ? p.tag : null, // in-season only; usually absent preseason
         statLabels: p.statLabels, stats: [p.s1, p.s2, p.s3, p.s4, p.s5, p.s6], // real stat line
         // Which of the roster's WEAK categories he fills (team-balance point), else his elite cats + open slot.
-        reasonLabel: rotoReasonLabel(p, weight, M, slot),
+        reasonLabel: rotoReasonLabel(p, weight, M, slot, capped),
       };
     })
     .sort((a, b) =>
