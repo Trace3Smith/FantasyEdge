@@ -17,6 +17,13 @@ export const PGA_DATASET_KEY = 'dataset:pga';
 // MLB is intentionally exempt (its cold-start build skips prospect enrichment, so
 // we don't want a version bump to drop Phase 2 data between cron runs).
 export const DATASET_VERSION = 11;
+// NHL carries its own build version so its category rework can invalidate the hockey board
+// ALONE. Bumping the shared DATASET_VERSION would cold-rebuild nba/wnba/nfl/pga too, and a
+// cold rebuild mid-NFL-season costs a lot to fix a board that didn't change. Bump this
+// whenever buildNhlDataset's output shape or logic moves.
+//   12 — 11-category rework: hits/blocks from the committed NHL snapshot, DEF over the
+//        defensemen pool, workload-weighted GAA; dropped FOW/GWG/SO/SV from the z block.
+export const NHL_DATASET_VERSION = 12;
 // Persistent Phase 2 state, survives the daily dataset rebuild:
 //   PROSPECT_STATE_KEY — per-player prospect record (milb lines, synopsis cache,
 //     event-detection snapshot) + the last good FanGraphs board for graceful degrade.
