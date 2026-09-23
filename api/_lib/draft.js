@@ -6,7 +6,7 @@ import { buildDataset } from './buildDataset.js';
 import { buildNflDataset } from './buildNflDataset.js';
 import { buildNbaDataset, buildWnbaDataset } from './buildNbaDataset.js';
 import { buildNhlDataset } from './buildNhlDataset.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, DATASET_VERSION } from './kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, DATASET_VERSION, NHL_DATASET_VERSION } from './kv.js';
 // The board ranks by the same per-format value function the rankings tab and draft board
 // use — one shared definition (see /nflScoring.js), so the engine never drifts from the UI.
 import { nflRankValue as valueOf, nflReplacementDepths } from '../../nflScoring.js';
@@ -24,7 +24,7 @@ const SPORTS = {
   nfl: { key: NFL_DATASET_KEY, build: () => buildNflDataset(), version: DATASET_VERSION },
   nba: { key: NBA_DATASET_KEY, build: () => buildNbaDataset(), version: DATASET_VERSION },
   wnba: { key: WNBA_DATASET_KEY, build: () => buildWnbaDataset(), version: DATASET_VERSION },
-  nhl: { key: NHL_DATASET_KEY, build: () => buildNhlDataset(), version: DATASET_VERSION },
+  nhl: { key: NHL_DATASET_KEY, build: () => buildNhlDataset(), version: NHL_DATASET_VERSION },
   mlb: { key: DATASET_KEY, build: () => buildDataset({ season: new Date().getFullYear() }), needsValue: true },
 };
 
@@ -49,6 +49,9 @@ const ROTO = {
     // Optional per-sport roster-construction cap (see recommendRoto). Only NHL defines one
     // today; NBA/WNBA/MLB keep their existing uncapped behaviour.
     posCap: NHL.posCap,
+    // Optional board-relative ceiling on the category tilt (see recommendRoto). NHL only;
+    // NBA/WNBA/MLB omit it and keep their existing uncapped category balancing.
+    needTiltCap: NHL.needTiltCap,
   },
 };
 ROTO.wnba = ROTO.nba; // WNBA shares the basketball module
@@ -447,10 +450,19 @@ function recommendRoto(players, drafted, roster = [], settings = {}, round = 1, 
   const runs = positionRuns(recentPicks);
   const runSet = new Set(runs);
 
+  // Ceiling on how far category need may move a player off raw value, measured against this
+  // board. Sports that don't define one keep the uncapped behaviour they shipped with.
+  const tiltCap = M.needTiltCap ? M.needTiltCap(eligible) : null;
+
   const scored = eligible
     .map((p) => {
       const v = M.value(p);
-      const adj = M.adjustedValue(p, weight); // category-balanced value
+      // Category balance is a nudge, not an override: the need component is clamped so it can
+      // reorder players within a tier but never promote one from well below the best available.
+      const tilted = M.adjustedValue(p, weight); // category-balanced value
+      const adj = tiltCap == null
+        ? tilted
+        : v + Math.max(-tiltCap, Math.min(tiltCap, tilted - v));
       const slot = M.bestOpenSlot(p.pos, open); // tightest specific open slot he fills (or null)
       const fills = slot != null;              // addresses a real positional gap (not just flex)
       // Beyond the position's starting demand: bench depth, not a starter. Damped rather than
