@@ -1,3 +1,4 @@
+import { blockPreview } from '../_lib/previewSafety.js';
 // Creates a Stripe Checkout Session for a Premium subscription. The caller picks the
 // billing interval ('month' = $5/mo, 'year' = $50/yr); we map it to the matching
 // Stripe price, ensure the user has a Stripe customer, and hand back a hosted
@@ -26,6 +27,7 @@ async function getOrCreateCustomer(userId) {
 }
 
 export default async function handler(req, res) {
+  if (blockPreview(req, res, 'disabled')) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {

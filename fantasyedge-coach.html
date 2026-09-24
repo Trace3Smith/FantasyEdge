@@ -151,7 +151,9 @@
   </div>
 </main>
 
-<script>
+<script type="module">
+import { targetFromSearch } from './leagueNavigation.js';
+const navigation=targetFromSearch(location.search);
   const history = [];           // [{role:'user'|'assistant', content}]
   let busy = false;
   const $ = (id) => document.getElementById(id);
@@ -276,6 +278,27 @@
     }
   }
   // Auth resolves after first paint; re-evaluate the gate when it does (and on sign-in/out).
+  let contextGeneration=0,contextAccount='',contextBubble=null;
+  async function loadVerifiedContext() {
+    const key=`${window.FE?.clerk?.session?.id||''}:${isLocked()}`;
+    if(key===contextAccount)return;contextAccount=key;
+    const generation=++contextGeneration;
+    contextBubble?.remove();contextBubble=null;$('coachInput').value='';
+    if(isLocked())return;
+    if(navigation.error){contextBubble=addMessage('coach','This league link is invalid. Choose a league in My Edge again.','context');return;}
+    if(!navigation.target)return;
+    const response=await window.FE.apiPost('/api/espn',{action:'leagueContext',target:navigation.target}).catch(()=>({ok:false}));
+    if(generation!==contextGeneration)return;
+    if(!response.ok){contextBubble=addMessage('coach','League context is unavailable for this connected account. Reopen it from My Edge.','context');return;}
+    const data=response.data;
+    const description=`Verified ESPN context: ${data.scope.sport.toUpperCase()} — ${data.leagueName}. Scoring: ${data.scoringType||'unknown'}. Checked ${new Date(data.observedAt).toLocaleString()}.`;
+    contextBubble=addMessage('coach',description+' Review the prepared question before sending. Unverified slots are not assumed to be starters.','context');
+    $('coachInput').value=description+'\nPlease help me review this roster; do not assume missing slot or availability information.\n'+data.roster.map(p=>`${p.name}: ${p.position}, ${p.slot}, availability ${p.availability}`).join('\n');
+    autoGrow();
+  }
+  function contextReady(){void loadVerifiedContext();window.FE?.clerk?.addListener(()=>{applyGate();void loadVerifiedContext();});}
+  document.addEventListener('fe-auth-ready',contextReady);
+  if(window.FE)contextReady();
   document.addEventListener('fe-auth-ready', applyGate);
   applyGate();
 </script>

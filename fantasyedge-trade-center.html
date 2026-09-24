@@ -215,7 +215,9 @@
   </div>
 </main>
 
-<script>
+<script type="module">
+import { targetFromSearch, leagueMatches } from './leagueNavigation.js';
+const navigation=targetFromSearch(location.search);
   const $ = (id) => document.getElementById(id);
   const isPremium = () => !!(window.FE && window.FE.isPremium && window.FE.isPremium());
   const isSignedIn = () => !!(window.FE && window.FE.isSignedIn && window.FE.isSignedIn());
@@ -226,7 +228,7 @@
 
   // All 5 sports are trade-eligible. Off-season ones may have no current leagues; that's fine.
   const SPORTS = { mlb: 'MLB', wnba: 'WNBA', nfl: 'NFL', nba: 'NBA', nhl: 'NHL' };
-  let currentSport = localStorage.getItem('fe_trade_sport') || 'mlb';
+  let currentSport = navigation.target?.sport || localStorage.getItem('fe_trade_sport') || 'mlb';
   if (!SPORTS[currentSport]) currentSport = 'mlb';
   let leagues = [];        // [{leagueId, season, leagueName, teamName}]
   let chatMessages = [];   // [{role, content}] for the evaluator
@@ -274,14 +276,15 @@
     setMsg('chatMsg', '');
   }
   async function loadLeaguesList() {
-    const { ok, status, data } = await api('/api/espn', { action: 'leagues', sport: currentSport });
+    if(navigation.error){$('leagueSelect').innerHTML='<option value="">Invalid league link</option>';return;}
+    const { ok, status, data } = await api('/api/espn', { action: 'leagues', sport: currentSport, ...(navigation.target?.sport===currentSport?{target:navigation.target}:{}) });
     if (!ok) {
       if (status === 409 && data && data.error === 'espn_auth') { show('tools', false); show('needConnect', true); return; }
       $('leagueSelect').innerHTML = '<option>Could not load leagues</option>';
       return;
     }
     leagues = ((data && data.leagues) || []).filter((l) => l.leagueId && l.season).map((l) => ({
-      leagueId: l.leagueId, season: l.season, leagueName: l.leagueName || ('League ' + l.leagueId),
+      teamId:l.teamId??l.team?.id, sport:currentSport, leagueId: l.leagueId, season: l.season, leagueName: l.leagueName || ('League ' + l.leagueId),
       teamName: (l.team && l.team.name) || '',
     }));
     if (!leagues.length) {
@@ -291,9 +294,13 @@
     }
     $('leagueSelect').innerHTML = leagues.map((l, i) =>
       `<option value="${i}">${escapeHtml(l.leagueName)}${l.teamName ? ' — ' + escapeHtml(l.teamName) : ''}</option>`).join('');
+    if(navigation.target?.sport===currentSport) {const index=leagues.findIndex(l=>leagueMatches(l,navigation.target,currentSport));
+      if(index<0){$('leagueSelect').innerHTML='<option value="">League unavailable for this account</option>';return;}
+      $('leagueSelect').value=String(index);
+    }
     $('leagueHint').textContent = leagues.length + (leagues.length === 1 ? ' league' : ' leagues');
   }
-  function currentLeague() { const i = Number($('leagueSelect').value); return leagues[i] || null; }
+  function currentLeague() { if($('leagueSelect').value==='')return null; const i = Number($('leagueSelect').value); return leagues[i] || null; }
 
   // ---- trade scanner ------------------------------------------------------------
   async function runScan() {

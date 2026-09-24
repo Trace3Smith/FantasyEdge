@@ -205,6 +205,7 @@
     <li><a href="fantasyedge-rankings.html"><span class="icon">📊</span> Rankings</a></li>
     <li><a href="fantasyedge-draft.html"><span class="icon">📋</span> Draft Mode</a></li>
     <li><a href="fantasyedge-draft.html?mode=mock"><span class="icon">🎯</span> Mock Draft</a></li>
+    <li><a href="fantasyedge-my-edge.html"><span class="icon">◇</span> My Edge</a></li>
     <li><a href="fantasyedge-autopilot.html" class="active"><span class="icon">🎛️</span> Team Manager</a></li>
     <li><a href="fantasyedge-trade-center.html"><span class="icon">🤝</span> Trade Center</a></li>
     <li><a href="fantasyedge-brackets.html"><span class="icon">🏆</span> Brackets &amp; Bowls</a></li>
@@ -235,6 +236,12 @@
     <h2>Sign in to manage your teams</h2>
     <p class="hint">Team Manager links your ESPN fantasy account to your FantasyEdge profile.</p>
     <button class="btn btn-gold" id="signInBtn">Sign in</button>
+  </div>
+
+  <div class="panel hidden" id="connectionError">
+    <h2>Connection status unavailable</h2>
+    <p class="hint">We could not check your saved ESPN connection. No connection state has been confirmed. Retry before entering credentials.</p>
+    <button class="btn btn-gold" id="retryConnection">Retry connection check</button>
   </div>
 
   <!-- Connect form (premium, not connected) -->
@@ -275,10 +282,11 @@
         stored describes the league, not you. Anything already saved stays, for the same reason.
       </p>
     </div>
-    <label class="hint" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+    <label id="dnaIncludeLabel" class="hint" style="display:flex;align-items:center;gap:8px;cursor:pointer">
       <input type="checkbox" id="dnaInclude" checked>
       <span>Include my leagues</span>
     </label>
+    <p class="hint hidden" id="previewDnaNote">League DNA collection is disabled in this preview.</p>
     <label class="fld">
       <span class="lbl"><code>espn_s2</code> cookie</span>
       <textarea class="txt" id="s2Input" rows="3" placeholder="AEB... (a long string)" autocomplete="off" spellcheck="false"></textarea>
@@ -346,7 +354,9 @@
   </div>
 </main>
 
-<script>
+<script type="module">
+import { targetFromSearch, leagueMatches } from './leagueNavigation.js';
+const navigation = targetFromSearch(location.search);
   const $ = (id) => document.getElementById(id);
   const isPremium = () => !!(window.FE && window.FE.isPremium && window.FE.isPremium());
   const isSignedIn = () => !!(window.FE && window.FE.isSignedIn && window.FE.isSignedIn());
@@ -372,14 +382,14 @@
     nba:  { label: 'NBA',  active: false, coming: 'October' },
     nhl:  { label: 'NHL',  active: false, coming: 'October' },
   };
-  let currentSport = localStorage.getItem('fe_autopilot_sport') || 'mlb';
+  let currentSport = navigation.target?.sport || localStorage.getItem('fe_autopilot_sport') || 'mlb';
   if (!SPORTS[currentSport]) currentSport = 'mlb';
   let leaguesByKey = {};       // leagueKey -> league object (for the embedded AI Coach)
   const coachState = {};       // leagueKey -> { messages: [{role,content}], busy }
 
   function renderSportBar() {
     $('sportBar').innerHTML = Object.entries(SPORTS).map(([k, v]) =>
-      `<button class="sport-btn${k === currentSport ? ' active' : ''}" data-sport="${k}">${v.label}${v.active ? '' : '<span class="soon">soon</span>'}</button>`
+      `<button class="sport-btn${k === currentSport ? ' active' : ''}" data-sport="${k}">${v.label}${v.active ? '' : navigation.target?.sport===k ? '<span class="soon">read only</span>' : '<span class="soon">soon</span>'}</button>`
     ).join('');
   }
 
@@ -391,7 +401,8 @@
     setMsg('leaguesMsg', '');
     show('addLeaguePanel', sport === 'mlb'); // manual add is the MLB discovery fallback
     const cfg = SPORTS[sport];
-    if (cfg.active) {
+    if(navigation.error){$('leaguesArea').innerHTML='';setMsg('leaguesMsg','This league link is invalid. Open My Edge to choose a league again.','err');return;}
+    if (cfg.active || navigation.target?.sport === sport) {
       loadLeagues();
     } else {
       $('leaguesArea').innerHTML = `<div class="panel"><div class="coming">
@@ -416,15 +427,27 @@
     show('locked', signedIn && !premium);
     show('signedOut', !signedIn);
     // Hide both premium surfaces until we know the connection status.
-    if (!signedIn || !premium) { show('connectPanel', false); show('connectedWrap', false); return; }
+    if (!signedIn || !premium) { show('connectionError', false); show('connectPanel', false); show('connectedWrap', false); return; }
     if (!loadedOnce) { loadedOnce = true; await refreshStatus(); }
   }
 
   // ---- connection status ---------------------------------------------------------
+  let connectionStatusVerified = false;
+  let previewReadOnly = true; // Fail closed until authenticated server status supplies capabilities.
+  const canMutateLeague = () => connectionStatusVerified && !previewReadOnly;
+  $('retryConnection').addEventListener('click', () => refreshStatus());
   async function refreshStatus() {
-    const { ok, status, data } = await api('/api/espn', { action: 'status' });
+    connectionStatusVerified = false;
+    show('connectionError', false); show('connectPanel', false); show('connectedWrap', false);
+    const { ok, status, data } = await api('/api/espn', { action: 'status' }).catch(() => ({ok:false}));
     if (status === 401) { show('connectPanel', false); show('connectedWrap', false); show('signedOut', true); return; }
-    if (!ok) { show('connectPanel', true); return; }
+    if (!ok || typeof data?.connected !== 'boolean') { show('connectionError', true); return; }
+    connectionStatusVerified = true;
+    previewReadOnly = data.previewReadOnly !== false;
+    show('leagueDnaNote', !previewReadOnly);
+    show('dnaIncludeLabel', !previewReadOnly);
+    $('dnaInclude').disabled = previewReadOnly;
+    show('previewDnaNote', previewReadOnly);
     if (data.connected) {
       show('connectPanel', false);
       show('connectedWrap', true);
@@ -448,6 +471,11 @@
   // Everyone who has answered gets a one-line setting to change it. Nothing is captured until
   // they answer.
   function renderDna(st) {
+    if (previewReadOnly) {
+      show('dnaNoticePanel', false);
+      $('dnaSetting').textContent = 'League DNA collection is disabled in this preview.';
+      return;
+    }
     const needed = !!(st && st.needed);
     $('dnaNoticeText').innerHTML = $('leagueDnaNote').innerHTML; // the same disclosure as the connect panel
     show('dnaNoticePanel', needed);
@@ -460,6 +488,7 @@
   }
 
   async function sendDnaChoice(include, via) {
+    if (!canMutateLeague()) return;
     const btns = ['dnaYesBtn', 'dnaNoBtn', 'dnaToggle'].map((id) => $(id)).filter(Boolean);
     btns.forEach((b) => { b.disabled = true; });
     setMsg('dnaNoticeMsg', '');
@@ -509,6 +538,7 @@
   }
 
   async function connect() {
+    if (!connectionStatusVerified) { show('connectPanel', false); show('connectionError', true); return; }
     const espn_s2 = $('s2Input').value.trim();
     const swid = $('swidInput').value.trim();
     if (!espn_s2 || !swid) { setMsg('connectMsg', 'Paste both the espn_s2 and SWID cookie values.', 'err'); return; }
@@ -524,7 +554,7 @@
     $('connectBtn').textContent = 'Verifying with ESPN…';
     setMsg('connectMsg', '');
     // League DNA: send the notice version this panel displayed, and the include box's state.
-    const dnaNotice = { version: DNA_NOTICE_VERSION, include: $('dnaInclude').checked };
+    const dnaNotice = previewReadOnly ? undefined : { version: DNA_NOTICE_VERSION, include: $('dnaInclude').checked };
     const { ok, status, data } = await api('/api/espn', { action: 'connect', espn_s2, swid, dnaNotice });
     $('connectBtn').disabled = false;
     $('connectBtn').textContent = 'Connect ESPN';
@@ -584,10 +614,11 @@
 
   // ---- leagues + rosters ---------------------------------------------------------
   async function loadLeagues() {
-    if (SPORTS[currentSport] && !SPORTS[currentSport].active) { selectSport(currentSport); return; } // off-season → 'Coming {month}'
+    if (SPORTS[currentSport] && !SPORTS[currentSport].active && navigation.target?.sport !== currentSport) { selectSport(currentSport); return; } // off-season → 'Coming {month}'
     setMsg('leaguesMsg', '');
+    if (navigation.error) { setMsg('leaguesMsg', 'This league link is invalid. Open My Edge to choose a league again.', 'err'); return; }
     $('leaguesArea').innerHTML = '<div class="loading">Pulling your ESPN leagues and rosters…</div>';
-    const { ok, status, data } = await api('/api/espn', { action: 'leagues', sport: currentSport });
+    const { ok, status, data } = await api('/api/espn', { action: 'leagues', sport: currentSport, ...(navigation.target?.sport === currentSport ? {target:navigation.target}: {}) });
     if (!ok) {
       $('leaguesArea').innerHTML = '';
       if (status === 409 && data?.error === 'not_connected') { show('connectedWrap', false); show('connectPanel', true); return; }
@@ -599,6 +630,9 @@
       if (status === 401) { setMsg('leaguesMsg', 'Session expired — please sign in again.', 'err'); return; }
       setMsg('leaguesMsg', (data && data.error) ? data.error : 'Could not load leagues from ESPN.', 'err');
       return;
+    }
+    if (navigation.target?.sport === currentSport && !(data.leagues||[]).some(l=>leagueMatches(l,navigation.target,currentSport))) {
+      $('leaguesArea').innerHTML='';setMsg('leaguesMsg','This league is not available for your connected account.','err');return;
     }
     renderLeagues(data);
   }
@@ -622,11 +656,11 @@
     $('leaguesArea').innerHTML = leagues.map(renderLeagueCard).join('');
   }
 
-  // Frontend league key (matches the server's season:leagueId:teamId).
+  // Sport-qualified frontend key matches the server, including overlapping league IDs.
   function lkOf(lg) {
     const teamId = lg.teamId != null ? lg.teamId : (lg.team && lg.team.id);
     if (teamId == null || !lg.leagueId) return '';
-    return `${lg.season}:${lg.leagueId}:${teamId}`;
+    return `${lg.sport || currentSport}:${lg.season}:${lg.leagueId}:${teamId}`;
   }
 
   // Expired-session panel: clear explanation + one-click path back to the connect
@@ -679,7 +713,7 @@
         <div class="lc-meta">ESPN didn't return your roster for this league.</div>
       </div></div></div>`;
     }
-    const rec = (team.wins != null) ? `${team.wins}-${team.losses}${team.ties ? '-' + team.ties : ''}` : '';
+    const rec = lg.scoringType !== 'ROTO' && (team.wins != null) ? `${team.wins}-${team.losses}${team.ties ? '-' + team.ties : ''}` : '';
     const rows = renderRoster(lg.roster || []);
     return `<div class="league-card">
       <div class="lc-head">
@@ -793,6 +827,7 @@
   const AUTOPILOT_SPORTS = { mlb: 1, wnba: 1, nfl: 1 };
   function renderControls(lg) {
     if (!ENGINE_SPORTS[currentSport]) return '';
+    if (!canMutateLeague()) return '<div class="lc-controls"><span class="sugg-meta">Read-only preview: Autopilot, lineup Apply and dry-run are unavailable.</span></div>';
     const teamId = lg.teamId != null ? lg.teamId : (lg.team && lg.team.id);
     if (teamId == null) return '';
     const data = `data-league-id="${escapeHtml(String(lg.leagueId))}" data-season="${escapeHtml(String(lg.season))}" data-team-id="${escapeHtml(String(teamId))}"`;
@@ -820,6 +855,7 @@
   }
 
   async function applyLineupClick(btn) {
+    if (!canMutateLeague()) return;
     const { leagueId, season, teamId } = btn.dataset;
     const msg = btn.closest('.lc-controls').querySelector('.ap-msg');
     if (!confirm('Apply the suggested optimal lineup to this ESPN league now? This changes your starting lineup on ESPN.')) return;
@@ -842,6 +878,7 @@
   // Dry run of apply: the server re-fetches the roster and recomputes the plan exactly as apply
   // would, then returns the transaction items instead of posting them. Nothing reaches ESPN.
   async function previewLineupClick(btn) {
+    if (!canMutateLeague()) return;
     const { leagueId, season, teamId } = btn.dataset;
     const controls = btn.closest('.lc-controls');
     const msg = controls.querySelector('.ap-msg');
@@ -870,6 +907,7 @@
   }
 
   async function toggleAutopilot(input) {
+    if (!canMutateLeague()) { input.checked = false; return; }
     const { leagueId, season, teamId } = input.dataset;
     const on = input.checked;
     const controls = input.closest('.lc-controls');
@@ -986,7 +1024,7 @@
   function renderEngineNote() {
     if (ENGINE_SPORTS[currentSport]) return '';
     const label = (SPORTS[currentSport] && SPORTS[currentSport].label) || currentSport.toUpperCase();
-    return `<div class="sugg sugg-ok">Your ${escapeHtml(label)} roster and the AI Coach are live. `
+    return `<div class="sugg sugg-ok">Read-only ${escapeHtml(label)} roster. ${currentSport==='nhl'?'Lineup slot, reserve and scoring category labels remain unverified. ':''}`
       + `Start/sit, one-tap lineups and Autopilot aren't switched on for ${escapeHtml(label)} yet.</div>`;
   }
 
@@ -1090,11 +1128,11 @@
     let benchOpened = false;
     let html = '';
     for (const p of roster) {
-      if (!p.starter && !benchOpened) { benchOpened = true; html += '<tr class="bench-sep"><td colspan="3">Bench</td></tr>'; }
+      if (p.starter === false && !benchOpened) { benchOpened = true; html += '<tr class="bench-sep"><td colspan="3">Bench</td></tr>'; }
       const slotCls = p.starter ? 'slot-badge start' : 'slot-badge';
       const inj = p.injury ? ` <span class="inj">${escapeHtml(p.injury)}</span>` : '';
-      html += `<tr class="${p.starter ? '' : 'bench'}">
-        <td><span class="${slotCls}">${escapeHtml(p.slot)}</span></td>
+      html += `<tr class="${p.starter === false ? 'bench' : ''}">
+        <td><span class="${slotCls}">${escapeHtml(p.slotKnown===false?'Unverified slot':p.slot)}</span></td>
         <td><span class="pname">${escapeHtml(p.name)}</span>${inj}${renderMu(p.matchup)}</td>
         <td><span class="pmeta">${escapeHtml(p.pos)}${p.proTeam ? ' · ' + escapeHtml(p.proTeam) : ''}</span></td>
       </tr>`;

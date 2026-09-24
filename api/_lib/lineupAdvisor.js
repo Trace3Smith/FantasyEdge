@@ -311,6 +311,23 @@ function activeOpenings(slotCounts, roster, sport, benchId, ilSlotId) {
   return openings;
 }
 
+// Read-only occupancy diagnostic reuses the optimizer's active-slot construction.
+// Unknown roles/counts and empty preseason rosters do not produce a guessed vacancy.
+export function lineupVacancies(league, sport) {
+  const cfg=SPORT_CFG[sport];
+  if(!cfg || !league.roster?.length || !Object.keys(league.slotCounts||{}).length) return null;
+  if(league.roster.some(p=>p.slotKnown===false || p.starter===null)) return null;
+  const {benchId,slotId}=cfg.il;
+  const ids=Object.keys(league.slotCounts).map(Number);
+  const ilId=ids.includes(slotId)?slotId:Math.max(...ids)!==benchId?Math.max(...ids):slotId;
+  if(Object.values(league.slotCounts).some(n=>!Number.isInteger(n)||n<0||n>100)) return null;
+  if(Object.entries(league.slotCounts).some(([id,n])=>n>0 && Number(id)!==ilId && Number(id)!==benchId && slotLabel(Number(id),sport)===id)) return null;
+  const slots=activeOpenings(league.slotCounts,league.roster,sport,benchId,ilId);
+  const counts=new Map(); for(const id of slots) counts.set(id,(counts.get(id)||0)+1);
+  for(const p of league.roster) if(p.starter===true && counts.has(p.slotId)) counts.set(p.slotId,Math.max(0,counts.get(p.slotId)-1));
+  return [...counts].filter(([,count])=>count>0).map(([slotId,count])=>({slotId,slot:slotLabel(slotId,sport),count}));
+}
+
 const eligibleFor = (rp, slotId) => {
   const slots = (rp.eligibleSlots && rp.eligibleSlots.length) ? rp.eligibleSlots : [rp.slotId];
   return slots.includes(slotId);

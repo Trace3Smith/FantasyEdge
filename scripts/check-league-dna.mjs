@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { installLifecycleFake } from './lib/lifecycle-fake.mjs';
 // Offline checks for League DNA consent: no user's leagues are captured until they've seen the notice
 // and opted in, on EVERY capture path. Runs the REAL request handler (api/espn/index.js) and the REAL
 // Autopilot cron, with Clerk and Redis swapped for stand-ins (node:test module mocks) and ESPN stubbed
@@ -10,6 +11,7 @@
 import { mock } from 'node:test';
 
 // kv.js builds its Upstash client on import; the handler gets the in-memory stand-in below instead.
+process.env.ESPN_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64'); // synthetic offline key
 process.env.KV_REST_API_URL ||= 'https://offline.invalid';
 process.env.KV_REST_API_TOKEN ||= 'offline';
 process.env.CRON_SECRET = 'offline-cron';
@@ -29,12 +31,13 @@ const fakeRedis = {
   smembers: async (k) => [...(sets.get(k) || [])],
 };
 
+installLifecycleFake(fakeRedis);
 let currentUser = null;
 const lib = (p) => new URL(`../api/_lib/${p}`, import.meta.url).href;
 const realKv = await import(lib('kv.js'));
 const realAuth = await import(lib('auth.js'));
 mock.module(lib('kv.js'), { namedExports: { ...realKv, redis: fakeRedis } });
-mock.module(lib('auth.js'), { namedExports: { ...realAuth, requirePremium: async () => ({ userId: currentUser }) } });
+mock.module(lib('auth.js'), { namedExports: { ...realAuth, requireUser: async () => ({ userId: currentUser }), requirePremium: async () => ({ userId: currentUser }), premiumForUser: async () => true } });
 const { default: espn } = await import('../api/espn/index.js');
 const { default: cron } = await import('../api/cron/autopilot.js');
 const { DNA_NOTICE_VERSION, DNA_USERS } = await import(lib('leagueDnaConsent.js'));
@@ -259,6 +262,7 @@ console.log("\noffline — the sweep's time budget and cursor");
       kv.set(`espn:dna:ack:${id}`, { version: DNA_NOTICE_VERSION, include: true, via: 'notice' });
       kv.set(`espn:creds:${id}`, { espn_s2: 's2', swid: `{${id}}` });
     }
+    installLifecycleFake(r);
     return { r, kv };
   };
 

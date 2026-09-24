@@ -1,9 +1,11 @@
+import { blockPreview } from '../_lib/previewSafety.js';
 // Opens the Stripe Billing Portal so a subscriber can update their card, view
 // invoices, or cancel. Requires an existing Stripe customer (set during checkout).
 import { stripe, clerkClient, APP_URL } from '../_lib/billing.js';
 import { requireUser, sendError, HttpError } from '../_lib/auth.js';
 
 export default async function handler(req, res) {
+  if (blockPreview(req, res, 'disabled')) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {

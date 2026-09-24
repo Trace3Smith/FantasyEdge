@@ -1,3 +1,4 @@
+import { blockPreview } from '../_lib/previewSafety.js';
 // Player-synopsis endpoint (Phase 0). POST { sport, playerId } -> { text, generatedAt, cached } or
 // { text:null, reason }. Reads the player's CURRENT row from the same daily KV dataset the rankings
 // tab serves, then delegates to the shared engine (on-demand generation + fingerprint cache).
@@ -33,6 +34,7 @@ const KEYS = {
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default async function handler(req, res) {
+  if (blockPreview(req, res, 'disabled')) return;
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 

@@ -1,3 +1,4 @@
+import { blockPreview } from '../_lib/previewSafety.js';
 // Starts a mock draft. Free users get one per UTC day on basic (fixed) settings;
 // premium users get unlimited mocks and may tweak settings. Returns the league setup
 // the frontend uses to simulate the snake draft (AI opponents pick client-side).
@@ -8,6 +9,7 @@ import { DEFAULT_SETTINGS, isRoto, resolveStarters } from '../_lib/draft.js';
 const SUPPORTED = new Set(['nfl', 'nba', 'wnba', 'mlb', 'nhl']);
 
 export default async function handler(req, res) {
+  if (blockPreview(req, res, 'disabled')) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {

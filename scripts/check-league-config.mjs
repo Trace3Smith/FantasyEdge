@@ -253,7 +253,7 @@ console.log('\noffline — ESPN wiring (fetch stubbed, no network)');
   ] };
   const nflSettings = { settings: { name: 'Sunday League', size: 10,
     scoringSettings: { scoringType: 'H2H_POINTS', scoringItems: [{ statId: 53, points: 0.5 }] } } };
-  const mlbLeague = { ...superstars, teams: [{ id: 3, location: 'Team', nickname: 'Three', roster: { entries: [] } }] };
+  const mlbLeague = { ...superstars, teams: [{ id: 3, primaryOwner: creds.swid, location: 'Team', nickname: 'Three', roster: { entries: [] } }] };
   const seen = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {

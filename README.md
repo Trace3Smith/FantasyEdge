@@ -64,3 +64,22 @@ Use a Clerk **development** instance and Stripe **test mode**. Test card:
 - `POST /api/draft/mock-start` — start a mock (free: 1/day, basic settings).
 - `POST /api/draft/advise` — best-available candidates + Claude rationale
   (free: rounds 1–7).
+
+## Connected leagues / My Edge development
+
+Current engineering designs and rollout gates:
+
+- [My Edge MVP architecture](docs/my-edge-mvp.md)
+- [NBA and NHL readiness](docs/nba-nhl-readiness.md)
+- [ESPN credential security and migration](docs/espn-credential-security.md)
+- [Future ESPN Connector design](docs/espn-connector-design.md)
+
+New ESPN connections require server-only `ESPN_CREDENTIAL_ENCRYPTION_KEY`; rotation optionally uses
+`ESPN_CREDENTIAL_ENCRYPTION_PREVIOUS_KEY`. Provision before deploying the encrypted writer. Existing
+plaintext records remain readable pending an explicitly authorized migration; see the security guide.
+Never commit these keys. Manual cookie connection remains available.
+
+Offline foundation verification: `npm run check:espn`, `npm run check:espn-handler`,
+`npm run check:autopilot`, `npm run check:league-config`, `npm run check:league-dna`,
+`npm run check:credentials`, `npm run check:sport-readiness`, and `npm run verify:coach`.
+NBA/NHL recommendation and write gates remain disabled pending provider validation.

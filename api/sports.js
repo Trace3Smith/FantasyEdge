@@ -1,3 +1,4 @@
+import { blockPreview } from './_lib/previewSafety.js';
 // Request handler for the rankings/search data. Serves the combined dataset
 // from Redis (written by the daily api/cron/refresh job) so requests make zero
 // upstream MLB calls. On a cache miss — first deploy before the cron has run, or
@@ -49,6 +50,7 @@ function filterLivByField(players) {
 }
 
 export default async function handler(req, res) {
+  if (blockPreview(req, res, 'disabled')) return;
   res.setHeader('Access-Control-Allow-Origin', '*');
 
   // March Madness bracket optimizer (Brackets & Bowls) — PREMIUM, unlike the free Pick'em

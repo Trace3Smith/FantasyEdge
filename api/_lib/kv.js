@@ -1,3 +1,5 @@
+import { previewConfig } from './previewIsolation.js';
+import { isPreview } from './previewSafety.js';
 // Shared Redis (Upstash) client + dataset key, used by the refresh cron and the
 // request handler. Vercel's Marketplace Redis integration injects the connection
 // env vars; we accept both the KV_* names (Vercel's compatibility prefix) and the
@@ -141,17 +143,24 @@ export const CFB_RATINGS_KEY = 'ratings:cfb';
 // daily datasets so it survives the rebuild and never read-modify-writes a dataset key.
 export const synopsisKey = (sport, id) => `synopsis:${sport}:${id}`;
 
+// Preview must use an explicitly read-only REST token; never fall back to a production write token.
+const isolatedPreview = isPreview() ? previewConfig() : null;
+const redisUrl = isPreview() ? isolatedPreview?.url : (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL);
+const redisToken = isPreview()
+  ? isolatedPreview?.readToken
+  : (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN);
+
 // Whether Redis is actually wired up. Worth knowing before calling it on a hot path: the client
 // RETRIES internally, so a command with no credentials (local dev) or against an unreachable
 // server costs ~4.3 SECONDS before it throws. Anything that would issue one call per item — the
 // per-venue gridpoint cache, say — has to check this first, or a Redis outage turns a build that
 // took eight seconds into one that takes two minutes and blows the cron budget.
 export const redisConfigured = Boolean(
-  (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL)
-  && (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN),
+  redisUrl
+  && redisToken,
 );
 
 export const redis = new Redis({
-  url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL,
-  token: process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN,
+  url: redisUrl,
+  token: redisToken,
 });

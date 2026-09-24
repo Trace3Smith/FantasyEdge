@@ -1,3 +1,4 @@
+import { blockPreview } from '../_lib/previewSafety.js';
 // Daily refresh cron (scheduled in vercel.json). Rebuilds the combined MLB
 // dataset from the MLB Stats API and writes it to Redis so request handlers
 // serve from cache with zero upstream calls.
@@ -64,6 +65,7 @@ const SECONDARY = [
 export const maxDuration = 300;
 
 export default async function handler(req, res) {
+  if (blockPreview(req, res, 'disabled')) return;
   // Auth: the Bearer secret is the ONLY gate. Vercel sends `Authorization: Bearer <CRON_SECRET>`
   // automatically on every scheduled invocation once CRON_SECRET is set, so the scheduler needs
   // nothing else. Matches api/cron/autopilot.js and Vercel's documented pattern.

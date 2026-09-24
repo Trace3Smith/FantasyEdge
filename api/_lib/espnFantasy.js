@@ -1,3 +1,5 @@
+import { isPreview } from './previewSafety.js';
+import { previewCredentials } from './previewCredentials.js';
 // ESPN fantasy-baseball integration helpers (Autopilot feature, step 1).
 //
 // Talks to ESPN's unofficial fantasy API using a user's own browser cookies
@@ -9,12 +11,17 @@
 //
 // SECURITY: the cookies are bearer-equivalent secrets. They live ONLY in Redis
 // (server-side) and are never returned to the browser — status checks expose a
-// connected boolean and a masked SWID at most. Every caller is premium-gated.
+// connected boolean and a masked SWID at most. Paid operations are premium-gated; revocation requires sign-in only.
+
+import { encryptCredentials, decryptCredentials, CREDENTIAL_TTL_SECONDS } from './espnCredentials.js';
+import { beginLifecycle, readLifecycle, transitionLifecycle, lifecycleConflict } from './espnLifecycle.js';
+import { randomUUID } from 'node:crypto';
+import { HttpError } from './auth.js';
+import { leagueKeyOf, qualifiedLeagueKey } from '../../leagueIdentity.js';
+export { leagueKeyOf };
 
 import { normName } from './golf.js';
 import { espnLeagueConfig } from './espnLeagueConfig.js';
-
-const credsKey = (userId) => `espn:creds:${userId}`;
 
 // A thrown EspnAuthError means ESPN rejected the cookies (expired/invalid) — the
 // endpoints turn it into a "reconnect" signal for the UI rather than a 500.
@@ -52,23 +59,28 @@ export function normalizeS2(raw) {
   return String(raw || '').trim().replace(/^["']|["']$/g, '').trim();
 }
 
-export async function saveCreds(redis, userId, { espn_s2, swid }) {
-  const creds = { espn_s2: normalizeS2(espn_s2), swid: normalizeSwid(swid), savedAt: new Date().toISOString() };
-  await redis.set(credsKey(userId), creds);
-  return creds;
+export async function saveCreds(redis, userId, { espn_s2, swid }, revision, consent = null) {
+  const creds = { espn_s2: normalizeS2(espn_s2), swid: normalizeSwid(swid), savedAt: new Date().toISOString(), connectionId: randomUUID() };
+  const encrypted = encryptCredentials(userId, creds); // no mutation before valid encryption
+  // Direct callers start here. HTTP connects MUST supply their pre-validation revision.
+  const expected = revision ?? await beginLifecycle(redis, userId);
+  const lifecycleRevision = await transitionLifecycle(redis, userId, 'connect', expected,
+    { envelope: encrypted, consent }, CREDENTIAL_TTL_SECONDS);
+  return { ...creds, lifecycleRevision };
 }
 
 export async function getCreds(redis, userId) {
-  const c = await redis.get(credsKey(userId));
+  if (isPreview()) return previewCredentials.read(userId);
+  const snapshot = await readLifecycle(redis, userId);
+  const c = decryptCredentials(userId, snapshot.credentials);
   if (!(c && c.espn_s2 && c.swid)) return null;
-  // Re-normalize the SWID on read so a previously-saved malformed value (e.g. a
-  // missing brace) is healed transparently for both the fan path and the write
-  // memberId — no reconnect required.
-  return { ...c, swid: normalizeSwid(c.swid) };
+  return { ...c, swid: normalizeSwid(c.swid), lifecycleRevision: snapshot.revision };
 }
 
 export async function deleteCreds(redis, userId) {
-  await redis.del(credsKey(userId));
+  // Also removes consent and memberships in the same atomic transition. No later cleanup
+  // may race a genuinely new connection that starts after this commit.
+  await transitionLifecycle(redis, userId, 'disconnect', '');
 }
 
 // Mask the SWID for display ("{ABCD…WXYZ}") so the UI can confirm WHICH account is
@@ -100,7 +112,8 @@ export function credsShape(creds) {
 // --- per-sport ESPN config (game code, fan abbrev, id → label maps) --------------------------
 // The cookies (espn_s2/SWID) work across ALL of a user's ESPN fantasy games, so the only
 // per-sport differences are the v3 game code, the fan-API abbreviation, and the id maps.
-// MLB (flb) uses one id scheme for both a player's default position and lineup slot.
+// MLB defaultPositionId and lineupSlotId are separate ID spaces.
+const MLB_POS = { 1: 'SP', 2: 'C', 3: '1B', 4: '2B', 5: '3B', 6: 'SS', 7: 'LF', 8: 'CF', 9: 'RF', 10: 'DH', 11: 'RP' };
 const MLB_SLOTS = {
   0: 'C', 1: '1B', 2: '2B', 3: '3B', 4: 'SS', 5: 'OF', 6: '2B/SS', 7: '1B/3B',
   8: 'LF', 9: 'CF', 10: 'RF', 11: 'DH', 12: 'UTIL', 13: 'P', 14: 'SP', 15: 'RP',
@@ -154,7 +167,7 @@ const NFL_POS = {
 const SPORTS = {
   mlb: {
     game: 'flb', abbrev: 'FLB',
-    slots: MLB_SLOTS, positions: MLB_SLOTS,
+    slots: MLB_SLOTS, positions: MLB_POS,
     bench: new Set([16, 17]),
     slotOrder: [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 5, 11, 12, 14, 15, 13, 18, 19],
     teams: {
@@ -174,7 +187,9 @@ const SPORTS = {
   nba: { game: 'fba', abbrev: 'FBA', slots: HOOPS_SLOTS, positions: HOOPS_POS, bench: new Set([12, 13]), slotOrder: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], teams: {} },
   // Off-season sports — game codes for future use; no rosters fetched while off-season.
   nfl: { game: 'ffl', abbrev: 'FFL', slots: NFL_SLOTS, positions: NFL_POS, bench: new Set([20, 21]), slotOrder: [0, 1, 7, 2, 3, 4, 5, 6, 23, 16, 17, 18, 19, 8, 9, 10, 11, 12, 13, 14, 15, 24], teams: NFL_TEAMS },
-  nhl: { game: 'fhl', abbrev: 'FHL', slots: {}, positions: {}, bench: new Set([], []), slotOrder: [], teams: {} },
+  // Default positions verified against public ESPN athlete profiles; see nhl-position-evidence.json.
+  // Slot roles remain unknown and must not be inferred from default position IDs.
+  nhl: { game: 'fhl', abbrev: 'FHL', slots: {}, positions: {1:'C',2:'LW',3:'RW',4:'D',5:'G'}, bench: new Set(), slotOrder: [], teams: {} },
 };
 const sportCfg = (sport) => SPORTS[sport] || SPORTS.mlb;
 // Fan-API abbreviation → our sport key ('FFL' → 'nfl'), for discovery across every game at once.
@@ -198,7 +213,9 @@ function injuryLabelOf(status) {
   return status in INJURY_LABEL ? INJURY_LABEL[status] : 'O';
 }
 
-const posOf = (id, cfg) => (cfg.positions || cfg.slots)[id] || 'UTIL';
+const posOf = (id, cfg) => cfg === SPORTS.mlb
+  ? (Object.hasOwn(MLB_POS, id) ? MLB_POS[id] : 'Unknown position')
+  : (cfg.positions || cfg.slots)[id] || 'UTIL';
 const slotOf = (id, cfg) => cfg.slots[id] ?? String(id);
 const teamOf = (id, cfg) => (cfg.teams || {})[id] || '';
 
@@ -230,17 +247,18 @@ async function espnGet(url, creds, { headers = {} } = {}) {
       headers: { Cookie: cookieHeader(creds), 'User-Agent': UA, Accept: 'application/json', ...headers },
       signal: ctrl.signal,
     });
+  } catch {
+    throw new Error('ESPN request failed');
   } finally {
     clearTimeout(t);
   }
   if (res.status === 401 || res.status === 403) throw new EspnAuthError();
   if (!res.ok) {
-    // Include ESPN's response body — its 400s usually name what they rejected.
-    const body = await res.text().catch(() => '');
-    const snip = body ? `: ${body.replace(/\s+/g, ' ').slice(0, 200)}` : '';
-    throw new Error(`ESPN HTTP ${res.status} for ${url}${snip}`);
+    // The fan URL contains the full SWID. Provider bodies can echo cookies or
+    // member IDs, so neither belongs in browser diagnostics or application logs.
+    throw new Error(`ESPN HTTP ${res.status}`);
   }
-  return res.json();
+  return res.json().catch(() => { throw new Error('ESPN returned an invalid response'); });
 }
 
 // --- league discovery (fan API) --------------------------------------------------------------
@@ -279,7 +297,7 @@ const FAN_PARAM_VARIANTS = [
 //
 // sport 'all' keeps every league in the five ESPN games we support, each tagged with its sport, and
 // drops any entry it can't classify. In single-sport mode an unlabelled entry is still kept, as before.
-export async function discoverFanLeagues(creds, sport = 'mlb') {
+export async function discoverFanLeagues(creds, sport = 'mlb', { complete = false } = {}) {
   const all = sport === 'all';
   const wantAbbrev = all ? null : sportCfg(sport).abbrev;
   const diag = { ok: false, prefCount: 0, abbrevs: [], seasons: [], types: [], entryKeys: [], responseKeys: [], skipped: { abbrev: 0, ids: 0, noEntry: 0 }, kept: 0, variants: 0, error: null };
@@ -337,7 +355,7 @@ export async function discoverFanLeagues(creds, sport = 'mlb') {
         leagueName: group.groupName || e.name || `League ${leagueId}`,
       });
     }
-    if (out.length) break; // found the sport — no need to try narrower variants
+    if (out.length && !complete) break; // found the sport — no need to try narrower variants
   }
   diag.kept = out.length;
   return { leagues: out, diag };
@@ -403,21 +421,29 @@ function parseRoster(entries = [], cfg = SPORTS.mlb) {
     return {
       id: pl.id ?? null,
       name: pl.fullName || 'Unknown',
-      pos: posOf(pl.defaultPositionId, cfg),
+      pos: cfg === SPORTS.nhl ? (cfg.positions[pl.defaultPositionId] || `Position ${pl.defaultPositionId ?? 'unknown'}`) : posOf(pl.defaultPositionId, cfg),
+      positionId: pl.defaultPositionId ?? null,
+      positionKnown: Object.hasOwn(cfg.positions || cfg.slots, pl.defaultPositionId),
       proTeam: teamOf(pl.proTeamId, cfg),
       proTeamId: pl.proTeamId != null ? Number(pl.proTeamId) : null, // keys the bye lookup — no name matching
       slot: slotOf(slotId, cfg),
       slotId,
+      slotKnown: Object.hasOwn(cfg.slots, slotId),
       eligibleSlots: Array.isArray(pl.eligibleSlots) ? pl.eligibleSlots : [],
-      starter: !cfg.bench.has(slotId),
+      starter: (cfg === SPORTS.nhl || cfg === SPORTS.nba) && !Object.hasOwn(cfg.slots, slotId) ? null : !cfg.bench.has(slotId),
       injury: injuryLabelOf(pl.injuryStatus),
       injuryStatus: pl.injuryStatus || 'ACTIVE',
+      injuryStatusKnown: typeof pl.injuryStatus === 'string' && pl.injuryStatus.length > 0,
+      availability: !pl.injuryStatus ? 'UNKNOWN' : HEALTHY_STATUS.has(pl.injuryStatus) ? 'AVAILABLE'
+        : ['O','IL','60-IL','SUSP'].includes(INJURY_LABEL[pl.injuryStatus]) ? 'UNAVAILABLE' : 'UNCERTAIN',
+      lockStatusKnown: [ppe.lineupLocked, ppe.rosterLocked, en.lineupLocked].some(v => typeof v === 'boolean'),
       locked,
     };
   });
   // Starters first (in lineup-slot order), then bench/IR.
   players.sort((a, b) => {
-    if (a.starter !== b.starter) return a.starter ? -1 : 1;
+    const aStarts = a.starter === true, bStarts = b.starter === true;
+    if (aStarts !== bStarts) return aStarts ? -1 : 1;
     const ai = cfg.slotOrder.indexOf(a.slotId), bi = cfg.slotOrder.indexOf(b.slotId);
     return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
   });
@@ -430,6 +456,7 @@ function buildLeagueResult(data, team, { leagueId, seasonId, cfg = SPORTS.mlb, s
   const name = (t) => `${t.location || ''} ${t.nickname || ''}`.trim() || t.name || t.abbrev || `Team ${t.id}`;
   return {
     leagueId,
+    sport,
     season: seasonId,
     teamId: team ? team.id : null,
     // Current scoring period (the day, for MLB) — required by the lineup-set write.
@@ -461,6 +488,7 @@ function buildLeagueResult(data, team, { leagueId, seasonId, cfg = SPORTS.mlb, s
         }
       : null,
     roster: team ? parseRoster(team.roster?.entries || [], cfg) : [],
+    rosterState: !team ? 'UNAVAILABLE' : !Array.isArray(team.roster?.entries) ? 'UNAVAILABLE' : team.roster.entries.length ? 'POPULATED' : 'EMPTY',
     // Platform-neutral settings for League DNA (leagueConfig.js). Built from the mSettings view this
     // fetch already requests, so it costs no extra ESPN call. Callers record it, then strip it before
     // anything is sent to the browser.
@@ -504,7 +532,12 @@ export async function fetchLeagueRoster(creds, { leagueId, seasonId, teamId }, s
   const cfg = sportCfg(sport);
   const data = await espnGet(leagueUrl(leagueId, seasonId, cfg.game), creds);
   const teams = Array.isArray(data?.teams) ? data.teams : [];
-  const team = teams.find((t) => t.id === teamId) || null;
+  const team = teams.find((t) => String(t.id) === String(teamId));
+  const owner = normalizeSwid(creds.swid).toLowerCase();
+  if (!team || ![team.primaryOwner, ...(Array.isArray(team.owners) ? team.owners : [])].some(
+    id => id && normalizeSwid(id).toLowerCase() === owner)) {
+    throw new HttpError(403, 'Team ownership could not be verified', { error: 'not_team_owner' });
+  }
   return buildLeagueResult(data, team, { leagueId, seasonId, cfg, sport });
 }
 
@@ -518,7 +551,7 @@ export async function fetchLeagueAllTeams(creds, { leagueId, seasonId }, sport =
   const owns = (t) => [t.primaryOwner, ...(Array.isArray(t.owners) ? t.owners : [])]
     .filter(Boolean).some((o) => String(o).toUpperCase() === mySwid);
   const name = (t) => `${t.location || ''} ${t.nickname || ''}`.trim() || t.name || t.abbrev || `Team ${t.id}`;
-  const rec = (t) => (t.record?.overall && t.record.overall.wins != null)
+  const rec = (t) => data?.settings?.scoringSettings?.scoringType !== 'ROTO' && (t.record?.overall && t.record.overall.wins != null)
     ? `${t.record.overall.wins}-${t.record.overall.losses}${t.record.overall.ties ? '-' + t.record.overall.ties : ''}` : '';
   const parsed = teams.map((t) => ({
     id: t.id, name: name(t), abbrev: t.abbrev || '', mine: owns(t), record: rec(t),
@@ -574,6 +607,7 @@ export async function fetchFreeAgents(creds, { leagueId, seasonId, limit = 50 },
       id: pl.id ?? null,
       name: pl.fullName || 'Unknown',
       pos: posOf(pl.defaultPositionId, cfg),
+      ...(cfg === SPORTS.mlb ? { positionId: pl.defaultPositionId ?? null, positionKnown: Object.hasOwn(cfg.positions, pl.defaultPositionId) } : {}),
       proTeam: teamOf(pl.proTeamId, cfg),
       proTeamId: pl.proTeamId != null ? Number(pl.proTeamId) : null, // keys the bye lookup — no name matching
       eligibleSlots: Array.isArray(pl.eligibleSlots) ? pl.eligibleSlots : [],
@@ -617,6 +651,8 @@ async function postLineupTxn(creds, { leagueId, seasonId, teamId, scoringPeriodI
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
+  } catch {
+    throw new Error('ESPN lineup request failed');
   } finally { clearTimeout(t); }
   const txt = await res.text().catch(() => '');
   return { ok: res.ok, status: res.status, body: txt };
@@ -671,12 +707,11 @@ export async function setLineup(creds, ids, items = [], { roster = [], sport = '
   const game = sportCfg(sport).game;
   const skippedLocked = [];
   let alreadySet = 0;
-  let lockedBody = null; // raw 409 text from the first recovered lock, for diagnosing the wording
   let attempt = items.slice();
 
   for (let tries = 0; tries < 6 && attempt.length; tries++) {
     const r = await postLineupTxn(creds, { ...ids, game }, attempt);
-    if (r.ok) return { applied: attempt.length, skippedLocked, alreadySet, lockedBody };
+    if (r.ok) return { applied: attempt.length, skippedLocked, alreadySet };
     if (r.status === 401 || r.status === 403) throw new EspnAuthError();
 
     if (r.status === 409) {
@@ -687,29 +722,21 @@ export async function setLineup(creds, ids, items = [], { roster = [], sport = '
       const dropIds = new Set([...lockedIds, ...alreadyIds]);
       const next = attempt.filter((it) => !dropIds.has(it.playerId));
       if (dropIds.size && next.length < attempt.length) {
-        // Keep the raw body from the FIRST recovered 409. It is the only place ESPN states its exact
-        // rejection wording, and parse409Names is built on that wording — currently on MLB-shaped
-        // evidence only ("Spencer Horwitz is locked"). NFL is unverified and has a likely break: its
-        // D/ST entries are named "Bills D/ST", and the parser's character class excludes '/', so such
-        // a name would capture as "ST" and never match a roster entry. Logging it here means the next
-        // genuine locked rejection in production supplies the evidence, with no need to provoke a
-        // failing write against a real team.
-        if (!lockedBody && lockedNames.length) lockedBody = String(r.body || '').slice(0, 400);
-        if (lockedNames.length) console.warn(`[setLineup] ${game} 409 locked-player body: ${String(r.body || '').slice(0, 400)}`);
-        skippedLocked.push(...lockedNames);
+        // Parse internally, but report only known roster names and counts. Raw
+        // provider responses can echo credential/member fields and must not escape.
+        if (lockedNames.length) console.warn(`[setLineup] ${game} 409: ${lockedNames.length} locked players identified`);
+        skippedLocked.push(...roster.filter(rp => lockedIds.has(rp.id)).map(rp => rp.name));
         alreadySet += alreadyIds.size;
         attempt = next;
         continue; // retry without the locked / already-correct player(s)
       }
-      // A 409 we could NOT attribute to a named player — the phrasing did not match. Log it verbatim:
-      // this is exactly how an unhandled rejection class (a sport's different wording, or the
-      // IR-designated-to-return timing rule) would first show up.
-      console.warn(`[setLineup] ${game} unparsed 409 body: ${String(r.body || '').slice(0, 400)}`);
+      // Unknown provider wording is a fail-closed error; no response-body logging.
+      console.warn(`[setLineup] ${game} unparsed 409; no retry`);
     }
-    throw new Error(`ESPN lineup write HTTP ${r.status}${r.body ? ': ' + r.body.slice(0, 180) : ''}`);
+    throw new Error(`ESPN lineup write HTTP ${r.status}`);
   }
   // Everything left was redundant (already correct) — a successful no-op.
-  return { applied: attempt.length, skippedLocked, alreadySet, lockedBody };
+  return { applied: attempt.length, skippedLocked, alreadySet };
 }
 
 // --- manually-added leagues (Redis, per Clerk user) ------------------------------------------
@@ -719,21 +746,21 @@ const manualLeaguesKey = (userId) => `espn:manualleagues:${userId}`;
 
 export async function getManualLeagues(redis, userId) {
   const list = await redis.get(manualLeaguesKey(userId));
-  return Array.isArray(list) ? list : [];
+  return Array.isArray(list) ? list.map(l => ({ ...l, sport: l.sport || 'mlb' })) : [];
 }
 
-export async function addManualLeague(redis, userId, { leagueId, season }) {
+export async function addManualLeague(redis, userId, { leagueId, season, sport = 'mlb' }) {
   const list = await getManualLeagues(redis, userId);
-  if (!list.some((l) => String(l.leagueId) === String(leagueId) && String(l.season) === String(season))) {
-    list.push({ leagueId: String(leagueId), season });
+  if (!list.some((l) => l.sport === sport && String(l.leagueId) === String(leagueId) && String(l.season) === String(season))) {
+    list.push({ leagueId: String(leagueId), season, sport });
   }
   await redis.set(manualLeaguesKey(userId), list);
   return list;
 }
 
-export async function removeManualLeague(redis, userId, { leagueId, season }) {
+export async function removeManualLeague(redis, userId, { leagueId, season, sport = 'mlb' }) {
   const list = (await getManualLeagues(redis, userId))
-    .filter((l) => !(String(l.leagueId) === String(leagueId) && String(l.season) === String(season)));
+    .filter((l) => !(l.sport === sport && String(l.leagueId) === String(leagueId) && String(l.season) === String(season)));
   await redis.set(manualLeaguesKey(userId), list);
   return list;
 }
@@ -741,26 +768,38 @@ export async function removeManualLeague(redis, userId, { leagueId, season }) {
 // --- autopilot preferences (Redis, per Clerk user) -------------------------------------------
 // A user's enabled leagues live at espn:autopilot:{userId} = { [leagueKey]: true }.
 // A set espn:autopilot:users tracks who has ANY league enabled, so the daily cron
-// only iterates opted-in users. leagueKey is "season:leagueId:teamId".
+// only iterates opted-in users. Keys include sport; old three-part keys remain readable.
 const autopilotKey = (userId) => `espn:autopilot:${userId}`;
 const AUTOPILOT_USERS = 'espn:autopilot:users';
-export const leagueKeyOf = (lg) => `${lg.season ?? lg.seasonId}:${lg.leagueId}:${lg.teamId}`;
+export async function clearAutopilot(redis, userId, revision) {
+  await transitionLifecycle(redis, userId, 'clear', revision ?? await beginLifecycle(redis, userId));
+}
 
 export async function getAutopilot(redis, userId) {
-  return (await redis.get(autopilotKey(userId))) || {};
+  const raw = (await redis.get(autopilotKey(userId))) || {};
+  const prefs = {};
+  // Modern entries win if both formats exist; legacy booleans mean MLB only.
+  for (const [key, value] of Object.entries(raw)) {
+    const qualified = qualifiedLeagueKey(key, autopilotSportOf(value));
+    if (!(qualified in prefs) || key === qualified) prefs[qualified] = value;
+  }
+  return prefs;
 }
 
 // A pref value records which sport's engine to run for that league. Legacy prefs were
 // stored as the bare boolean `true` (MLB-only era) — treat those as MLB.
 export const autopilotSportOf = (v) => (v && typeof v === 'object' && v.sport) ? v.sport : 'mlb';
 
-export async function setAutopilotLeague(redis, userId, leagueKey, on, sport = 'mlb') {
-  const prefs = await getAutopilot(redis, userId);
-  if (on) prefs[leagueKey] = { sport }; else delete prefs[leagueKey];
-  await redis.set(autopilotKey(userId), prefs);
-  if (Object.keys(prefs).length) await redis.sadd(AUTOPILOT_USERS, userId);
-  else await redis.srem(AUTOPILOT_USERS, userId);
-  return prefs;
+export async function setAutopilotLeague(redis, userId, leagueKey, on, sport = 'mlb', connectionId = 'legacy', revision) {
+  const snapshot = on ? await getCreds(redis, userId) : null;
+  if (on && (!snapshot || (snapshot.connectionId || 'legacy') !== connectionId)) throw lifecycleConflict();
+  const expected = revision ?? snapshot?.lifecycleRevision ?? await beginLifecycle(redis, userId);
+  leagueKey = qualifiedLeagueKey(leagueKey, sport);
+  const raw = (await redis.get(autopilotKey(userId))) || {};
+  const aliases = Object.entries(raw).filter(([key, value]) => qualifiedLeagueKey(key, autopilotSportOf(value)) === leagueKey).map(([key]) => key);
+  await transitionLifecycle(redis, userId, 'permission', expected,
+    { key: leagueKey, aliases, on, value: { sport, connectionId } });
+  return getAutopilot(redis, userId);
 }
 
 export async function listAutopilotUsers(redis) {
