@@ -4,14 +4,20 @@
 // z-score; goalies (G) score on their own goalie categories. Output shape matches
 // the other sports so the same frontend renders it.
 //
-// NOTE on categories: ESPN's NHL feed does NOT expose hits or blocks, so the
-// skater 9-cat uses what ESPN provides — goals, assists, +/-, PIM, power-play
-// points, shots, faceoff wins, game-winning goals, and shooting impact (goals
-// above expectation given shot volume). Goalies use W, GAA (inverted), SV%
-// (volume-weighted), shutouts, and saves.
+// NOTE on categories: ESPN's NHL feed does NOT expose hits or blocked shots, so those two
+// come from a committed snapshot of the NHL's own public stats API, captured once by
+// scripts/capture-nhl-realtime.mjs and keyed by ESPN athlete id (100% joined at capture
+// time). It is a static import — no runtime call, no Redis key, no cron. A player missing
+// from the snapshot has NO hits/blocks data; he is left out of those columns rather than
+// being credited a fabricated zero.
+//
+// The RANKINGS rank (zScore -> rec.score) is deliberately left on its original 9-cat basis:
+// zPublish below builds the separate draft-board z block, so changing draft categories never
+// reorders the public rankings page.
 
 import { fetchByAthlete, buildIndex, makeReader, priorSeasonParam } from './espn.js';
 import { fetchInjuries, applyInjuries } from './espnInjuries.js';
+import REALTIME from './nhl-realtime-2025-26.json' with { type: 'json' };
 
 // Adaptive games gates (fraction of the group leader's games played), like the
 // MLB PA gate — correct early- and full-season. Goalies play fewer games.
@@ -41,7 +47,7 @@ function zScore(pool, keys) {
 // The published roto category keys (skater + goalie), kept in sync with nhlScoring.js.
 // Each ranked player's z block carries all keys (own group filled, other group 0) so a
 // mixed roster's category profile spans both — the basis for draft category balance.
-const NHL_Z_KEYS = ['g', 'a', 'pm', 'pim', 'ppp', 'sog', 'fow', 'gwg', 'w', 'gaa', 'svpct', 'so', 'sv'];
+const NHL_Z_KEYS = ['g', 'a', 'pm', 'pim', 'ppp', 'sog', 'hit', 'blk', 'def', 'w', 'gaa', 'svpct'];
 const emptyNhlZ = () => Object.fromEntries(NHL_Z_KEYS.map((k) => [k, 0]));
 
 // Publish a per-category z block (rec.z) + summed value (rec.zTotal) over [srcKey, sign,
@@ -69,13 +75,33 @@ function zPublish(pool, cols) {
   }
 }
 
+// DEF is absent here on purpose: only defensemen can contribute to it, so it is standardized
+// over the D pool alone (see zPublishDef) and stays 0 for forwards.
 const SKATER_Z_COLS = [
   ['g', 1, 'g'], ['a', 1, 'a'], ['plusMinus', 1, 'pm'], ['pim', 1, 'pim'],
-  ['ppp', 1, 'ppp'], ['sog', 1, 'sog'], ['fow', 1, 'fow'], ['gwg', 1, 'gwg'],
+  ['ppp', 1, 'ppp'], ['sog', 1, 'sog'], ['hit', 1, 'hit'], ['blk', 1, 'blk'],
 ];
+// Both goalie rate stats are workload-weighted: a ratio earned over 15 starts is not worth the
+// same as one earned over 60, and a league with a season GP cap rewards the starter who
+// actually absorbs those starts. svImp/gaaImp carry the volume; the raw ratios do not.
 const GOALIE_Z_COLS = [
-  ['w', 1, 'w'], ['gaa', -1, 'gaa'], ['svImp', 1, 'svpct'], ['so', 1, 'so'], ['sv', 1, 'sv'],
+  ['w', 1, 'w'], ['gaaImp', 1, 'gaa'], ['svImp', 1, 'svpct'],
 ];
+
+// DEF (defensemen points) standardized over the DEFENSEMEN only, then written into the already
+// published z block. A forward keeps def = 0: he contributes nothing to the category, which is
+// not the same as being below average at it.
+function zPublishDef(defensemen) {
+  if (!defensemen.length) return;
+  const xs = defensemen.map((p) => p._n.def);
+  const m = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const sd = Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / xs.length) || 1;
+  for (const p of defensemen) {
+    const v = (p._n.def - m) / sd;
+    p.z.def = v;
+    p.zTotal += v;
+  }
+}
 
 function skaterCats(n, gp) {
   const pg = (x) => (gp > 0 ? x / gp : 0);
@@ -200,6 +226,7 @@ export async function buildNhlDataset() {
       const gp = val(a, 'general', 'games') || 0;
       const g = val(a, 'offensive', 'goals') || 0;
       const a_ = val(a, 'offensive', 'assists') || 0;
+      const rt = REALTIME.players[String(at.id)] || null;
       const ppp = (val(a, 'offensive', 'powerPlayGoals') || 0) + (val(a, 'offensive', 'powerPlayAssists') || 0);
       const n = {
         gp,
@@ -211,6 +238,12 @@ export async function buildNhlDataset() {
         sog: val(a, 'offensive', 'shotsTotal') || 0,
         fow: val(a, 'offensive', 'faceoffsWon') || 0,
         gwg: val(a, 'offensive', 'gameWinningGoals') || 0,
+        // Hits/blocks come from the committed NHL snapshot (ESPN does not carry them).
+        hit: rt ? rt.hit : 0,
+        blk: rt ? rt.blk : 0,
+        // DEF = defensemen points. Only a D contributes; a forward is 0, not below average.
+        def: pos === 'D' ? g + a_ : 0,
+        hasRealtime: !!rt,
         shootImp: 0, // filled after league shooting rate is known
       };
       skaters.push({
@@ -241,6 +274,7 @@ export async function buildNhlDataset() {
   // Published per-category z block + zTotal for the draft board (excludes shootImp, an
   // internal signal — keeps zTotal == sum of the labeled categories).
   zPublish(rankedSk, SKATER_Z_COLS);
+  zPublishDef(rankedSk.filter((r) => r.pos === 'D')); // DEF: defensemen pool only
 
   // --- Goalies: gate, then goalie z-score ----------------------------------
   const maxG = goalies.reduce((m, r) => Math.max(m, r._n.gp), 0);
@@ -249,6 +283,10 @@ export async function buildNhlDataset() {
   const subG = goalies.filter((r) => r._n.gp < gGate);
   const lgSV = rankedG.reduce((a, r) => a + r._n.sv, 0) / (rankedG.reduce((a, r) => a + r._n.sa, 0) || 1);
   for (const r of rankedG) r._n.svImp = (r._n.svpct - lgSV) * r._n.sa;
+  // Goals prevented against a league-average goalie, over the games he actually played — the
+  // GAA analog of svImp. A tidy ratio over a handful of starts no longer outranks a workhorse.
+  const lgGAA = rankedG.reduce((a, r) => a + r._n.gaa * r._n.gp, 0) / (rankedG.reduce((a, r) => a + r._n.gp, 0) || 1);
+  for (const r of rankedG) r._n.gaaImp = (lgGAA - r._n.gaa) * r._n.gp;
   zScore(rankedG, [
     ['w', 1], ['gaa', -1], ['svImp', 1], ['so', 1], ['sv', 1],
   ]);

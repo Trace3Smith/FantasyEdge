@@ -94,11 +94,23 @@ try {
  assert.equal(coldRes.statusCode,503);assert.equal(coldRes.body.error,'no_dataset');
  let rebuilt=0;
  mock.module(lib('buildNflDataset.js'),{namedExports:{buildNflDataset:async()=>{rebuilt++;return {players:[{id:'fresh-provider-fixture'}]};}}});
+ let nhlRebuilt=0;
+ mock.module(lib('buildNhlDataset.js'),{namedExports:{buildNhlDataset:async()=>{nhlRebuilt++;return {players:[{id:'fresh-nhl-fixture'}]};}}});
  const {loadPlayers}=await import('../api/_lib/draft.js');
  await raw.set(kv.NFL_DATASET_KEY,{version:kv.DATASET_VERSION,players:[{id:'legacy-only'}]});
  assert.equal((await loadPlayers('nfl'))[0].id,'fresh-provider-fixture');
  assert.equal((await loadPlayers('nfl'))[0].id,'fresh-provider-fixture');assert.equal(rebuilt,1);
  assert.equal((await redis.get(kv.NFL_DATASET_KEY)).players[0].id,'fresh-provider-fixture');
+ // Main's NHL version invalidation must stay inside the epoch boundary.
+ await raw.set(kv.NHL_DATASET_KEY,{version:kv.NHL_DATASET_VERSION,players:[{id:'legacy-nhl-only'}]});
+ assert.equal((await loadPlayers('nhl'))[0].id,'fresh-nhl-fixture');
+ assert.equal((await loadPlayers('nhl'))[0].id,'fresh-nhl-fixture');assert.equal(nhlRebuilt,1);
+ assert.equal((await redis.get(kv.NHL_DATASET_KEY)).version,kv.NHL_DATASET_VERSION);
+ await redis.set(kv.NHL_DATASET_KEY,{version:kv.DATASET_VERSION,players:[{id:'old-epoch-nhl'}]});
+ assert.equal((await loadPlayers('nhl'))[0].id,'fresh-nhl-fixture');assert.equal(nhlRebuilt,2);
+ assert.equal(JSON.parse(await raw.command('GET',kv.NHL_DATASET_KEY)).players[0].id,'legacy-nhl-only');
+ assert.equal((await loadPlayers('nfl'))[0].id,'fresh-provider-fixture');assert.equal(rebuilt,1);
+ console.log('PASS: NHL version rebuilds only hockey in e1; legacy NHL cache remains untouched');
  assert.equal(await redis.quotaBlocked(),true);
 
 

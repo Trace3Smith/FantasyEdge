@@ -15,6 +15,9 @@
 // labels/iteration; each cat's sign is already folded into the stored z (GAA is inverted).
 import { rotoOpenSlots } from './draftRoster.js'; // shared greedy open-slot assignment (single source)
 
+// DEF (defensemen points) is a skater category that only D-eligible players can contribute to,
+// so it is standardized over the defensemen pool alone and left at 0 for forwards — the same
+// "own group filled, other group 0" rule that separates skaters from goalies.
 export const NHL_CATS = [
   { key: 'g', label: 'G', group: 's' },
   { key: 'a', label: 'A', group: 's' },
@@ -22,13 +25,12 @@ export const NHL_CATS = [
   { key: 'pim', label: 'PIM', group: 's' },
   { key: 'ppp', label: 'PPP', group: 's' },
   { key: 'sog', label: 'SOG', group: 's' },
-  { key: 'fow', label: 'FOW', group: 's' },
-  { key: 'gwg', label: 'GWG', group: 's' },
+  { key: 'hit', label: 'HIT', group: 's' },
+  { key: 'blk', label: 'BLK', group: 's' },
+  { key: 'def', label: 'DEF', group: 's' },
   { key: 'w', label: 'W', group: 'g' },
   { key: 'gaa', label: 'GAA', group: 'g' },
   { key: 'svpct', label: 'SV%', group: 'g' },
-  { key: 'so', label: 'SO', group: 'g' },
-  { key: 'sv', label: 'SV', group: 'g' },
 ];
 export const CAT_KEYS = NHL_CATS.map((c) => c.key);
 export const CAT_LABEL = Object.fromEntries(NHL_CATS.map((c) => [c.key, c.label]));
@@ -38,22 +40,25 @@ export function value(p) {
 }
 
 // ---- Roster slots + positional eligibility --------------------------------------------------
-// A standard fantasy-hockey lineup: two of each forward position, four defensemen, two goalies.
-// Bench depth lives in `rounds`.
-export const DEFAULT_LINEUP = { C: 2, LW: 2, RW: 2, D: 4, G: 2 };
+// A standard fantasy-hockey lineup: a pooled forward group, a deep blue line, two goalies and
+// one UTIL that takes any skater. Bench depth lives in `rounds`. Leagues that split forwards
+// into C/LW/RW slots are still supported through `settings.lineup` and the eligibility below.
+export const DEFAULT_LINEUP = { F: 9, D: 5, G: 2, UTIL: 1 };
 
-// A generic forward (ESPN 'F') can fill any forward slot; specific forwards fill their own slot.
+// Slots each position can fill, ordered tight -> flex, so the greedy assignment in
+// rotoOpenSlots claims the most specific slot first. UTIL takes any SKATER: goalies are
+// deliberately excluded so a spare goalie can never absorb a skater slot.
 const SLOT_ELIGIBILITY = {
-  C: ['C'],
-  LW: ['LW'],
-  RW: ['RW'],
-  D: ['D'],
+  C: ['C', 'F', 'UTIL'],
+  LW: ['LW', 'F', 'UTIL'],
+  RW: ['RW', 'F', 'UTIL'],
+  D: ['D', 'UTIL'],
   G: ['G'],
-  F: ['C', 'LW', 'RW'],
+  F: ['C', 'LW', 'RW', 'F', 'UTIL'],
 };
 
 export function eligibleSlots(pos) {
-  return SLOT_ELIGIBILITY[pos] || ['C', 'LW', 'RW'];
+  return SLOT_ELIGIBILITY[pos] || ['F', 'UTIL'];
 }
 
 export function rosterSlots(settings = {}) {
@@ -73,12 +78,43 @@ export function bestOpenSlot(pos, open) {
   return null;
 }
 
-// Every NHL slot is positionally meaningful (no UTIL), so specific == all open slots.
+// Open slots that are positionally MEANINGFUL: everything except UTIL, which takes any skater
+// and so never represents scarcity or forces a pick. Mirrors mlbScoring/nbaScoring.
 export function specificOpenSlots(roster, settings = {}) {
-  return openSlots(roster, settings);
+  const open = openSlots(roster, settings);
+  delete open.UTIL;
+  return open;
+}
+
+// Roster-construction caps, the hockey analog of nflPosCaps' QB/TE rule. `demand` is how many
+// starting slots the position can actually fill; past that a player is bench depth, and past
+// `cap` he is dead weight the engine won't rank at all.
+//
+// Goalies are the tight one: only two start, and a season GP cap means a third goalie's starts
+// mostly cannot be used. So goalies get exactly one backup (cap 3, never a 4th), while skaters
+// keep real bench room for injuries and off-nights.
+export function posCap(pos, settings = {}) {
+  const lineup = rosterSlots(settings);
+  let demand = 0;
+  for (const slot of eligibleSlots(pos)) demand += Number(lineup[slot]) || 0;
+  const cap = pos === 'G' ? (Number(lineup.G) || 0) + 1 : demand + 2;
+  return { demand, cap };
 }
 
 // ---- Category balance -----------------------------------------------------------------------
+// With twelve categories, a roster is always momentarily "weakest" at SOMETHING: fill the gap
+// and a different category becomes the new laggard, so an uncapped tilt chases a fresh target
+// every single pick and ends up buying specialists in the cheap categories while the expensive
+// ones (goals, assists, power-play points, shots — the ones every team wants) go unbought.
+//
+// DEADBAND is the fix for the chase: a category within half a standard deviation of the
+// roster's own mean is simply NOT a need, and gets weight exactly 1. Only a genuinely lagging
+// category earns a tilt at all, and filling it usually returns it to the band, so it stops
+// being re-chased next pick. The tilt itself is deliberately gentler than before (0.18, range
+// 0.75-1.25); the hard ceiling on how far it can move a player lives on the board, in
+// needTiltCap below, because only the board knows what "far below the best available" means.
+const NEED_DEADBAND = 0.5;
+
 export function categoryNeed(roster) {
   const totals = {};
   for (const k of CAT_KEYS) totals[k] = 0;
@@ -92,9 +128,28 @@ export function categoryNeed(roster) {
   const weight = {};
   for (const k of CAT_KEYS) {
     const deficit = (mean - totals[k]) / sd;
-    weight[k] = Math.min(1.6, Math.max(0.6, 1 + deficit * 0.3));
+    // Inside the deadband there is no need to express; outside it, only the excess counts.
+    const past = Math.abs(deficit) <= NEED_DEADBAND ? 0 : deficit - Math.sign(deficit) * NEED_DEADBAND;
+    weight[k] = Math.min(1.25, Math.max(0.75, 1 + past * 0.18));
   }
   return weight;
+}
+
+// The most category need may move a player off his raw value, in raw-value units.
+//
+// Category balance should break ties and settle close calls, never promote a grinder over a
+// clearly better player. The ceiling is therefore measured against the BOARD, not fixed: it is
+// a fraction of the value gap across the next couple of rounds of realistic picks. Inside a
+// tier that gap is small and need decides; across tiers it is large relative to the tilt, so
+// the better player still wins. An empty or flat board yields 0 — no tilt at all.
+const TILT_SHARE = 0.34;
+const TILT_WINDOW = 24; // ~two rounds of picks in a 12-team league
+
+export function needTiltCap(available) {
+  const vals = available.map(value).sort((a, b) => b - a);
+  if (vals.length < 2) return 0;
+  const lo = vals[Math.min(vals.length - 1, TILT_WINDOW)];
+  return Math.max(0, (vals[0] - lo) * TILT_SHARE);
 }
 
 export function adjustedValue(p, weight) {
