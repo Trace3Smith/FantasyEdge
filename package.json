@@ -23,7 +23,7 @@
     "check:sport-readiness": "node scripts/check-sport-readiness.mjs",
     "check:credential-browser": "node scripts/check-credential-browser.mjs",
     "check:credential-lifecycle": "node --experimental-test-module-mocks scripts/check-credential-lifecycle.mjs",
-    "check:storage-epoch": "node --experimental-test-module-mocks scripts/check-storage-epoch.mjs",
+    "check:storage-epoch": "node scripts/check-lua-inputs.mjs && node --experimental-test-module-mocks scripts/check-storage-epoch.mjs",
     "check:redis-boundary": "node scripts/check-redis-boundary.mjs"
   },
   "dependencies": {

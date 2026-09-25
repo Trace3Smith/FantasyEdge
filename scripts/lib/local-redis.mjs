@@ -1,5 +1,6 @@
 // Disposable real Redis over a private Unix socket: no TCP, persistence or external service.
 import { spawn } from 'node:child_process';
+import { readonlyLuaInputs } from './readonly-lua-inputs.mjs';
 import { createConnection } from 'node:net';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -26,6 +27,8 @@ export async function localRedis() {
     throw new Error('Unexpected local Redis protocol');
   };
   const command=(...args)=>new Promise((resolve,reject)=>{
+    // Covers both direct eval() and the installed SDK's REST -> command() path.
+    if (String(args[0]).toUpperCase() === 'EVAL') args[1] = readonlyLuaInputs(args[1]);
     const connection=createConnection(socket);let received=Buffer.alloc(0);
     connection.setTimeout(10000,()=>connection.destroy(new Error('Local Redis command timeout')));
     connection.on('error',reject);

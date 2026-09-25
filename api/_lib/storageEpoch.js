@@ -7,7 +7,7 @@ const scripts = new Set();
 export function registerEpochScript(script) {
   // This is an allowlist for the repository's lifecycle script, not arbitrary Lua.
   // Catch literal/dynamic key mistakes before a script can be registered.
-  if (typeof script !== 'string' || /KEYS\s*\[[^\]]+\]\s*=|(?:rawset|loadstring|load|require)\s*\(|table\./.test(script)) throw new Error('Unsafe epoch script');
+  if (typeof script !== 'string' || /\b(?:KEYS|ARGV)\s*(?:\[[^\]]+\])?\s*=(?!=)|(?:rawset|loadstring|load|require)\s*\(|table\./.test(script)) throw new Error('Unsafe epoch script');
   for (const call of script.matchAll(/redis\.call\(([^\n]*)/g)) {
     const args=call[1];
     if (/^'TIME'\)/.test(args)) continue;
@@ -27,7 +27,11 @@ local ok, ctl = pcall(cjson.decode, ctlraw)
 if not ok or type(ctl) ~= 'table' or ctl.schema ~= 1 or ctl.epoch ~= 'e1' or ctl.phase ~= 'active' or ctl.manifestClosed ~= true or type(ctl.runId) ~= 'string' or type(ctl.quotaNotBefore) ~= 'number' then
  return redis.error_reply('EPOCH_MAINTENANCE')
 end
-table.remove(KEYS, 1)
+-- Hosted Redis may protect its supplied KEYS/ARGV tables. Copy only the data
+-- keys, in order; the local binding preserves the lifecycle script's 1-based API.
+local runtimeKeys = {}
+for i = 2, #KEYS do runtimeKeys[i - 1] = KEYS[i] end
+local KEYS = runtimeKeys
 `;
 const COMMAND = ACTIVE_GUARD + `
 local op = ARGV[1]

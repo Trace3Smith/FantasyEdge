@@ -20,5 +20,13 @@ for(const file of files){
  if(source.includes('registerEpochScript('))assert.ok(['api/_lib/storageEpoch.js','api/_lib/espnLifecycle.js'].includes(file));
  if(source.includes('decryptCredentials('))assert.equal(file,'api/_lib/espnCredentials.js');
 }
+// Reject direct global-table writes in shipped Lua. A local KEYS binding to a fresh
+// copy is intentional; it neither overwrites nor mutates Redis's supplied table.
+for (const file of ['api/_lib/storageEpoch.js','api/_lib/espnLifecycle.js','scripts/lib/epoch-bootstrap.mjs']) {
+ const source=await readFile(file,'utf8');
+ assert.equal(/table\.(?:remove|insert|sort|move|setn)\s*\(\s*(?:KEYS|ARGV)\b/.test(source),false,file);
+ assert.equal(/\b(?:KEYS|ARGV)\s*\[[^\]]+\]\s*=(?!=)/.test(source),false,file);
+ assert.equal(/rawset\s*\(\s*(?:KEYS|ARGV)\b/.test(source),false,file);
+}
 const kv=await readFile('api/_lib/kv.js','utf8');assert.match(kv,/export const redis = epochRedis\(new Redis/);
 console.log(`PASS: ${consumers.length} Redis consumers; shared epoch boundary, registered lifecycle Lua only, no raw client or bootstrap/runtime legacy fallback`);
