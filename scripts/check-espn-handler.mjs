@@ -1,4 +1,6 @@
-#!/usr/bin/env node
+import { seedEpochCredential } from './lib/epoch-fixture.mjs';
+process.env.ESPN_CREDENTIAL_ENCRYPTION_KEY=Buffer.alloc(32,7).toString('base64');
+import { installLifecycleFake } from './lib/lifecycle-fake.mjs';
 // Offline regression checks for api/espn/index.js, run through the REAL request handler with its two
 // outside dependencies swapped out: Clerk (auth.js) and Redis (kv.js). ESPN is a stubbed fetch, so
 // every URL the handler asks for is recorded and asserted on.
@@ -19,12 +21,14 @@ const check = (n, ok, d) => { if (!ok) failed++; console.log(`   ${ok ? '✅' : 
 
 const SWID = '{11111111-2222-3333-4444-555555555555}';
 const USER = 'user_offline';
-const store = new Map([[`espn:creds:${USER}`, { espn_s2: 's2', swid: SWID }]]);
+const store = new Map();
+seedEpochCredential(store,USER,{espn_s2:'s2',swid:SWID});
 const fakeRedis = {
   get: async (k) => (store.has(k) ? structuredClone(store.get(k)) : null),
   set: async (k, v) => { store.set(k, structuredClone(v)); return 'OK'; },
 };
 
+installLifecycleFake(fakeRedis);
 const lib = (p) => new URL(`../api/_lib/${p}`, import.meta.url).href;
 const realKv = await import(lib('kv.js'));
 // nflForm needs the cron-built NFL dataset to exist (it 503s without one). A single player with no
@@ -32,7 +36,7 @@ const realKv = await import(lib('kv.js'));
 store.set(realKv.NFL_DATASET_KEY, { players: [{ id: 1, name: 'Placeholder WR', pos: 'WR' }] });
 const realAuth = await import(lib('auth.js'));
 mock.module(lib('kv.js'), { namedExports: { ...realKv, redis: fakeRedis } });
-mock.module(lib('auth.js'), { namedExports: { ...realAuth, requirePremium: async () => ({ userId: USER }) } });
+mock.module(lib('auth.js'), { namedExports: { ...realAuth, requireUser: async () => ({ userId: USER }), requirePremium: async () => ({ userId: USER }) } });
 const { default: handler } = await import('../api/espn/index.js');
 const { scoringKey } = await import(lib('espnScoring.js'));
 

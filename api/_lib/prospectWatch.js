@@ -1,3 +1,5 @@
+import { getCreds } from './espnFantasy.js';
+import { transitionLifecycle, lifecycleConflict } from './espnLifecycle.js';
 // Prospect call-up monitoring (Premium). Tracks the minor-league prospects a user
 // stashes on an ESPN roster — plus any they explicitly Watch on a drop suggestion — and
 // detects when one is CALLED UP, i.e. their status flips from "in the minors" to "on an
@@ -17,6 +19,7 @@
 //     status:'minors'|'active', stashedSince, seenAt, calledUpAt, acked }
 // It holds only roster metadata — never cookies or anything sensitive.
 
+import { leagueKeyOf, qualifiedLeagueKey } from '../../leagueIdentity.js';
 import { normName } from './golf.js';
 
 const watchKey = (userId) => `espn:prospectwatch:${userId}`;
@@ -24,10 +27,13 @@ export const LONG_STASH_DAYS = 60;   // "long-stashed" threshold for the drop-re
 const CALLUP_ALERT_DAYS = 21;        // keep surfacing a call-up alert this long until acked
 
 export async function getWatch(redis, userId) {
-  return (await redis.get(watchKey(userId))) || {};
+  const creds = await getCreds(redis, userId);
+  const record = await redis.get(watchKey(userId));
+  return creds && record?.connectionId === creds.connectionId ? record.entries || {} : {};
 }
-export async function setWatch(redis, userId, map) {
-  await redis.set(watchKey(userId), map || {});
+export async function setWatch(redis, userId, map, snapshot) {
+  if (!snapshot) throw lifecycleConflict();
+  await transitionLifecycle(redis, userId, 'watch', snapshot.lifecycleRevision, {connectionId: snapshot.connectionId, entries: map || {}});
 }
 
 export function daysSince(iso, now = Date.now()) {
@@ -71,14 +77,14 @@ function statusFromDataset(idx, name) {
 export function reconcileWatch({ watch = {}, leagues = [], idx, now = Date.now() }) {
   const nowIso = new Date(now).toISOString();
   const out = {};
-  for (const [k, v] of Object.entries(watch)) out[k] = { ...v };
+  for (const [k, v] of Object.entries(watch)) out[k] = { ...v, lg: v.lg ? qualifiedLeagueKey(v.lg, 'mlb') : v.lg };
   const seenIds = new Set();
   const fetchedKeys = new Set();
 
   // 1) Auto-track current roster prospects + refresh where we last saw each.
   for (const lg of leagues) {
     if (!lg || !lg.team || !Array.isArray(lg.roster)) continue;
-    const lgKey = `${lg.season}:${lg.leagueId}:${lg.teamId ?? lg.team.id}`;
+    const lgKey = leagueKeyOf({ ...lg, sport: 'mlb' });
     fetchedKeys.add(lgKey);
     for (const rp of lg.roster) {
       if (rp.id == null) continue;
@@ -135,7 +141,7 @@ export function reconcileWatch({ watch = {}, leagues = [], idx, now = Date.now()
 // Returns the updated map. Preserves stashedSince/status so days-in-minors stays honest.
 export function applyWatchOp(watch = {}, { op, playerId, name, pos, lg, leagueName, now = Date.now() }) {
   const out = {};
-  for (const [k, v] of Object.entries(watch)) out[k] = { ...v };
+  for (const [k, v] of Object.entries(watch)) out[k] = { ...v, lg: v.lg ? qualifiedLeagueKey(v.lg, 'mlb') : v.lg };
   const idStr = String(playerId);
   const nowIso = new Date(now).toISOString();
   const prev = out[idStr];

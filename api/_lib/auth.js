@@ -13,13 +13,8 @@ const QUOTA_TTL_SECONDS = 36 * 60 * 60; // > 24h so a key never expires mid-day
 
 // A thrown HttpError carries the status the endpoint should return. Endpoints wrap
 // their gating in try/catch and forward err.status (defaulting to 500).
-export class HttpError extends Error {
-  constructor(status, message, payload) {
-    super(message);
-    this.status = status;
-    this.payload = payload || { error: message };
-  }
-}
+import { HttpError } from './httpError.js';
+export { HttpError };
 
 // Origins Clerk's token must have been minted for. Networkless verification rejects
 // tokens whose `azp` isn't in this list, blocking token reuse from other apps. The
@@ -79,6 +74,12 @@ export function isPremiumUser(user) {
   return user?.publicMetadata?.plan === 'premium';
 }
 
+// Background work has no browser session. Use the same entitlement source as
+// manual requests; callers must skip work if Clerk cannot answer.
+export async function premiumForUser(userId) {
+  return isPremiumUser(await clerkClient.users.getUser(userId));
+}
+
 // requireUser + load the full Clerk user so callers can branch on plan. Returns
 // { userId, user, premium }.
 export async function getEntitlement(req) {
@@ -101,13 +102,14 @@ const quotaKey = (userId) => `mockdraft:count:${userId}:${utcDay()}`;
 
 // How many mock drafts the user has started today (without consuming one).
 export async function getMockUsage(userId) {
-  const used = Number(await redis.get(quotaKey(userId))) || 0;
+  const used = await redis.quotaBlocked?.() ? FREE_DAILY_MOCKS : Number(await redis.get(quotaKey(userId))) || 0;
   return { used, limit: FREE_DAILY_MOCKS, remaining: Math.max(0, FREE_DAILY_MOCKS - used) };
 }
 
 // Atomically claim one of today's free mock-draft slots. Throws 403 (with an upsell
 // payload) when the daily limit is already spent. Premium callers skip this entirely.
 export async function consumeMockQuota(userId) {
+  if (await redis.quotaBlocked?.()) throw new HttpError(503, 'Free mock allowance resumes next UTC day', { error: 'quota_epoch_maintenance' });
   const key = quotaKey(userId);
   const n = await redis.incr(key);
   if (n === 1) await redis.expire(key, QUOTA_TTL_SECONDS);
@@ -123,7 +125,7 @@ export async function consumeMockQuota(userId) {
 
 // Standard error responder for the gated endpoints.
 export function sendError(res, err) {
-  const status = err instanceof HttpError ? err.status : 500;
-  const payload = err instanceof HttpError ? err.payload : { error: err.message };
+  const status = err instanceof HttpError || err?.payload?.error === 'storage_unavailable' ? err.status : 500;
+  const payload = err instanceof HttpError || err?.payload?.error === 'storage_unavailable' ? err.payload : { error: err.message };
   return res.status(status).json(payload);
 }

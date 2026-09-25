@@ -237,6 +237,12 @@
     <button class="btn btn-gold" id="signInBtn">Sign in</button>
   </div>
 
+  <div class="panel hidden" id="connectionError">
+    <h2>Connection status unavailable</h2>
+    <p class="hint">We could not check your saved ESPN connection. No connection state has been confirmed. Retry before entering credentials.</p>
+    <button class="btn btn-gold" id="retryConnection">Retry connection check</button>
+  </div>
+
   <!-- Connect form (premium, not connected) -->
   <div class="panel hidden" id="connectPanel">
     <div class="msg show ok hidden" id="reconnectNote" style="margin-bottom:12px">↻ Refreshing your ESPN connection — paste your latest cookies below and you're set for another month or two.</div>
@@ -294,6 +300,13 @@
     <div class="msg" id="connectMsg"></div>
 
     <div id="connectGuide"></div>
+  </div>
+
+  <div class="panel hidden" id="confirmationPanel">
+    <h2>Confirm your ESPN connection</h2>
+    <p>Your saved connection needs confirmation. We will check it with ESPN before enabling it. Autopilot stays off and League DNA requires a new choice.</p>
+    <button class="btn btn-gold" id="confirmConnectionBtn">Confirm with ESPN</button>
+    <div class="msg" id="confirmationMsg"></div>
   </div>
 
   <!-- Connected state (premium, connected) -->
@@ -416,15 +429,20 @@
     show('locked', signedIn && !premium);
     show('signedOut', !signedIn);
     // Hide both premium surfaces until we know the connection status.
-    if (!signedIn || !premium) { show('connectPanel', false); show('connectedWrap', false); return; }
+    if (!signedIn || !premium) { show('confirmationPanel', false); show('connectionError', false); show('connectPanel', false); show('connectedWrap', false); return; }
     if (!loadedOnce) { loadedOnce = true; await refreshStatus(); }
   }
 
   // ---- connection status ---------------------------------------------------------
+  let connectionStatusVerified = false;
+  $('retryConnection').addEventListener('click', () => refreshStatus());
   async function refreshStatus() {
-    const { ok, status, data } = await api('/api/espn', { action: 'status' });
+    connectionStatusVerified = false;
+    show('confirmationPanel', false); show('connectionError', false); show('connectPanel', false); show('connectedWrap', false);
+    const { ok, status, data } = await api('/api/espn', { action: 'status' }).catch(() => ({ok:false}));
     if (status === 401) { show('connectPanel', false); show('connectedWrap', false); show('signedOut', true); return; }
-    if (!ok) { show('connectPanel', true); return; }
+    if (!ok || typeof data?.connected !== 'boolean') { show('connectionError', true); return; }
+    connectionStatusVerified = true;
     if (data.connected) {
       show('connectPanel', false);
       show('connectedWrap', true);
@@ -434,10 +452,25 @@
       selectSport(currentSport); // loads the active sport's leagues, or shows 'Coming {month}'
     } else {
       show('connectedWrap', false);
-      show('connectPanel', true);
+      show('confirmationPanel', data.confirmationPending === true);
+      show('connectPanel', data.confirmationPending !== true);
       $('reconnectNote').classList.add('hidden'); // first-time connect, not a reconnect
     }
   }
+
+  $('confirmConnectionBtn').addEventListener('click', async () => {
+    $('confirmConnectionBtn').disabled = true;
+    setMsg('confirmationMsg', 'Checking with ESPN…');
+    try {
+      const { ok, data } = await api('/api/espn', { action: 'confirmConnection', confirm: true });
+      if (ok) { await refreshStatus(); return; }
+      if (data?.error === 'reconnect_required' || data?.error === 'espn_auth') {
+        show('confirmationPanel', false); show('connectPanel', true);
+        setMsg('connectMsg', 'Please reconnect using your current ESPN cookies.', 'err');
+      } else setMsg('confirmationMsg', 'Confirmation failed. Sign in again or retry shortly.', 'err');
+    } catch { setMsg('confirmationMsg', 'Could not reach ESPN. Please retry.', 'err'); }
+    finally { $('confirmConnectionBtn').disabled = false; }
+  });
 
   // ---- League DNA notice ------------------------------------------------------------
   // Must match DNA_NOTICE_VERSION in api/_lib/leagueDnaConsent.js. The server records a choice only
@@ -509,6 +542,7 @@
   }
 
   async function connect() {
+    if (!connectionStatusVerified) { show('connectPanel', false); show('connectionError', true); return; }
     const espn_s2 = $('s2Input').value.trim();
     const swid = $('swidInput').value.trim();
     if (!espn_s2 || !swid) { setMsg('connectMsg', 'Paste both the espn_s2 and SWID cookie values.', 'err'); return; }
@@ -622,11 +656,11 @@
     $('leaguesArea').innerHTML = leagues.map(renderLeagueCard).join('');
   }
 
-  // Frontend league key (matches the server's season:leagueId:teamId).
+  // Sport-qualified frontend key matches the server, including overlapping league IDs.
   function lkOf(lg) {
     const teamId = lg.teamId != null ? lg.teamId : (lg.team && lg.team.id);
     if (teamId == null || !lg.leagueId) return '';
-    return `${lg.season}:${lg.leagueId}:${teamId}`;
+    return `${lg.sport || currentSport}:${lg.season}:${lg.leagueId}:${teamId}`;
   }
 
   // Expired-session panel: clear explanation + one-click path back to the connect

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { seedEpochCredential } from './lib/epoch-fixture.mjs';
+import { installLifecycleFake } from './lib/lifecycle-fake.mjs';
 // Offline checks for League DNA consent: no user's leagues are captured until they've seen the notice
 // and opted in, on EVERY capture path. Runs the REAL request handler (api/espn/index.js) and the REAL
 // Autopilot cron, with Clerk and Redis swapped for stand-ins (node:test module mocks) and ESPN stubbed
@@ -10,6 +12,7 @@
 import { mock } from 'node:test';
 
 // kv.js builds its Upstash client on import; the handler gets the in-memory stand-in below instead.
+process.env.ESPN_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64'); // synthetic offline key
 process.env.KV_REST_API_URL ||= 'https://offline.invalid';
 process.env.KV_REST_API_TOKEN ||= 'offline';
 process.env.CRON_SECRET = 'offline-cron';
@@ -29,12 +32,13 @@ const fakeRedis = {
   smembers: async (k) => [...(sets.get(k) || [])],
 };
 
+installLifecycleFake(fakeRedis);
 let currentUser = null;
 const lib = (p) => new URL(`../api/_lib/${p}`, import.meta.url).href;
 const realKv = await import(lib('kv.js'));
 const realAuth = await import(lib('auth.js'));
 mock.module(lib('kv.js'), { namedExports: { ...realKv, redis: fakeRedis } });
-mock.module(lib('auth.js'), { namedExports: { ...realAuth, requirePremium: async () => ({ userId: currentUser }) } });
+mock.module(lib('auth.js'), { namedExports: { ...realAuth, requireUser: async () => ({ userId: currentUser }), requirePremium: async () => ({ userId: currentUser }), premiumForUser: async () => true } });
 const { default: espn } = await import('../api/espn/index.js');
 const { default: cron } = await import('../api/cron/autopilot.js');
 const { DNA_NOTICE_VERSION, DNA_USERS } = await import(lib('leagueDnaConsent.js'));
@@ -52,7 +56,7 @@ const U = {
   cronUser:  { swid: hex('9'), league: '909' }, // opted in; only the cron should capture here
 };
 const userOfSwid = (swid) => Object.entries(U).find(([, u]) => u.swid === swid)?.[0];
-const linked = (name) => store.set(`espn:creds:${name}`, { espn_s2: 's2', swid: U[name].swid });
+const linked = (name) => seedEpochCredential(store,name,{espn_s2:'s2',swid:U[name].swid});
 for (const name of ['existing', 'optsOut', 'optsIn', 'cronUser']) linked(name);
 
 const cfgKey = (name) => leagueConfigKey({ platform: 'espn', sport: 'mlb', leagueId: U[name].league, season: 2026 });
@@ -169,7 +173,7 @@ console.log('\noffline — the Autopilot cron captures for opted-in users only')
 {
   await choose('cronUser', true);
   store.delete(cfgKey('cronUser'));                     // clear the opt-in capture: only the cron may write now
-  const prefs = (name) => ({ [`2026:${U[name].league}:1`]: { sport: 'mlb' } });
+  const prefs = (name) => ({ [`2026:${U[name].league}:1`]: { sport: 'mlb', connectionId:store.get(`espn:generation:${name}`) } });
   store.set('espn:autopilot:existing', prefs('existing'));
   store.set('espn:autopilot:cronUser', prefs('cronUser'));
   sets.set('espn:autopilot:users', new Set(['existing', 'cronUser']));
@@ -197,11 +201,11 @@ console.log('\noffline — the daily sweep, run by the Autopilot cron');
   for (const name of ['sweepA', 'sweepShared', 'sweepB', 'sweepStale', 'sweepExpired']) {
     linked(name);
     const version = name === 'sweepStale' ? DNA_NOTICE_VERSION - 1 : DNA_NOTICE_VERSION;
-    store.set(`espn:dna:ack:${name}`, { version, include: true, via: 'notice', at: '2026-09-01T00:00:00.000Z' });
+    store.set(`espn:dna:ack:${name}`, { version, include: true, connectionId:`fixture-${name}`, via: 'notice', at: '2026-09-01T00:00:00.000Z' });
     sets.get(DNA_USERS).add(name);
   }
   // Autopilot is on for the expired account, but it isn't in today's lineup run: the sweep must leave it be.
-  const expiredPrefs = { '2026:704:1': { sport: 'mlb' } };
+  const expiredPrefs = { '2026:704:1': { sport: 'mlb', connectionId:'fixture-sweepExpired' } };
   store.set('espn:autopilot:sweepExpired', expiredPrefs);
   const stub = globalThis.fetch;
   globalThis.fetch = async (url, opts = {}) => ((opts.headers?.Cookie || '').includes(`SWID=${U.sweepExpired.swid}`)
@@ -256,9 +260,10 @@ console.log("\noffline — the sweep's time budget and cursor");
     };
     for (const id of ['u1', 'u2', 'u3', 'u4', 'u5']) {
       members.add(id);
-      kv.set(`espn:dna:ack:${id}`, { version: DNA_NOTICE_VERSION, include: true, via: 'notice' });
-      kv.set(`espn:creds:${id}`, { espn_s2: 's2', swid: `{${id}}` });
+      kv.set(`espn:dna:ack:${id}`, { version: DNA_NOTICE_VERSION, include: true, connectionId:`fixture-${id}`, via: 'notice' });
+      seedEpochCredential(kv,id,{espn_s2:'s2',swid:`{${id}}`});
     }
+    installLifecycleFake(r);
     return { r, kv };
   };
 
