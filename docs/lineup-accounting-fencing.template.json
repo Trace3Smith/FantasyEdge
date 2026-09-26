@@ -1,0 +1,107 @@
+[
+  {
+    "name": "Accounting deployment quarantine",
+    "active": true,
+    "conditionGroup": [
+      {
+        "conditions": [
+          {
+            "type": "header",
+            "key": "x-deployment-id",
+            "op": "ex"
+          }
+        ]
+      },
+      {
+        "conditions": [
+          {
+            "type": "query",
+            "key": "dpl",
+            "op": "ex"
+          }
+        ]
+      },
+      {
+        "conditions": [
+          {
+            "type": "cookie",
+            "key": "__vdpl",
+            "op": "ex"
+          }
+        ]
+      },
+      {
+        "conditions": [
+          {
+            "type": "host",
+            "op": "inc",
+            "value": [
+              "www.fantasyedgeapp.com",
+              "fantasyedgeapp.com",
+              "__VERIFIED_ACCOUNTING_DEPLOYMENT_CRON_HOST__"
+            ],
+            "neg": true
+          }
+        ]
+      },
+      {
+        "conditions": [
+          {
+            "type": "host",
+            "op": "eq",
+            "value": "__VERIFIED_ACCOUNTING_DEPLOYMENT_CRON_HOST__"
+          },
+          {
+            "type": "path",
+            "op": "inc",
+            "value": [
+              "/api/cron/refresh",
+              "/api/cron/autopilot"
+            ],
+            "neg": true
+          }
+        ]
+      },
+      {
+        "conditions": [
+          {
+            "type": "path",
+            "op": "pre",
+            "value": "/api/cron"
+          },
+          {
+            "type": "host",
+            "op": "eq",
+            "value": "__VERIFIED_ACCOUNTING_DEPLOYMENT_CRON_HOST__",
+            "neg": true
+          }
+        ]
+      }
+    ],
+    "action": {
+      "mitigate": {
+        "action": "deny"
+      }
+    }
+  },
+  {
+    "name": "Storage epoch API maintenance deny",
+    "active": true,
+    "conditionGroup": [
+      {
+        "conditions": [
+          {
+            "type": "path",
+            "op": "pre",
+            "value": "/api"
+          }
+        ]
+      }
+    ],
+    "action": {
+      "mitigate": {
+        "action": "deny"
+      }
+    }
+  }
+]
