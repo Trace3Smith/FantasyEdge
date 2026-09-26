@@ -1,0 +1,17 @@
+[
+  "api/_lib/espnFantasy.js",
+  "api/_lib/lineupAccounting.js",
+  "api/_lib/lineupAccountingSchema.js",
+  "docs/lineup-accounting-fencing.template.json",
+  "docs/lineup-accounting-release.md",
+  "package.json",
+  "scripts/certify-lineup-accounting.mjs",
+  "scripts/certify-lineup-accounting.py",
+  "scripts/check-lineup-accounting-fencing.mjs",
+  "scripts/check-lineup-accounting.mjs",
+  "scripts/lib/lineup-accounting-adversarial.mjs",
+  "scripts/lib/lineup-accounting-fixture.mjs",
+  "scripts/lib/local-redis.mjs",
+  "scripts/lineup-accounting-source-files.json",
+  "scripts/reconcile-lineup-accounting.mjs"
+]
