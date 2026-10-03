@@ -145,6 +145,7 @@
   .p-link:hover .p-name,.p-link:hover .hero-name{color:var(--gold);}
 </style>
 <link rel="stylesheet" href="assets/mobile.css">
+  <link rel="stylesheet" href="assets/visual-refresh.css">
 </head>
 <body>
 <button class="nav-toggle" aria-label="Open menu"><span></span></button>
@@ -156,22 +157,22 @@
   <aside class="sidebar">
     <div class="sidebar-logo">Fantasy<span>Edge</span></div>
     <div class="sidebar-section">Main</div>
-    <ul class="sidebar-nav">      <li><a href="fantasyedge.html"><span class="nav-icon">🏠</span> Home</a></li>
-      <li><a href="fantasyedge-rankings.html"><span class="nav-icon">📊</span> Rankings</a></li>
-      <li><a href="fantasyedge-draft.html"><span class="nav-icon">📋</span> Draft Mode</a></li>
-      <li><a href="fantasyedge-draft.html?mode=mock"><span class="nav-icon">🎯</span> Mock Draft</a></li>
-      <li><a href="fantasyedge-autopilot.html"><span class="nav-icon">🎛️</span> Team Manager</a></li>
-      <li><a href="fantasyedge-trade-center.html"><span class="nav-icon">🤝</span> Trade Center</a></li>
-      <li><a href="fantasyedge-brackets.html"><span class="nav-icon">🏆</span> Brackets & Bowls</a></li>
-      <li><a href="fantasyedge-about.html"><span class="nav-icon">ℹ️</span> About & Features</a></li>
+    <ul class="sidebar-nav">      <li><a href="fantasyedge.html"><span class="nav-icon fe-icon" data-icon="house" aria-hidden="true"></span> Home</a></li>
+      <li><a href="fantasyedge-rankings.html"><span class="nav-icon fe-icon" data-icon="chart-column-increasing" aria-hidden="true"></span> Rankings</a></li>
+      <li><a href="fantasyedge-draft.html"><span class="nav-icon fe-icon" data-icon="clipboard-list" aria-hidden="true"></span> Draft Mode</a></li>
+      <li><a href="fantasyedge-draft.html?mode=mock"><span class="nav-icon fe-icon" data-icon="crosshair" aria-hidden="true"></span> Mock Draft</a></li>
+      <li><a href="fantasyedge-autopilot.html"><span class="nav-icon fe-icon" data-icon="sliders-horizontal" aria-hidden="true"></span> Team Manager</a></li>
+      <li><a href="fantasyedge-trade-center.html"><span class="nav-icon fe-icon" data-icon="arrow-left-right" aria-hidden="true"></span> Trade Center</a></li>
+      <li><a href="fantasyedge-brackets.html"><span class="nav-icon fe-icon" data-icon="trophy" aria-hidden="true"></span> Brackets & Bowls</a></li>
+      <li><a href="fantasyedge-about.html"><span class="nav-icon fe-icon" data-icon="info" aria-hidden="true"></span> About & Features</a></li>
     </ul>
     <div class="sidebar-section">Sports</div>
     <ul class="sidebar-nav">
-      <li><a href="fantasyedge-rankings.html?sport=mlb"><span class="nav-icon">⚾</span> MLB</a></li>
-      <li><a href="fantasyedge-rankings.html?sport=nba"><span class="nav-icon">🏀</span> NBA</a></li>
-      <li><a href="fantasyedge-rankings.html?sport=nhl"><span class="nav-icon">🏒</span> NHL</a></li>
-      <li><a href="fantasyedge-rankings.html?sport=pga"><span class="nav-icon">⛳</span> PGA</a></li>
-      <li><a href="fantasyedge-rankings.html?sport=nfl"><span class="nav-icon">🏈</span> NFL</a></li>
+      <li><a href="fantasyedge-rankings.html?sport=mlb">MLB</a></li>
+      <li><a href="fantasyedge-rankings.html?sport=nba">NBA</a></li>
+      <li><a href="fantasyedge-rankings.html?sport=nhl">NHL</a></li>
+      <li><a href="fantasyedge-rankings.html?sport=pga">PGA</a></li>
+      <li><a href="fantasyedge-rankings.html?sport=nfl">NFL</a></li>
     </ul>
     <div class="sidebar-bottom">
       <div class="upgrade-card">
@@ -191,11 +192,11 @@
       <div class="topbar-right">
         <div class="sport-filter-mini">
           <button class="sfm active" data-sport="all" onclick="filterSport('all')">All</button>
-          <button class="sfm" data-sport="mlb" onclick="filterSport('mlb')">⚾</button>
-          <button class="sfm" data-sport="nba" onclick="filterSport('nba')">🏀</button>
-          <button class="sfm" data-sport="nhl" onclick="filterSport('nhl')">🏒</button>
-          <button class="sfm" data-sport="pga" onclick="filterSport('pga')">⛳</button>
-          <button class="sfm" data-sport="nfl" onclick="filterSport('nfl')">🏈</button>
+          <button class="sfm" aria-label="Show MLB" data-sport="mlb" onclick="filterSport('mlb')">MLB</button>
+          <button class="sfm" aria-label="Show NBA" data-sport="nba" onclick="filterSport('nba')">NBA</button>
+          <button class="sfm" aria-label="Show NHL" data-sport="nhl" onclick="filterSport('nhl')">NHL</button>
+          <button class="sfm" aria-label="Show PGA" data-sport="pga" onclick="filterSport('pga')">PGA</button>
+          <button class="sfm" aria-label="Show NFL" data-sport="nfl" onclick="filterSport('nfl')">NFL</button>
         </div>
       </div>
     </div>
@@ -203,10 +204,10 @@
     <div class="content">
       <!-- SUMMARY STRIP -->
       <div class="summary-strip">
-        <div class="summary-card gold"><span class="summary-icon">⭐</span><div class="summary-info"><div class="summary-val" id="sumBig">0</div><div class="summary-lbl">Big Game Alerts</div></div></div>
-        <div class="summary-card green"><span class="summary-icon">🔥</span><div class="summary-info"><div class="summary-val" id="sumHot">0</div><div class="summary-lbl">Hot Streaks</div></div></div>
-        <div class="summary-card red"><span class="summary-icon">❄️</span><div class="summary-info"><div class="summary-val" id="sumCold">0</div><div class="summary-lbl">Cold Streaks</div></div></div>
-        <div class="summary-card orange"><span class="summary-icon">📈</span><div class="summary-info"><div class="summary-val" id="sumGames">0</div><div class="summary-lbl">Games Tracked</div></div></div>
+        <div class="summary-card gold"><span class="summary-icon fe-icon" data-icon="sparkles" aria-hidden="true"></span><div class="summary-info"><div class="summary-val" id="sumBig">0</div><div class="summary-lbl">Big Game Alerts</div></div></div>
+        <div class="summary-card green"><span class="summary-icon fe-icon" data-icon="flame" aria-hidden="true"></span><div class="summary-info"><div class="summary-val" id="sumHot">0</div><div class="summary-lbl">Hot Streaks</div></div></div>
+        <div class="summary-card red"><span class="summary-icon fe-icon" data-icon="snowflake" aria-hidden="true"></span><div class="summary-info"><div class="summary-val" id="sumCold">0</div><div class="summary-lbl">Cold Streaks</div></div></div>
+        <div class="summary-card orange"><span class="summary-icon fe-icon" data-icon="chart-no-axes-combined" aria-hidden="true"></span><div class="summary-info"><div class="summary-val" id="sumGames">0</div><div class="summary-lbl">Games Tracked</div></div></div>
       </div>
 
       <!-- TOP PERFORMER -->
@@ -214,10 +215,10 @@
 
       <!-- SECTION TABS -->
       <div class="section-tabs">
-        <button class="stab active" onclick="switchTab('bigGames')">⭐ Big Games</button>
-        <button class="stab" onclick="switchTab('hotStreaks')">🔥 Hot Streaks</button>
-        <button class="stab" onclick="switchTab('coldStreaks')">❄️ Cold Streaks</button>
-        <button class="stab" onclick="switchTab('addDrop')">⚡ Add / Drop</button>
+        <button class="stab active" onclick="switchTab('bigGames')">Big Games</button>
+        <button class="stab" onclick="switchTab('hotStreaks')">Hot Streaks</button>
+        <button class="stab" onclick="switchTab('coldStreaks')">Cold Streaks</button>
+        <button class="stab" onclick="switchTab('addDrop')">Add / Drop</button>
       </div>
 
       <!-- TAB CONTENT -->
@@ -344,9 +345,9 @@ function calculateStreak(sport, player) {
     if (val >= threshold.min) { if (cold > 0) break; hot++; }
     else { if (hot > 0) break; cold++; }
   }
-  if (hot >= threshold.great) return { type: 'fire', length: hot, label: `${hot}-Game Hot Streak 🔥` };
+  if (hot >= threshold.great) return { type: 'fire', length: hot, label: `${hot}-Game Hot Streak` };
   if (hot >= threshold.good) return { type: 'hot', length: hot, label: `${hot}-Game Streak ↑` };
-  if (cold >= threshold.great) return { type: 'ice', length: cold, label: `${cold}-Game Slump ❄️` };
+  if (cold >= threshold.great) return { type: 'ice', length: cold, label: `${cold}-Game Slump` };
   if (cold >= threshold.good) return { type: 'cold', length: cold, label: `${cold}-Game Cold Streak ↓` };
   return { type: 'none', length: 0 };
 }
@@ -468,7 +469,7 @@ function renderHero(player) {
   if (!player) { document.getElementById('heroPerformer').innerHTML = ''; return; }
   const gc = getGradeClass(player.performance.grade);
   const alertsHTML = player.bigGameAlerts.map(a =>
-    `<span class="alert-chip fire">🏆 ${a.label}</span>`
+    `<span class="alert-chip fire">${a.label}</span>`
   ).join('');
   const streakHTML = player.streak.type !== 'none'
     ? `<span class="alert-chip streak">${player.streak.label}</span>` : '';
@@ -481,13 +482,13 @@ function renderHero(player) {
         <span style="font-size:11px;color:var(--gray);font-weight:600;letter-spacing:1px">${player.performance.label}</span>
       </div>
       <div class="hero-name">${player.name}</div>
-      <div class="hero-meta">${sportEmoji[player.sport]} ${player.sport.toUpperCase()} · ${player.pos} · ${player.team}</div>
+      <div class="hero-meta">${player.sport.toUpperCase()} · ${player.pos} · ${player.team}</div>
       <div class="hero-alerts">${alertsHTML}${streakHTML}</div>
       ${buildStatLine(player.sport, player.stats)}
       ${buildGameLog(player.history, player.sport)}
     </div>
     <div>
-      <div class="hero-big-num">${player.emoji}</div>
+      <div class="hero-big-num">${player.team}</div>
       <div class="hero-streak-tag" style="color:${getGradeColor(player.performance.grade)};text-align:right;">
         ${player.streak.type !== 'none' ? player.streak.label : player.performance.label}
       </div>
@@ -509,7 +510,7 @@ function renderBigGames(players) {
           const topAlert = p.bigGameAlerts[0];
           return `<div class="player-row">
             <div class="cold-indicator cold-fire"></div>
-            <div class="p-avatar">${p.emoji}</div>
+            <div class="p-avatar">${p.team}</div>
             <div class="p-info">
               <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span></div>
               <div class="p-meta">${p.pos} · ${p.team} · ${p.game}</div>
@@ -533,7 +534,7 @@ function renderHotStreaks(players) {
   return `
     <div class="panel">
       <div class="panel-hd">
-        <div class="panel-title">🔥 Hot Streaks</div>
+        <div class="panel-title">Hot Streaks</div>
         <span class="panel-count">${players.length} players</span>
       </div>
       <div class="panel-body">
@@ -541,7 +542,7 @@ function renderHotStreaks(players) {
           const barColor = p.streak.type === 'fire' ? 'cold-fire' : 'cold-hot';
           return `<div class="player-row p-link"${feFocusAttr(p)} title="Open ${p.name} in Player Rankings">
             <div class="cold-indicator ${barColor}"></div>
-            <div class="p-avatar">${p.emoji}</div>
+            <div class="p-avatar">${p.team}</div>
             <div class="p-info">
               <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span></div>
               <div class="p-meta">${p.pos} · ${p.team}</div>
@@ -564,7 +565,7 @@ function renderColdStreaks(players) {
   return `
     <div class="panel">
       <div class="panel-hd">
-        <div class="panel-title">❄️ Cold Streaks & Slumps</div>
+        <div class="panel-title">Cold Streaks & Slumps</div>
         <span class="panel-count">${players.length} players</span>
       </div>
       <div class="panel-body">
@@ -572,7 +573,7 @@ function renderColdStreaks(players) {
           const barColor = p.streak.type === 'ice' ? 'cold-ice' : 'cold-cold';
           return `<div class="player-row">
             <div class="cold-indicator ${barColor}"></div>
-            <div class="p-avatar">${p.emoji}</div>
+            <div class="p-avatar">${p.team}</div>
             <div class="p-info">
               <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span></div>
               <div class="p-meta">${p.pos} · ${p.team}</div>
@@ -597,12 +598,12 @@ function renderAddDrop(data) {
 
   return `
     <div class="panel">
-      <div class="panel-hd"><div class="panel-title">⚡ Today's Add / Drop Recommendations</div></div>
+      <div class="panel-hd"><div class="panel-title">Today's Add / Drop Recommendations</div></div>
       <div class="add-drop-list">
         ${adds.map(p => `
           <div class="add-drop-row p-link"${feFocusAttr(p)} title="Open ${p.name} in Player Rankings">
             <span class="action-tag tag-add">+ Add</span>
-            <div class="p-avatar">${p.emoji}</div>
+            <div class="p-avatar">${p.team}</div>
             <div class="p-info">
               <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span> · ${p.pos} · ${p.team}</div>
               <div class="add-drop-reason">Big game last night${p.streak.type!=='none'?' and '+p.streak.label.toLowerCase():''}. Strong add candidate if available.</div>
@@ -611,7 +612,7 @@ function renderAddDrop(data) {
         ${drops.map(p => `
           <div class="add-drop-row">
             <span class="action-tag tag-drop">Drop</span>
-            <div class="p-avatar">${p.emoji}</div>
+            <div class="p-avatar">${p.team}</div>
             <div class="p-info">
               <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span> · ${p.pos} · ${p.team}</div>
               <div class="add-drop-reason">${p.streak.label} — production trending down. Consider dropping if better options are available.</div>
@@ -620,7 +621,7 @@ function renderAddDrop(data) {
         ${watches.map(p => `
           <div class="add-drop-row p-link"${feFocusAttr(p)} title="Open ${p.name} in Player Rankings">
             <span class="action-tag tag-watch">Watch</span>
-            <div class="p-avatar">${p.emoji}</div>
+            <div class="p-avatar">${p.team}</div>
             <div class="p-info">
               <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span> · ${p.pos} · ${p.team}</div>
               <div class="add-drop-reason">${p.streak.label} — monitor ownership and pick up before ownership rises.</div>

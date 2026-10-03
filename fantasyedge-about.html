@@ -64,6 +64,7 @@
   a.inline:hover { text-decoration: underline; }
 </style>
 <link rel="stylesheet" href="assets/mobile.css">
+  <link rel="stylesheet" href="assets/visual-refresh.css">
 </head>
 <body>
 <button class="nav-toggle" aria-label="Open menu"><span></span></button>
@@ -73,14 +74,14 @@
   <div class="sidebar-logo">FANTASY<span>EDGE</span></div>
   <div class="sidebar-section-label">Main</div>
   <ul class="sidebar-nav">
-    <li><a href="fantasyedge.html"><span class="icon">🏠</span> Home</a></li>
-    <li><a href="fantasyedge-rankings.html"><span class="icon">📊</span> Rankings</a></li>
-    <li><a href="fantasyedge-draft.html"><span class="icon">📋</span> Draft Mode</a></li>
-    <li><a href="fantasyedge-draft.html?mode=mock"><span class="icon">🎯</span> Mock Draft</a></li>
-    <li><a href="fantasyedge-autopilot.html"><span class="icon">🎛️</span> Team Manager</a></li>
-    <li><a href="fantasyedge-trade-center.html"><span class="icon">🤝</span> Trade Center</a></li>
-    <li><a href="fantasyedge-brackets.html"><span class="icon">🏆</span> Brackets &amp; Bowls</a></li>
-    <li><a href="fantasyedge-about.html" class="active"><span class="icon">ℹ️</span> About &amp; Features</a></li>
+    <li><a href="fantasyedge.html"><span class="icon fe-icon" data-icon="house" aria-hidden="true"></span> Home</a></li>
+    <li><a href="fantasyedge-rankings.html"><span class="icon fe-icon" data-icon="chart-column-increasing" aria-hidden="true"></span> Rankings</a></li>
+    <li><a href="fantasyedge-draft.html"><span class="icon fe-icon" data-icon="clipboard-list" aria-hidden="true"></span> Draft Mode</a></li>
+    <li><a href="fantasyedge-draft.html?mode=mock"><span class="icon fe-icon" data-icon="crosshair" aria-hidden="true"></span> Mock Draft</a></li>
+    <li><a href="fantasyedge-autopilot.html"><span class="icon fe-icon" data-icon="sliders-horizontal" aria-hidden="true"></span> Team Manager</a></li>
+    <li><a href="fantasyedge-trade-center.html"><span class="icon fe-icon" data-icon="arrow-left-right" aria-hidden="true"></span> Trade Center</a></li>
+    <li><a href="fantasyedge-brackets.html"><span class="icon fe-icon" data-icon="trophy" aria-hidden="true"></span> Brackets &amp; Bowls</a></li>
+    <li><a href="fantasyedge-about.html" class="active"><span class="icon fe-icon" data-icon="info" aria-hidden="true"></span> About &amp; Features</a></li>
   </ul>
   <div class="upgrade-box">
     <p>Autopilot, Trade Center, and live draft linking are Premium — $5/mo.</p>
@@ -105,74 +106,74 @@
 
   <!-- Player Rankings -->
   <div class="panel">
-    <h2>📊 Player Rankings</h2>
+    <h2>Player Rankings</h2>
     <p class="grp-sub">Rankings for every supported sport, driven by the same valuation model the rest of the app uses.</p>
     <ul class="feat-list">
       <li class="feat">
-        <span class="fx">📈</span>
+        <span class="fx fe-icon" data-icon="chart-no-axes-combined" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">Multi-sport rankings <span class="badge free">Free</span></div>
           <div class="fdesc">MLB, NBA, WNBA, NHL, and NFL rankings — roto category value for the category sports, projection-based value for NFL.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">🔥</span>
+        <span class="fx fe-icon" data-icon="flame" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">HOT / COLD form badges — with the reason <span class="badge free">Free</span></div>
           <div class="fdesc">A hot or cold badge tells you <b>why</b>, not just that — the exact stats driving it (e.g. <b>".367 AVG, 6 HR over the last 15"</b>). For MLB, NHL, NBA, and WNBA, badges come from fixed performance thresholds in each category, calculated for <b>every player on an active roster</b> — not just the top names — and appear during each sport's season. (NFL works a little differently — see below.)</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">🏈</span>
+        <span class="fx fe-icon" data-icon="activity" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">NFL HOT / COLD — scored to your league <span class="badge free">Free</span></div>
           <div class="fdesc">NFL is a points game, so form is measured in <b>fantasy points per game</b> over the last few weeks, with a separate bar for QBs, RBs, WRs, and TEs. Every signed-in account gets a badge on <b>standard PPR</b>. Link your ESPN league (<b>Premium</b>) and the badges recompute under <b>your league's actual scoring</b> — your PPR type, TD values, and bonuses — with the "elite" bar scaled to how your league scores, so a high-scoring league doesn't just make everyone look hot. "Hot" then means hot in <b>your</b> league.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">⭐</span>
+        <span class="fx fe-icon" data-icon="sparkles" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">Star ratings = category coverage <span class="badge free">Free</span></div>
           <div class="fdesc">For the category sports (<b>MLB, NHL, NBA, WNBA</b>), a player's stars reflect <b>how many roto categories they meaningfully contribute to</b> — five stars is a true all-around contributor, one star a single-category specialist. NFL is a points league, so it swaps stars for a consistency score instead (below).</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">📶</span>
+        <span class="fx fe-icon" data-icon="radio" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">NFL consistency score + ceiling <span class="badge free">Free</span></div>
           <div class="fdesc">A points league cares about <b>weekly reliability</b>, so each NFL skill player gets a <b>consistency score</b> — how close a bad week is to a typical week (higher = steadier, so a boom-bust flex reads low and a target hog reads high). Its <b>ceiling</b> (a big week's upside) sits right beside it, kept separate so a high ceiling never counts against a player's consistency.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">🗓️</span>
+        <span class="fx fe-icon" data-icon="calendar-days" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">Season / last-15 / last-30 windows + sortable columns <span class="badge free">Free</span></div>
           <div class="fdesc">Switch any board between full-season, <b>last-15</b>, and <b>last-30-game</b> views, and <b>click any stat column</b> to re-sort by it. A Games Played column shows the games a player actually appeared in versus how many their team has played (a straight appearance count for pitchers and NHL goalies, who don't play every game).</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">🧮</span>
+        <span class="fx fe-icon" data-icon="calculator" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">Combine categories <span class="badge free">Free</span></div>
           <div class="fdesc">Check two or more stat columns and the board instantly re-ranks by combined strength in <b>just those categories</b> — e.g. find the players who help most in <b>AVG + SB</b> at once. Ideal for targeting a specific roster weakness on the waiver wire.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">🎯</span>
+        <span class="fx fe-icon" data-icon="crosshair" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">Tap a hot player, jump to their stats <span class="badge free">Free</span></div>
           <div class="fdesc">Click any hot player <b>anywhere in the app</b> and you land straight on their full stat card in Rankings — no searching for them again.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">🏈</span>
+        <span class="fx fe-icon" data-icon="activity" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">NFL value model — projections + prior year <span class="badge free">Free</span></div>
           <div class="fdesc">NFL rankings are built from <b>real projections</b> and <b>prior-year performance</b>, not just raw current-season stats. <b>Once the season starts</b>, they also factor in team-context signals like <b>target share and pace</b> — in the offseason those are shown as context only and don't move the ranking yet.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">⛳</span>
+        <span class="fx fe-icon" data-icon="flag-triangle-right" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">PGA rankings <span class="badge premium">Premium</span></div>
           <div class="fdesc">Golf rankings are Premium; all other sports' rankings are free.</div>
@@ -183,39 +184,39 @@
 
   <!-- Team Manager -->
   <div class="panel">
-    <h2>🎛️ Team Manager <span class="badge premium">Premium</span></h2>
+    <h2>Team Manager <span class="badge premium">Premium</span></h2>
     <p class="grp-sub">Link your ESPN account once (cookies stored server-side, same login covers every sport) and manage your lineups. The entire Team Manager is Premium.</p>
     <ul class="feat-list">
       <li class="feat">
-        <span class="fx">🤖</span>
+        <span class="fx fe-icon" data-icon="bot" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">Lineup Autopilot — MLB &amp; WNBA <span class="badge premium">Premium</span></div>
           <div class="fdesc">Sets your optimal legal lineup automatically each morning, valuing players under your league's own detected scoring (MLB roto z-score, WNBA H2H Points). One-tap "apply optimal lineup" too.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">🩹</span>
+        <span class="fx fe-icon" data-icon="heart-pulse" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">IL/IR management with smart swaps <span class="badge premium">Premium</span></div>
           <div class="fdesc">Detects your league's real IL/IR slot, activates recovered players, and moves injured starters to the IL — pairing swaps so nothing overfills your roster.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">📥</span>
+        <span class="fx fe-icon" data-icon="move-up-right" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">Waiver suggestions — standings-weighted category impact <span class="badge premium">Premium</span></div>
           <div class="fdesc">For MLB roto, only surfaces a waiver add if it wins <b>more categories than it loses</b>, weighting each category by where you actually rank — gaining a category you're last in matters far more than padding one you already lead.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">✂️</span>
+        <span class="fx fe-icon" data-icon="scissors" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">Drop recommendations <span class="badge premium">Premium</span></div>
           <div class="fdesc">Names the specific weakest droppable player (by value under your scoring) when a roster move is needed — display-only, since drops are irreversible.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">🔔</span>
+        <span class="fx fe-icon" data-icon="bell" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">Prospect call-up system <span class="badge premium">Premium</span></div>
           <div class="fdesc">Tracks stashed minor-league prospects and alerts you the moment one is called up. Flag any prospect with <b>Watch</b> to get a one-tap <b>Reclaim on ESPN</b> prompt if they're promoted, and drop suggestions carry days-in-minors context (60+ days flags a long stash).</div>
@@ -226,39 +227,39 @@
 
   <!-- Trade Center -->
   <div class="panel">
-    <h2>🤝 Trade Center <span class="badge premium">Premium</span></h2>
+    <h2>Trade Center <span class="badge premium">Premium</span></h2>
     <p class="grp-sub">Reads every team's roster in your linked leagues and reasons about trades with our player values. The entire Trade Center is Premium.</p>
     <ul class="feat-list">
       <li class="feat">
-        <span class="fx">🔎</span>
+        <span class="fx fe-icon" data-icon="scan-search" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">Trade Scanner <span class="badge premium">Premium</span></div>
           <div class="fdesc">Finds 2–3 win-win trades across your league — who to target, what you give, what you get, and a fairness score.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">⚖️</span>
+        <span class="fx fe-icon" data-icon="scale" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">Trade Evaluator <span class="badge premium">Premium</span></div>
           <div class="fdesc">Paste or describe any incoming offer and get a call — accept, reject, or counter — grounded in both rosters and our values.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">🔁</span>
+        <span class="fx fe-icon" data-icon="refresh-cw" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">Counter Generator <span class="badge premium">Premium</span></div>
           <div class="fdesc">Asks for 2–3 ranked counter-offers that swing the deal in your favor while staying realistic enough to get accepted.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">🚪</span>
+        <span class="fx fe-icon" data-icon="door-open" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">Walk Away Detector <span class="badge premium">Premium</span></div>
           <div class="fdesc">Calls out when you're being lowballed so you know when the right move is simply to pass.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">🎯</span>
+        <span class="fx fe-icon" data-icon="crosshair" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">Category-aware valuation <span class="badge premium">Premium</span></div>
           <div class="fdesc">Values trades by how they move <b>your</b> category standings — not just raw player value — including outlier warnings on players whose recent line is out of step with their track record.</div>
@@ -269,32 +270,32 @@
 
   <!-- Draft Mode -->
   <div class="panel">
-    <h2>📋 Draft Mode</h2>
+    <h2>Draft Mode</h2>
     <p class="grp-sub">One draft board, two ways to run it — plus a free mock draft against AI opponents. The AI Coach advises you on every pick.</p>
     <ul class="feat-list">
       <li class="feat">
-        <span class="fx">📝</span>
+        <span class="fx fe-icon" data-icon="notebook-pen" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">Offline draft board <span class="badge premium">Premium</span></div>
           <div class="fdesc">Track a real league draft (Zoom or in person) — mark each pick as it happens and the board, roster, and Coach update live.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">🔗</span>
+        <span class="fx fe-icon" data-icon="link" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">Linked draft — Sleeper <span class="badge premium">Premium</span></div>
           <div class="fdesc">Paste your Sleeper draft link and we auto-track every pick live (no Sleeper login needed), with <b>live value suggestions</b> on your turn and a <b>post-pick grade</b> for every pick — value over the next-best available at that slot.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">🎯</span>
+        <span class="fx fe-icon" data-icon="crosshair" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">Mock Draft <span class="badge free">Free</span></div>
           <div class="fdesc">Draft against AI opponents that pick at realistic value. Tap any player to open a <b>detail sidebar</b> with their category-by-category stats and <b>prior-year numbers</b>, right on the draft board. Free accounts get <b>1 mock per day</b> with AI Coach advice through <b>round 7</b>; Premium unlocks unlimited mocks and advice every round.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">💬</span>
+        <span class="fx fe-icon" data-icon="message-circle" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">AI Draft Coach <span class="badge premium">Premium</span></div>
           <div class="fdesc">A conversational coach embedded in Draft Mode and the Trade Center that already knows your roster and settings. Free mock users see the analyst's pick through round 7; follow-up questions are Premium.</div>
@@ -305,32 +306,32 @@
 
   <!-- Brackets & Bowls -->
   <div class="panel">
-    <h2>🏆 Brackets &amp; Bowls</h2>
+    <h2>Brackets &amp; Bowls</h2>
     <p class="grp-sub">Data-backed game picks. NFL Pick'em is live now; the weekly college football, bowl, and March Madness sections light up in their seasons.</p>
     <ul class="feat-list">
       <li class="feat">
-        <span class="fx">🏈</span>
+        <span class="fx fe-icon" data-icon="activity" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">NFL Pick'em <span class="badge free">Free</span></div>
           <div class="fdesc">Every game's pick and <b>market-implied win %</b> — read straight from the live betting market — plus key injuries and game-week weather. Highest-confidence picks and upset alerts are flagged. Informational — not betting advice.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">🏈</span>
+        <span class="fx fe-icon" data-icon="activity" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">College Football — weekly Top-25 <span class="badge free">Free</span></div>
           <div class="fdesc">A week-by-week view of the <b>Top-25 matchups</b>, each with its market-implied win %, injuries, and weather — the same treatment as NFL Pick'em, on the college slate. <b>Seasonal — fills in through the college football season.</b></div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">🏈</span>
+        <span class="fx fe-icon" data-icon="activity" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">College Bowl &amp; Playoff picks <span class="badge free">Free</span></div>
           <div class="fdesc">Same win-probability picks, injuries, and weather for every bowl and College Football Playoff game. <b>Seasonal — matchups are set in December</b>, so the tab fills in as bowls are announced.</div>
         </div>
       </li>
       <li class="feat">
-        <span class="fx">🏀</span>
+        <span class="fx fe-icon" data-icon="activity" aria-hidden="true"></span>
         <div class="fbody">
           <div class="fname">March Madness bracket optimizer <span class="badge premium">Premium</span></div>
           <div class="fdesc">Every men's tournament game's pick and win probability — current-year team strength (ESPN BPI) blended with historical seed performance — plus round-by-round advancement odds, national title probabilities, and a <b>recommended optimal bracket</b>. Upset alerts flag live first-round underdogs. <b>Seasonal — the field is set on Selection Sunday in March.</b> (Pool-strategy leverage from national pick popularity isn't included — that data has no reliable free source, and we don't fake it.)</div>

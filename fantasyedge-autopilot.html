@@ -192,6 +192,7 @@
   .lc-scoring-src { color: var(--gray); opacity: .7; font-size: 11px; }
 </style>
 <link rel="stylesheet" href="assets/mobile.css">
+  <link rel="stylesheet" href="assets/visual-refresh.css">
 </head>
 <body>
 <button class="nav-toggle" aria-label="Open menu"><span></span></button>
@@ -201,14 +202,14 @@
   <div class="sidebar-logo">FANTASY<span>EDGE</span></div>
   <div class="sidebar-section-label">Main</div>
   <ul class="sidebar-nav">
-    <li><a href="fantasyedge.html"><span class="icon">🏠</span> Home</a></li>
-    <li><a href="fantasyedge-rankings.html"><span class="icon">📊</span> Rankings</a></li>
-    <li><a href="fantasyedge-draft.html"><span class="icon">📋</span> Draft Mode</a></li>
-    <li><a href="fantasyedge-draft.html?mode=mock"><span class="icon">🎯</span> Mock Draft</a></li>
-    <li><a href="fantasyedge-autopilot.html" class="active"><span class="icon">🎛️</span> Team Manager</a></li>
-    <li><a href="fantasyedge-trade-center.html"><span class="icon">🤝</span> Trade Center</a></li>
-    <li><a href="fantasyedge-brackets.html"><span class="icon">🏆</span> Brackets &amp; Bowls</a></li>
-    <li><a href="fantasyedge-about.html"><span class="icon">ℹ️</span> About &amp; Features</a></li>
+    <li><a href="fantasyedge.html"><span class="icon fe-icon" data-icon="house" aria-hidden="true"></span> Home</a></li>
+    <li><a href="fantasyedge-rankings.html"><span class="icon fe-icon" data-icon="chart-column-increasing" aria-hidden="true"></span> Rankings</a></li>
+    <li><a href="fantasyedge-draft.html"><span class="icon fe-icon" data-icon="clipboard-list" aria-hidden="true"></span> Draft Mode</a></li>
+    <li><a href="fantasyedge-draft.html?mode=mock"><span class="icon fe-icon" data-icon="crosshair" aria-hidden="true"></span> Mock Draft</a></li>
+    <li><a href="fantasyedge-autopilot.html" class="active"><span class="icon fe-icon" data-icon="sliders-horizontal" aria-hidden="true"></span> Team Manager</a></li>
+    <li><a href="fantasyedge-trade-center.html"><span class="icon fe-icon" data-icon="arrow-left-right" aria-hidden="true"></span> Trade Center</a></li>
+    <li><a href="fantasyedge-brackets.html"><span class="icon fe-icon" data-icon="trophy" aria-hidden="true"></span> Brackets &amp; Bowls</a></li>
+    <li><a href="fantasyedge-about.html"><span class="icon fe-icon" data-icon="info" aria-hidden="true"></span> About &amp; Features</a></li>
   </ul>
   <div class="upgrade-box">
     <p>Connect your ESPN leagues for lineup suggestions &amp; autopilot.</p>
@@ -224,7 +225,7 @@
 
   <!-- Premium lock (non-premium users) -->
   <div class="panel locked hidden" id="locked">
-    <div class="lock-emoji">🎛️</div>
+    <span class="lock-emoji fe-icon" data-icon="sliders-horizontal" aria-hidden="true"></span>
     <h2>Team Manager is a Premium feature</h2>
     <p>Link your ESPN leagues once, and FantasyEdge surfaces start/sit, waiver, and IL moves every day — with one-tap optimal lineups, an optional autopilot, and an AI Coach that already knows each team's roster and settings.</p>
     <button id="upsell">Go Premium</button>
@@ -258,7 +259,7 @@
          only copy — a div, not a p, because it holds paragraphs. -->
     <div class="hint" id="leagueDnaNote">
       <p style="margin:0 0 8px">
-        🏆 Linking also helps FantasyEdge build championship teams, yours and everyone else's. With this
+        Linking also helps FantasyEdge build championship teams, yours and everyone else's. With this
         on, we record how your leagues are actually played: the league's settings (scoring format, draft
         setup, waiver and trade rules), every team's draft picks, trades and waiver moves, and how each
         team's season turned out — not just yours. Comparing a whole league, winners against losers, is
@@ -289,7 +290,7 @@
     </label>
     <div class="row">
       <button class="btn btn-gold" id="connectBtn">Connect ESPN</button>
-      <span class="pill off">🔌 Not connected</span>
+      <span class="pill off">Not connected</span>
     </div>
     <div class="msg" id="connectMsg"></div>
 
@@ -395,7 +396,7 @@
       loadLeagues();
     } else {
       $('leaguesArea').innerHTML = `<div class="panel"><div class="coming">
-        <div class="coming-emoji">📅</div>
+        <div class="coming-emoji fe-icon" data-icon="calendar-days" aria-hidden="true"></div>
         <h3>${escapeHtml(cfg.label)} — Coming ${escapeHtml(cfg.coming)}</h3>
         <p class="hint">${escapeHtml(cfg.label)} fantasy is in the off-season. We'll switch this on when the season starts in ${escapeHtml(cfg.coming)} — your connected ESPN account already covers it, no reconnect needed.</p>
       </div></div>`;
@@ -454,7 +455,7 @@
     const line = $('dnaSetting');
     if (!st || needed) { line.innerHTML = ''; return; }
     line.innerHTML = st.include
-      ? `🏆 Your leagues help improve FantasyEdge's models — settings, draft picks, trades and results, for every team. <button class="btn-mini" id="dnaToggle">Stop including them</button>`
+      ? `Your leagues help improve FantasyEdge's models — settings, draft picks, trades and results, for every team. <button class="btn-mini" id="dnaToggle">Stop including them</button>`
       : `Your leagues aren't included in FantasyEdge's models. <button class="btn-mini" id="dnaToggle">Include them</button>`;
     $('dnaToggle').addEventListener('click', () => sendDnaChoice(!st.include, 'settings'));
   }
@@ -634,7 +635,7 @@
   function renderExpired() {
     $('leaguesArea').innerHTML = `
       <div class="panel reconnect">
-        <div class="lock-emoji">🔑</div>
+        <div class="lock-emoji fe-icon" data-icon="lock-keyhole" aria-hidden="true"></div>
         <h2>Your ESPN session expired — reconnect your cookies</h2>
         <p class="hint">ESPN sign-in cookies (<code>espn_s2</code>) only last about 30–90 days, then ESPN stops accepting them. Yours have expired. Grab fresh cookies — it takes under a minute — and you're back in.</p>
         <div class="row"><button class="btn btn-gold" id="reconnectBtn">Reconnect ESPN →</button></div>
@@ -756,7 +757,7 @@
         ? `<a class="btn-mini gold" href="${espnUrl}" target="_blank" rel="noopener" data-callup-ack ${lgData(lg)} data-player-id="${escapeHtml(String(u.id))}">Reclaim on ESPN →</a>`
         : '';
       return `<div class="callup${u.reclaim ? ' reclaim' : ''}">
-        <span class="callup-msg">🔔 <b>CALL-UP:</b> ${line}</span>
+        <span class="callup-msg"><b>CALL-UP:</b> ${line}</span>
         <span class="callup-actions">${reclaimBtn}
           <button class="btn-mini" data-callup-dismiss ${lgData(lg)} data-player-id="${escapeHtml(String(u.id))}">Dismiss</button>
         </span>
@@ -775,7 +776,7 @@
       ? `<span class="stash-warn">⏳ stashed ${days} days in the minors with no call-up — a strong drop candidate.</span>`
       : (days ? `<span class="sugg-meta">⏳ ${days}d stashed</span>` : '');
     const on = !!m.watching;
-    const btn = `<button class="btn-mini watch-btn${on ? ' on' : ''}" ${lgData(lg)} data-player-id="${escapeHtml(String(m.prospectId))}" data-name="${escapeHtml(name)}" data-pos="${escapeHtml(m.dropMeta || '')}">${on ? '👁 Watching' : '👁 Watch'}</button>`;
+    const btn = `<button class="btn-mini watch-btn${on ? ' on' : ''}" ${lgData(lg)} data-player-id="${escapeHtml(String(m.prospectId))}" data-name="${escapeHtml(name)}" data-pos="${escapeHtml(m.dropMeta || '')}">${on ? 'Watching' : 'Watch'}</button>`;
     return ` ${ctx} ${btn}`;
   }
 
@@ -903,7 +904,7 @@
     if (ok) {
       const watching = !!data.watching;
       btn.classList.toggle('on', watching);
-      btn.textContent = watching ? '👁 Watching' : '👁 Watch';
+      btn.textContent = watching ? 'Watching' : 'Watch';
     }
   }
 
@@ -1001,7 +1002,7 @@
     }
     const il = (s.summary && s.summary.ilMoves) || 0;
     const ilFull = (s.summary && s.summary.ilFull) || 0;
-    const head = `<div class="sugg-head">⚡ ${s.moves.length} ${s.moves.length === 1 ? 'move' : 'moves'} suggested`
+    const head = `<div class="sugg-head">${s.moves.length} ${s.moves.length === 1 ? 'move' : 'moves'} suggested`
       + (il ? ` · ${il} IL move${il > 1 ? 's' : ''}` : '')
       + (s.summary && s.summary.waiverMoves ? ` · ${s.summary.waiverMoves} waiver/drop` : '')
       + (ilFull ? ` · ${ilFull} need a roster move` : '')
@@ -1053,14 +1054,14 @@
         if (m.action === 'to_il') {
           return `<li>${tag} Move ${escapeHtml(m.out)} <span class="sugg-meta">${escapeHtml(m.outMeta)}</span> to <b>${escapeHtml(m.slot)}</b></li>`;
         }
-        const inLine = `<b>${escapeHtml(m.in)}</b>${m.inHot ? ' 🔥' : ''} <span class="sugg-meta">${escapeHtml(m.inMeta)}</span>`;
+        const inLine = `<b>${escapeHtml(m.in)}</b>${m.inHot ? ' · Hot' : ''} <span class="sugg-meta">${escapeHtml(m.inMeta)}</span>`;
         const dest = m.slot && m.slot !== 'bench' ? ` → start at <b>${escapeHtml(m.slot)}</b>` : ' to your bench';
         return `<li>${tag} Activate ${inLine} from <b>${escapeHtml(m.fromLabel || 'IL')}</b>${dest}</li>`;
       }
       const tag = m.reason === 'injury' ? '<span class="sugg-tag inj">injury</span>'
         : m.reason === 'empty_slot' ? '<span class="sugg-tag">empty slot</span>'
         : `<span class="sugg-tag">+${m.gain}</span>`;
-      const inLine = `<b>${escapeHtml(m.in)}</b>${m.inHot ? ' 🔥' : ''} <span class="sugg-meta">${escapeHtml(m.inMeta)}</span>`;
+      const inLine = `<b>${escapeHtml(m.in)}</b>${m.inHot ? ' · Hot' : ''} <span class="sugg-meta">${escapeHtml(m.inMeta)}</span>`;
       const body = m.out
         ? `Start ${inLine}${renderMu(m.inMu)} <span class="sugg-arrow">over</span> ${escapeHtml(m.out)} <span class="sugg-meta">${escapeHtml(m.outMeta)}</span>${renderMu(m.outMu)} at <b>${escapeHtml(m.slot)}</b>`
         : `Start ${inLine}${renderMu(m.inMu)} in your open <b>${escapeHtml(m.slot)}</b> slot`;
