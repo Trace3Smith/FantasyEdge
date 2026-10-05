@@ -10,7 +10,7 @@
 const CLERK_CDN = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/+esm';
 const GOLD = 'var(--gold, #D4A017)';
 
-// Consent line shown wherever a user signs up or starts checkout.
+// Consent line shown in the pricing modal (sign-up consent is handled by Clerk's own legal checkbox).
 const LEGAL_LINE = 'By continuing you agree to our <a href="/terms" target="_blank" rel="noopener">Terms</a> '
   + 'and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>';
 
@@ -76,15 +76,8 @@ function injectStyles() {
   body:not(.is-premium) .premium-only { display: none !important; }
 
   .fe-legal-line { margin-top: 16px; font-size: 12px; color: #999; text-align: center; line-height: 1.5; }
-  .fe-legal-line a, .fe-auth-legal a { color: ${GOLD}; text-decoration: none; }
-  .fe-legal-line a:hover, .fe-auth-legal a:hover, .fe-legal-links a:hover { text-decoration: underline; }
-  .fe-auth-legal {
-    position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%);
-    z-index: 2147483000; display: none; max-width: calc(100vw - 24px); padding: 8px 14px; border-radius: 8px;
-    background: rgba(8,8,8,0.92); border: 1px solid rgba(212,160,23,0.25); color: #bbb;
-    font-family: 'Barlow', sans-serif; font-size: 12px; text-align: center; line-height: 1.5;
-  }
-  .fe-auth-legal.open { display: block; }
+  .fe-legal-line a { color: ${GOLD}; text-decoration: none; }
+  .fe-legal-line a:hover, .fe-legal-links a:hover { text-decoration: underline; }
   .fe-legal-links { padding: 0 20px 16px; font-size: 11px; color: #777; }
   .fe-legal-links a { color: #888; text-decoration: none; }
   `;
@@ -157,48 +150,19 @@ function buildPricingModal() {
   return bg;
 }
 
-// Clerk renders its own sign-in / sign-up modal, so the consent line can't live inside it. Pin it under
-// the modal instead, for as long as Clerk's backdrop is on screen.
-let legalWatch = null;
-function showAuthLegal() {
-  let bar = document.querySelector('.fe-auth-legal');
-  if (!bar) {
-    bar = document.createElement('div');
-    bar.className = 'fe-auth-legal';
-    bar.innerHTML = LEGAL_LINE;
-    document.body.appendChild(bar);
-  }
-  bar.classList.add('open');
-  legalWatch?.disconnect();
-  let seen = false;
-  const started = Date.now();
-  const watch = new MutationObserver(check);
-  function check() {
-    if (legalWatch !== watch) return;
-    if (document.querySelector('.cl-modalBackdrop')) { seen = true; return; }
-    // Gone after being shown, or never appeared (Clerk failed to open): take the line down.
-    if (seen || Date.now() - started >= 8000) { bar.classList.remove('open'); watch.disconnect(); legalWatch = null; }
-  }
-  legalWatch = watch;
-  watch.observe(document.body, { childList: true, subtree: true });
-  setTimeout(check, 8000);
-}
-function openSignIn() { showAuthLegal(); clerk.openSignIn(); }
-function openSignUp() { showAuthLegal(); (clerk.openSignUp || clerk.openSignIn).call(clerk); }
-
 // The SINGLE checkout path (pricing modal + homepage toggle both call this), so the billing interval →
 // Stripe price mapping lives in one place. `interval` must be 'month' or 'year' (checkout.js/billing.js
 // key on exactly those; it 400s on anything else, so a wrong value fails loudly rather than mischarging).
 // Signs the user in first when needed. Returns true if it redirected to Stripe Checkout, else false.
 async function startCheckout(interval) {
-  if (!clerk?.user) { openSignIn(); return false; }
+  if (!clerk?.user) { clerk.openSignIn(); return false; }
   const { ok, data } = await apiPost('/api/stripe/checkout', { interval });
   if (ok && data?.url) { window.location.href = data.url; return true; }
   return false;
 }
 
 function openPricing() {
-  if (!clerk?.user) { openSignIn(); return; }
+  if (!clerk?.user) { clerk.openSignIn(); return; }
   document.querySelector('.fe-modal-bg')?.classList.add('open');
 }
 
@@ -232,7 +196,7 @@ function renderSidebar() {
     const b = document.createElement('button');
     b.className = 'fe-signin';
     b.textContent = 'Sign in';
-    b.addEventListener('click', () => openSignIn());
+    b.addEventListener('click', () => clerk.openSignIn());
     slot.appendChild(b);
   }
   // Draft nav links are defined statically in each page's sidebar (Draft Assistant +
@@ -277,7 +241,7 @@ function wireCtaButtons() {
     btn.addEventListener('click', (e) => {
       e.preventDefault();
       if (clerk?.user) { window.location.href = '/fantasyedge-dashboard.html'; return; }
-      openSignUp();
+      (clerk?.openSignUp || clerk?.openSignIn)?.call(clerk);
     });
   });
 }
@@ -313,7 +277,7 @@ async function boot() {
     getToken: () => (clerk.session ? clerk.session.getToken() : Promise.resolve(null)),
     isPremium,
     isSignedIn: () => !!clerk.user,
-    openSignIn,
+    openSignIn: () => clerk.openSignIn(),
     openPricing,
     startCheckout,
   };
