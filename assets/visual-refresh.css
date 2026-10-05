@@ -264,3 +264,15 @@ body.home .hero-actions { opacity: 1 !important; animation: none !important; }
 body { cursor: default !important; }
 a, button, [role="button"], .sport-tab, .strip-clickable, .league-tile, .p-link { cursor: pointer !important; }
 input, textarea { cursor: text !important; }
+
+/* Player initials replace emoji without letting full team names spill over MLB rows. */
+#rankingsTable .player-avatar, .p-avatar {
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: 'Barlow Condensed', 'Barlow', sans-serif;
+  font-size: 12px !important;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: .04em;
+  color: var(--gold-light);
+}
