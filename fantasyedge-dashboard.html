@@ -61,7 +61,7 @@
   .hero-performer::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 50% 100% at 100% 50%,rgba(212,160,23,0.06),transparent 70%);}
   .hero-tag-row{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
   .hero-eyebrow{font-size:10px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:var(--gold);}
-  .grade-badge{padding:4px 12px;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;}
+  .grade-badge{flex-shrink:0;padding:4px 12px;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;}
   .grade-s{background:rgba(255,215,0,0.15);color:#FFD700;}
   .grade-a{background:rgba(76,175,80,0.15);color:var(--green);}
   .grade-b{background:rgba(212,160,23,0.15);color:var(--gold);}
@@ -478,7 +478,7 @@ function renderHero(player) {
       <div class="hero-tag-row">
         <span class="hero-eyebrow">⭐ Top Performer — ${player.game}</span>
         <span class="grade-badge ${gc}">${player.performance.grade}</span>
-        <span style="font-size:11px;color:var(--gray);font-weight:600;letter-spacing:1px">${player.performance.label}</span>
+        <span style="font-size:11px;color:var(--gray);font-weight:600;letter-spacing:1px;white-space:nowrap">${player.performance.label}</span>
       </div>
       <div class="hero-name">${player.name}</div>
       <div class="hero-meta">${sportEmoji[player.sport]} ${player.sport.toUpperCase()} · ${player.pos} · ${player.team}</div>

@@ -18,6 +18,13 @@
 .nav-toggle span::after{content:'';position:absolute;top:6px;}
 .nav-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:900;}
 
+/* Touch devices have no pointer to follow: hide the custom cursor dot + ring (they otherwise park in
+   the top-left corner) and hand the cursor back to the OS for any attached mouse. */
+@media (hover:none),(pointer:coarse){
+  .cursor,.cursor-ring{display:none !important;}
+  *{cursor:auto !important;}
+}
+
 @media (max-width:768px){
   /* ---- App shell: fixed sidebar -> slide-out drawer ---- */
   .sidebar{position:fixed !important;top:0;left:0;bottom:0;transform:translateX(-100%);transition:transform .25s ease;width:min(84vw,300px) !important;min-width:0 !important;z-index:1000;overflow-y:auto;padding-top:env(safe-area-inset-top);}
@@ -26,6 +33,14 @@
   .main{margin-left:0 !important;min-width:0;}
   .nav-toggle{display:flex;top:calc(10px + env(safe-area-inset-top));}
   body.nav-open .nav-backdrop{display:block;}
+  /* Open drawer: the toggle becomes a close X in the drawer header's top-right corner, clear of the
+     logo, and the header stays pinned so scrolling menu items never pass under it. */
+  .nav-toggle{transition:left .25s ease;}
+  body.nav-open .nav-toggle{left:calc(min(84vw,300px) - 54px);}
+  body.nav-open .nav-toggle span{background:transparent;}
+  body.nav-open .nav-toggle span::before{top:0;transform:rotate(45deg);}
+  body.nav-open .nav-toggle span::after{top:0;transform:rotate(-45deg);}
+  .sidebar-logo{position:sticky;top:0;z-index:2;background:inherit;}
   /* Comfortable drawer touch targets. */
   .sidebar-nav li a{padding-top:12px;padding-bottom:12px;}
 
@@ -121,7 +136,7 @@
   body.home{overflow-x:hidden;max-width:100%;}
 
   /* 1. Compact header — logo stays fully visible; links + CTA never overlap it. */
-  nav{padding:10px 14px;gap:10px;}
+  nav{padding:10px 14px !important;gap:10px;} /* !important: the scroll handler sets a desktop inline padding */
   .nav-logo{font-size:18px;white-space:nowrap;}
   .nav-links{gap:14px;align-items:center;}
   .nav-links a{font-size:11px;letter-spacing:.5px;white-space:nowrap;padding:12px 2px;} /* ~44px tap target */
