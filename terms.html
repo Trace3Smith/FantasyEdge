@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FantasyEdge — Terms of Service</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="assets/mobile.js" defer></script>
+<style>
+  :root {
+    --gold: #D4A017; --gold-light: #F0C040; --black: #080808; --dark: #111111;
+    --dark2: #1A1A1A; --dark3: #222222; --dark4: #2A2A2A; --white: #F5F5F0;
+    --gray: #888888; --gray-light: #AAAAAA; --green: #4CAF50; --red: #F44336; --orange: #FF9800;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--dark); color: var(--white); font-family: 'Barlow', sans-serif; display: flex; min-height: 100vh; }
+  .sidebar { width: 200px; min-width: 200px; background: var(--black); border-right: 1px solid rgba(212,160,23,0.15); display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; overflow-y: auto; }
+  .sidebar-logo { padding: 24px 20px 20px; border-bottom: 1px solid rgba(212,160,23,0.15); font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 3px; color: var(--white); }
+  .sidebar-logo span { color: var(--gold); }
+  .sidebar-section-label { padding: 18px 20px 6px; font-size: 10px; font-weight: 600; letter-spacing: 2px; color: var(--gray); text-transform: uppercase; }
+  .sidebar-nav { list-style: none; padding: 0 8px; }
+  .sidebar-nav li a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 6px; color: var(--gray-light); text-decoration: none; font-size: 13px; font-weight: 500; transition: all 0.15s; }
+  .sidebar-nav li a:hover { background: var(--dark3); color: var(--white); }
+  .sidebar-nav li a .icon { font-size: 15px; width: 18px; text-align: center; }
+  .upgrade-box { margin: auto 14px 18px; padding: 16px; background: linear-gradient(160deg, rgba(212,160,23,0.15), rgba(212,160,23,0.03)); border: 1px solid rgba(212,160,23,0.25); border-radius: 10px; }
+  .upgrade-box p { font-size: 12px; color: var(--gray-light); line-height: 1.5; margin-bottom: 12px; }
+  .upgrade-btn { display: block; text-align: center; padding: 9px; background: var(--gold); color: #111; font-weight: 700; font-size: 13px; border-radius: 6px; text-decoration: none; cursor: pointer; }
+
+  .main { margin-left: 200px; flex: 1; padding: 28px 34px 60px; max-width: 1080px; }
+  .top-header { margin-bottom: 22px; }
+  .page-title { font-family: 'Bebas Neue', sans-serif; font-size: 32px; letter-spacing: 2px; }
+  .page-title span { color: var(--gold); }
+  .page-subtitle { color: var(--gray); font-size: 13px; margin-top: 2px; max-width: 720px; line-height: 1.55; }
+
+  .panel { background: var(--dark2); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 22px; margin-bottom: 20px; }
+
+  /* legal copy — single readable column */
+  .legal { max-width: 720px; padding: 28px 30px; }
+  .legal h2 { font-size: 18px; margin: 28px 0 8px; }
+  .legal p, .legal li { color: var(--gray-light); font-size: 15px; line-height: 1.7; }
+  .legal p { margin-bottom: 12px; }
+  .legal ul { margin: 0 0 12px 20px; }
+  .legal li { margin-bottom: 6px; }
+  .legal > :last-child { margin-bottom: 0; }
+  a.inline { color: var(--gold-light); text-decoration: none; }
+  a.inline:hover { text-decoration: underline; }
+</style>
+<link rel="stylesheet" href="assets/mobile.css">
+</head>
+<body>
+<button class="nav-toggle" aria-label="Open menu"><span></span></button>
+<div class="nav-backdrop"></div>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">FANTASY<span>EDGE</span></div>
+  <div class="sidebar-section-label">Main</div>
+  <ul class="sidebar-nav">
+    <li><a href="fantasyedge.html"><span class="icon">🏠</span> Home</a></li>
+    <li><a href="fantasyedge-rankings.html"><span class="icon">📊</span> Rankings</a></li>
+    <li><a href="fantasyedge-draft.html"><span class="icon">📋</span> Draft Mode</a></li>
+    <li><a href="fantasyedge-draft.html?mode=mock"><span class="icon">🎯</span> Mock Draft</a></li>
+    <li><a href="fantasyedge-autopilot.html"><span class="icon">🎛️</span> Team Manager</a></li>
+    <li><a href="fantasyedge-trade-center.html"><span class="icon">🤝</span> Trade Center</a></li>
+    <li><a href="fantasyedge-brackets.html"><span class="icon">🏆</span> Brackets &amp; Bowls</a></li>
+    <li><a href="fantasyedge-about.html"><span class="icon">ℹ️</span> About &amp; Features</a></li>
+  </ul>
+  <div class="upgrade-box">
+    <p>Autopilot, Trade Center, and live draft linking are Premium — $5/mo.</p>
+    <a class="upgrade-btn" id="upsell">Go Premium</a>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="top-header">
+    <div class="page-title">TERMS OF <span>SERVICE</span></div>
+    <div class="page-subtitle">Effective date: October 4, 2026</div>
+  </div>
+
+  <div class="panel legal">
+    <p>These Terms are an agreement between you and Trace Smith, doing business as FantasyEdge ("FantasyEdge," "we") for use of fantasyedgeapp.com (the "Service"). By creating an account or using the Service, you agree to these Terms and our <a class="inline" href="/privacy">Privacy Policy</a>.</p>
+
+    <h2>1. Eligibility</h2>
+    <p>You must be at least 18 years old to use the Service.</p>
+
+    <h2>2. Your account</h2>
+    <p>You're responsible for your account and for keeping your sign-in secure. Give accurate information and tell us if you think your account has been compromised.</p>
+
+    <h2>3. Linking fantasy leagues</h2>
+    <p>You may choose to connect third-party fantasy platforms such as ESPN by providing your own session credentials. You confirm you have the right to access the leagues you connect. FantasyEdge is not affiliated with, endorsed by or sponsored by ESPN or any other platform, and those platforms may change or block access at any time. Features that act on your behalf, such as Team Manager autopilot, lineup changes and waiver moves, only run when you turn them on. You're responsible for the moves made in your leagues.</p>
+
+    <h2>4. Subscriptions and billing</h2>
+    <ul>
+      <li>Premium is $5 per month or $50 per year, billed in advance through Stripe and renewing automatically until you cancel.</li>
+      <li>You can cancel anytime from your account or by emailing us. Cancellation stops future charges; you keep Premium access until the end of the period you've paid for.</li>
+      <li>Payments are non-refundable except where required by law.</li>
+      <li>We may change prices with at least 30 days' notice. Changes apply at your next renewal.</li>
+    </ul>
+
+    <h2>5. No guarantees: information only</h2>
+    <p>FantasyEdge provides statistics, projections and recommendations for entertainment and informational purposes. Projections and AI-generated recommendations can be wrong. We don't guarantee any result in your leagues, and the Service is not gambling or betting advice. Implied win probabilities from betting markets are shown for information only.</p>
+
+    <h2>6. Acceptable use</h2>
+    <p>Don't misuse the Service. That includes trying to break or overload it, scraping or reselling its data, sharing your Premium account, reverse-engineering it, or using it to break any law or any league or platform rules.</p>
+
+    <h2>7. Our content</h2>
+    <p>The Service, including its design, code, rankings and analysis, belongs to FantasyEdge. Sports statistics come from third-party sources and belong to their owners. We give you a personal, non-transferable license to use the Service while your account is in good standing.</p>
+
+    <h2>8. Feedback</h2>
+    <p>If you send ideas or feedback, we may use them without any obligation to you.</p>
+
+    <h2>9. Suspension and termination</h2>
+    <p>You can stop using the Service and delete your account at any time. We may suspend or end accounts that violate these Terms. If we end the Service entirely, we'll give reasonable notice and refund any unused prepaid annual time on a pro-rated basis.</p>
+
+    <h2>10. Disclaimers</h2>
+    <p>The Service is provided "as is" and "as available," without warranties of any kind, including accuracy, availability or fitness for a particular purpose. Data from third-party sources may be delayed or incorrect.</p>
+
+    <h2>11. Limitation of liability</h2>
+    <p>To the fullest extent allowed by law, FantasyEdge won't be liable for indirect, incidental or consequential damages, or for lost league winnings, entry fees or prizes. Our total liability for any claim is limited to the amount you paid us in the 12 months before the claim.</p>
+
+    <h2>12. Governing law</h2>
+    <p>These Terms are governed by the laws of the State of Georgia, USA. Any dispute will be handled in the state or federal courts located in Cobb County, Georgia.</p>
+
+    <h2>13. Changes</h2>
+    <p>We may update these Terms. We'll post the new version with a new effective date, and notify you of significant changes. Continuing to use the Service means you accept the updated Terms.</p>
+
+    <h2>14. Contact</h2>
+    <p><a class="inline" href="mailto:support@fantasyedgeapp.com">support@fantasyedgeapp.com</a></p>
+    <p><a class="inline" href="https://fantasyedgeapp.com">fantasyedgeapp.com</a></p>
+  </div>
+</main>
+
+<script>
+  const upsell = document.getElementById('upsell');
+  if (upsell) upsell.addEventListener('click', () => window.FE && window.FE.openPricing && window.FE.openPricing());
+</script>
+<script type="module" src="/auth.js"></script>
+</body>
+</html>

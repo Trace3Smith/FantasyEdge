@@ -10,6 +10,10 @@
 const CLERK_CDN = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/+esm';
 const GOLD = 'var(--gold, #D4A017)';
 
+// Consent line shown wherever a user signs up or starts checkout.
+const LEGAL_LINE = 'By continuing you agree to our <a href="/terms" target="_blank" rel="noopener">Terms</a> '
+  + 'and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>';
+
 let clerk = null;
 
 // --- styles (theme-matched, works across all pages' :root vars) ---------------
@@ -70,6 +74,19 @@ function injectStyles() {
   .fe-perks li { padding: 4px 0 4px 22px; position: relative; }
   .fe-perks li:before { content: '✓'; position: absolute; left: 0; color: ${GOLD}; font-weight: 700; }
   body:not(.is-premium) .premium-only { display: none !important; }
+
+  .fe-legal-line { margin-top: 16px; font-size: 12px; color: #999; text-align: center; line-height: 1.5; }
+  .fe-legal-line a, .fe-auth-legal a { color: ${GOLD}; text-decoration: none; }
+  .fe-legal-line a:hover, .fe-auth-legal a:hover, .fe-legal-links a:hover { text-decoration: underline; }
+  .fe-auth-legal {
+    position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    z-index: 2147483000; display: none; max-width: calc(100vw - 24px); padding: 8px 14px; border-radius: 8px;
+    background: rgba(8,8,8,0.92); border: 1px solid rgba(212,160,23,0.25); color: #bbb;
+    font-family: 'Barlow', sans-serif; font-size: 12px; text-align: center; line-height: 1.5;
+  }
+  .fe-auth-legal.open { display: block; }
+  .fe-legal-links { padding: 0 20px 16px; font-size: 11px; color: #777; }
+  .fe-legal-links a { color: #888; text-decoration: none; }
   `;
   const el = document.createElement('style');
   el.textContent = css;
@@ -115,6 +132,7 @@ function buildPricingModal() {
           <button class="fe-pick" data-interval="year">Choose Annual</button>
         </div>
       </div>
+      <p class="fe-legal-line">${LEGAL_LINE}</p>
       <ul class="fe-perks">
         <li>Unlimited mock drafts (free tier: 1 per day)</li>
         <li>Draft assistant for all rounds (free: rounds 1–7)</li>
@@ -139,19 +157,48 @@ function buildPricingModal() {
   return bg;
 }
 
+// Clerk renders its own sign-in / sign-up modal, so the consent line can't live inside it. Pin it under
+// the modal instead, for as long as Clerk's backdrop is on screen.
+let legalWatch = null;
+function showAuthLegal() {
+  let bar = document.querySelector('.fe-auth-legal');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.className = 'fe-auth-legal';
+    bar.innerHTML = LEGAL_LINE;
+    document.body.appendChild(bar);
+  }
+  bar.classList.add('open');
+  legalWatch?.disconnect();
+  let seen = false;
+  const started = Date.now();
+  const watch = new MutationObserver(check);
+  function check() {
+    if (legalWatch !== watch) return;
+    if (document.querySelector('.cl-modalBackdrop')) { seen = true; return; }
+    // Gone after being shown, or never appeared (Clerk failed to open): take the line down.
+    if (seen || Date.now() - started >= 8000) { bar.classList.remove('open'); watch.disconnect(); legalWatch = null; }
+  }
+  legalWatch = watch;
+  watch.observe(document.body, { childList: true, subtree: true });
+  setTimeout(check, 8000);
+}
+function openSignIn() { showAuthLegal(); clerk.openSignIn(); }
+function openSignUp() { showAuthLegal(); (clerk.openSignUp || clerk.openSignIn).call(clerk); }
+
 // The SINGLE checkout path (pricing modal + homepage toggle both call this), so the billing interval →
 // Stripe price mapping lives in one place. `interval` must be 'month' or 'year' (checkout.js/billing.js
 // key on exactly those; it 400s on anything else, so a wrong value fails loudly rather than mischarging).
 // Signs the user in first when needed. Returns true if it redirected to Stripe Checkout, else false.
 async function startCheckout(interval) {
-  if (!clerk?.user) { clerk.openSignIn(); return false; }
+  if (!clerk?.user) { openSignIn(); return false; }
   const { ok, data } = await apiPost('/api/stripe/checkout', { interval });
   if (ok && data?.url) { window.location.href = data.url; return true; }
   return false;
 }
 
 function openPricing() {
-  if (!clerk?.user) { clerk.openSignIn(); return; }
+  if (!clerk?.user) { openSignIn(); return; }
   document.querySelector('.fe-modal-bg')?.classList.add('open');
 }
 
@@ -185,12 +232,23 @@ function renderSidebar() {
     const b = document.createElement('button');
     b.className = 'fe-signin';
     b.textContent = 'Sign in';
-    b.addEventListener('click', () => clerk.openSignIn());
+    b.addEventListener('click', () => openSignIn());
     slot.appendChild(b);
   }
   // Draft nav links are defined statically in each page's sidebar (Draft Assistant +
   // Mock Draft), so we no longer inject them here — that caused a duplicate Mock Draft
   // and a stale Real Draft (?mode=real) link.
+}
+
+// The app pages have no footer, so the legal links sit at the foot of the sidebar. Static links —
+// rendered before Clerk loads so they show even when auth is unavailable.
+function renderLegalLinks() {
+  const sidebar = document.querySelector('.sidebar');
+  if (!sidebar || sidebar.querySelector('.fe-legal-links')) return;
+  const el = document.createElement('div');
+  el.className = 'fe-legal-links';
+  el.innerHTML = '<a href="/privacy">Privacy</a> · <a href="/terms">Terms</a>';
+  sidebar.appendChild(el);
 }
 
 // Update the existing "Get Pro" box to the real price + premium-aware action.
@@ -219,7 +277,7 @@ function wireCtaButtons() {
     btn.addEventListener('click', (e) => {
       e.preventDefault();
       if (clerk?.user) { window.location.href = '/fantasyedge-dashboard.html'; return; }
-      (clerk?.openSignUp || clerk?.openSignIn)?.call(clerk);
+      openSignUp();
     });
   });
 }
@@ -232,6 +290,7 @@ function applyState(modal) {
 
 async function boot() {
   injectStyles();
+  renderLegalLinks();
   let cfg = {};
   try { cfg = await (await fetch('/api/public-config')).json(); } catch {}
   if (!cfg.clerkPublishableKey) {
@@ -254,7 +313,7 @@ async function boot() {
     getToken: () => (clerk.session ? clerk.session.getToken() : Promise.resolve(null)),
     isPremium,
     isSignedIn: () => !!clerk.user,
-    openSignIn: () => clerk.openSignIn(),
+    openSignIn,
     openPricing,
     startCheckout,
   };

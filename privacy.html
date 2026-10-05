@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FantasyEdge — Privacy Policy</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="assets/mobile.js" defer></script>
+<style>
+  :root {
+    --gold: #D4A017; --gold-light: #F0C040; --black: #080808; --dark: #111111;
+    --dark2: #1A1A1A; --dark3: #222222; --dark4: #2A2A2A; --white: #F5F5F0;
+    --gray: #888888; --gray-light: #AAAAAA; --green: #4CAF50; --red: #F44336; --orange: #FF9800;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--dark); color: var(--white); font-family: 'Barlow', sans-serif; display: flex; min-height: 100vh; }
+  .sidebar { width: 200px; min-width: 200px; background: var(--black); border-right: 1px solid rgba(212,160,23,0.15); display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; overflow-y: auto; }
+  .sidebar-logo { padding: 24px 20px 20px; border-bottom: 1px solid rgba(212,160,23,0.15); font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 3px; color: var(--white); }
+  .sidebar-logo span { color: var(--gold); }
+  .sidebar-section-label { padding: 18px 20px 6px; font-size: 10px; font-weight: 600; letter-spacing: 2px; color: var(--gray); text-transform: uppercase; }
+  .sidebar-nav { list-style: none; padding: 0 8px; }
+  .sidebar-nav li a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 6px; color: var(--gray-light); text-decoration: none; font-size: 13px; font-weight: 500; transition: all 0.15s; }
+  .sidebar-nav li a:hover { background: var(--dark3); color: var(--white); }
+  .sidebar-nav li a .icon { font-size: 15px; width: 18px; text-align: center; }
+  .upgrade-box { margin: auto 14px 18px; padding: 16px; background: linear-gradient(160deg, rgba(212,160,23,0.15), rgba(212,160,23,0.03)); border: 1px solid rgba(212,160,23,0.25); border-radius: 10px; }
+  .upgrade-box p { font-size: 12px; color: var(--gray-light); line-height: 1.5; margin-bottom: 12px; }
+  .upgrade-btn { display: block; text-align: center; padding: 9px; background: var(--gold); color: #111; font-weight: 700; font-size: 13px; border-radius: 6px; text-decoration: none; cursor: pointer; }
+
+  .main { margin-left: 200px; flex: 1; padding: 28px 34px 60px; max-width: 1080px; }
+  .top-header { margin-bottom: 22px; }
+  .page-title { font-family: 'Bebas Neue', sans-serif; font-size: 32px; letter-spacing: 2px; }
+  .page-title span { color: var(--gold); }
+  .page-subtitle { color: var(--gray); font-size: 13px; margin-top: 2px; max-width: 720px; line-height: 1.55; }
+
+  .panel { background: var(--dark2); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 22px; margin-bottom: 20px; }
+
+  /* legal copy — single readable column */
+  .legal { max-width: 720px; padding: 28px 30px; }
+  .legal h2 { font-size: 18px; margin: 28px 0 8px; }
+  .legal p, .legal li { color: var(--gray-light); font-size: 15px; line-height: 1.7; }
+  .legal p { margin-bottom: 12px; }
+  .legal ul { margin: 0 0 12px 20px; }
+  .legal li { margin-bottom: 6px; }
+  .legal > :last-child { margin-bottom: 0; }
+  a.inline { color: var(--gold-light); text-decoration: none; }
+  a.inline:hover { text-decoration: underline; }
+</style>
+<link rel="stylesheet" href="assets/mobile.css">
+</head>
+<body>
+<button class="nav-toggle" aria-label="Open menu"><span></span></button>
+<div class="nav-backdrop"></div>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">FANTASY<span>EDGE</span></div>
+  <div class="sidebar-section-label">Main</div>
+  <ul class="sidebar-nav">
+    <li><a href="fantasyedge.html"><span class="icon">🏠</span> Home</a></li>
+    <li><a href="fantasyedge-rankings.html"><span class="icon">📊</span> Rankings</a></li>
+    <li><a href="fantasyedge-draft.html"><span class="icon">📋</span> Draft Mode</a></li>
+    <li><a href="fantasyedge-draft.html?mode=mock"><span class="icon">🎯</span> Mock Draft</a></li>
+    <li><a href="fantasyedge-autopilot.html"><span class="icon">🎛️</span> Team Manager</a></li>
+    <li><a href="fantasyedge-trade-center.html"><span class="icon">🤝</span> Trade Center</a></li>
+    <li><a href="fantasyedge-brackets.html"><span class="icon">🏆</span> Brackets &amp; Bowls</a></li>
+    <li><a href="fantasyedge-about.html"><span class="icon">ℹ️</span> About &amp; Features</a></li>
+  </ul>
+  <div class="upgrade-box">
+    <p>Autopilot, Trade Center, and live draft linking are Premium — $5/mo.</p>
+    <a class="upgrade-btn" id="upsell">Go Premium</a>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="top-header">
+    <div class="page-title">PRIVACY <span>POLICY</span></div>
+    <div class="page-subtitle">Effective date: October 4, 2026</div>
+  </div>
+
+  <div class="panel legal">
+    <p>FantasyEdge ("we," "us") is operated by Trace Smith, doing business as FantasyEdge. This policy explains what information we collect when you use fantasyedgeapp.com (the "Service"), how we use it, and your choices.</p>
+
+    <h2>1. Information we collect</h2>
+    <ul>
+      <li>Account information: your name, email address and profile image, collected through our sign-in provider (Clerk) when you create an account, including if you sign in with Google.</li>
+      <li>Fantasy league connection data: if you link an ESPN league, we store the ESPN session cookies you provide (espn_s2 and SWID) so the Service can read your league settings, rosters and matchups. These values are encrypted at rest and used only to fetch your league data.</li>
+      <li>League and usage data: the league settings, rosters, draft results, transactions, preferences, and the messages you send to the AI Coach and Trade Center that power your recommendations.</li>
+      <li>Payment information: subscriptions are processed by Stripe. We never see or store your full card number. We receive your subscription status, plan and the last four digits of your card from Stripe.</li>
+      <li>Technical data: standard server logs from our hosting provider (Vercel), such as IP address, browser type and pages requested, used for security and troubleshooting.</li>
+    </ul>
+
+    <h2>2. How we use it</h2>
+    <ul>
+      <li>To run the Service: rankings, alerts, Team Manager, Trade Center, AI Draft Coach and other features.</li>
+      <li>To personalize recommendations to your leagues and scoring settings.</li>
+      <li>To process payments and manage your subscription.</li>
+      <li>To contact you about your account, support requests or important changes.</li>
+      <li>To keep the Service secure and fix problems.</li>
+    </ul>
+    <p>We do not sell your personal information, and we do not use it for third-party advertising.</p>
+
+    <h2>3. Who we share it with</h2>
+    <p>Only service providers that help us run FantasyEdge, and only as needed: Clerk (authentication), Stripe (payments), Vercel (hosting), Upstash (database), and Anthropic for generating recommendations. Pages also load fonts from Google Fonts and scripts from jsDelivr, which receive your IP address as part of delivering those files. We may also disclose information if required by law.</p>
+
+    <h2>4. ESPN and other platforms</h2>
+    <p>FantasyEdge is not affiliated with or endorsed by ESPN. Linking a league is optional. You can unlink at any time, which deletes the stored ESPN cookies from our systems. Changing your ESPN password also invalidates them.</p>
+
+    <h2>5. Data retention</h2>
+    <p>We keep your account data while your account is active. If you delete your account, we delete your personal data and stored league credentials within 30 days, except records we must keep for legal or tax reasons (such as payment history).</p>
+
+    <h2>6. Your choices and rights</h2>
+    <p>You can view and update your account details, unlink leagues, cancel your subscription or request deletion of your account at any time by emailing <a class="inline" href="mailto:support@fantasyedgeapp.com">support@fantasyedgeapp.com</a>. Depending on where you live, you may have additional rights to access, correct or delete your data. We will honor those requests.</p>
+
+    <h2>7. Security</h2>
+    <p>We use encryption in transit (HTTPS) and encrypt stored league credentials. No system is perfectly secure, but we work to protect your information.</p>
+
+    <h2>8. Age</h2>
+    <p>The Service is intended for users 18 and older. We do not knowingly collect information from children under 13. If you believe a child has provided us information, contact us and we will delete it.</p>
+
+    <h2>9. Changes</h2>
+    <p>We may update this policy. If changes are significant, we'll notify you by email or on the site before they take effect.</p>
+
+    <h2>10. Contact</h2>
+    <p><a class="inline" href="mailto:support@fantasyedgeapp.com">support@fantasyedgeapp.com</a></p>
+    <p><a class="inline" href="https://fantasyedgeapp.com">fantasyedgeapp.com</a></p>
+  </div>
+</main>
+
+<script>
+  const upsell = document.getElementById('upsell');
+  if (upsell) upsell.addEventListener('click', () => window.FE && window.FE.openPricing && window.FE.openPricing());
+</script>
+<script type="module" src="/auth.js"></script>
+</body>
+</html>
