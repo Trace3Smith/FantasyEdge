@@ -123,6 +123,7 @@
   .empty { color: var(--gray); font-size: 13px; }
 </style>
 <link rel="stylesheet" href="assets/mobile.css">
+  <link rel="stylesheet" href="assets/visual-refresh.css">
 </head>
 <body>
 <button class="nav-toggle" aria-label="Open menu"><span></span></button>
@@ -132,14 +133,14 @@
   <div class="sidebar-logo">FANTASY<span>EDGE</span></div>
   <div class="sidebar-section-label">Main</div>
   <ul class="sidebar-nav">
-    <li><a href="fantasyedge.html"><span class="icon">🏠</span> Home</a></li>
-    <li><a href="fantasyedge-rankings.html"><span class="icon">📊</span> Rankings</a></li>
-    <li><a href="fantasyedge-draft.html"><span class="icon">📋</span> Draft Mode</a></li>
-    <li><a href="fantasyedge-draft.html?mode=mock"><span class="icon">🎯</span> Mock Draft</a></li>
-    <li><a href="fantasyedge-autopilot.html"><span class="icon">🎛️</span> Team Manager</a></li>
-    <li><a href="fantasyedge-trade-center.html" class="active"><span class="icon">🤝</span> Trade Center</a></li>
-    <li><a href="fantasyedge-brackets.html"><span class="icon">🏆</span> Brackets &amp; Bowls</a></li>
-    <li><a href="fantasyedge-about.html"><span class="icon">ℹ️</span> About &amp; Features</a></li>
+    <li><a href="fantasyedge.html"><span class="icon fe-icon" data-icon="house" aria-hidden="true"></span> Home</a></li>
+    <li><a href="fantasyedge-rankings.html"><span class="icon fe-icon" data-icon="chart-column-increasing" aria-hidden="true"></span> Rankings</a></li>
+    <li><a href="fantasyedge-draft.html"><span class="icon fe-icon" data-icon="clipboard-list" aria-hidden="true"></span> Draft Mode</a></li>
+    <li><a href="fantasyedge-draft.html?mode=mock"><span class="icon fe-icon" data-icon="crosshair" aria-hidden="true"></span> Mock Draft</a></li>
+    <li><a href="fantasyedge-autopilot.html"><span class="icon fe-icon" data-icon="sliders-horizontal" aria-hidden="true"></span> Team Manager</a></li>
+    <li><a href="fantasyedge-trade-center.html" class="active"><span class="icon fe-icon" data-icon="arrow-left-right" aria-hidden="true"></span> Trade Center</a></li>
+    <li><a href="fantasyedge-brackets.html"><span class="icon fe-icon" data-icon="trophy" aria-hidden="true"></span> Brackets &amp; Bowls</a></li>
+    <li><a href="fantasyedge-about.html"><span class="icon fe-icon" data-icon="info" aria-hidden="true"></span> About &amp; Features</a></li>
   </ul>
   <div class="upgrade-box">
     <p>Find win-win trades, evaluate offers, and counter like a shark.</p>
@@ -155,7 +156,7 @@
 
   <!-- Premium lock -->
   <div class="panel locked hidden" id="locked">
-    <div class="lock-emoji">🤝</div>
+    <span class="lock-emoji fe-icon" data-icon="arrow-left-right" aria-hidden="true"></span>
     <h2>Trade Center is a Premium feature</h2>
     <p>Find mutually-beneficial trades across all your ESPN leagues, get instant accept/reject/counter calls on any offer, and detect lowballs — for MLB, WNBA, NFL, NBA, and NHL.</p>
     <button class="btn btn-gold" id="upsell">Go Premium</button>
@@ -170,7 +171,7 @@
 
   <!-- Not connected -->
   <div class="panel needconnect hidden" id="needConnect">
-    <div class="lock-emoji">🔌</div>
+    <span class="lock-emoji fe-icon" data-icon="cable" aria-hidden="true"></span>
     <h2>Connect your ESPN account first</h2>
     <p>The Trade Center reads your leagues from your linked ESPN account. Connect it once on Team Manager (same cookies cover every sport) and come right back.</p>
     <a href="fantasyedge-autopilot.html" class="btn btn-gold">Go to Team Manager →</a>
@@ -189,7 +190,7 @@
     <!-- Scanner -->
     <div class="panel">
       <div class="row" style="justify-content:space-between">
-        <div><h2>🔎 Trade Scanner</h2><p class="hint" style="margin:0">Finds 2-3 win-win trades — who to target, what you give, what you get, and a fairness score.</p></div>
+        <div><h2>Trade Scanner</h2><p class="hint" style="margin:0">Finds 2-3 win-win trades — who to target, what you give, what you get, and a fairness score.</p></div>
         <button class="btn btn-gold" id="scanBtn">Find trades</button>
       </div>
       <div id="scanArea" style="margin-top:14px"></div>
@@ -197,7 +198,7 @@
 
     <!-- Evaluator / Counter / Walk-away -->
     <div class="panel">
-      <h2>⚖️ Trade Evaluator</h2>
+      <h2>Trade Evaluator</h2>
       <p class="hint">Paste or describe an incoming offer and I'll call it — accept, reject, or counter — and show what a fair counter looks like. Ask for ranked counters, or whether you're being lowballed.</p>
       <div class="chat-msgs" id="chatMsgs"><div class="empty" id="chatHello">Pick a league above, then paste an offer like "They offer me X for my Y and Z" — or tap a prompt below.</div></div>
       <div class="chips" id="chatChips">
@@ -320,7 +321,7 @@
     const note = losing.length
       ? `Categories you're losing (a good trade should protect or improve these): <b>${losing.map(escapeHtml).join(', ')}</b>`
       : `You're top-half in every category — nice. Trades below won't weaken a category you're losing.`;
-    return `<div class="standings"><div class="stand-title">📊 Your roto standings</div><div class="stand-grid">`
+    return `<div class="standings"><div class="stand-title">Your roto standings</div><div class="stand-grid">`
       + standings.map((s) => `<span class="stand-cell${s.losing ? ' losing' : ''}">${escapeHtml(s.label)} <b>#${s.rank}</b></span>`).join('')
       + `</div><div class="hint" style="margin:8px 0 0">${note}</div></div>`;
   }
@@ -337,14 +338,14 @@
     };
     const weak = positions.filter((p) => p.status === 'weak' || p.thin).map((p) => p.pos);
     const note = weak.length ? `Target these in trades: <b>${weak.map(escapeHtml).join(', ')}</b>` : 'Your starting positions are all solid.';
-    return `<div class="standings"><div class="stand-title">🏈 Positional need · ${escapeHtml(ppr || 'scoring')} (projected pts)</div>`
+    return `<div class="standings"><div class="stand-title">Positional need · ${escapeHtml(ppr || 'scoring')} (projected pts)</div>`
       + `<div class="pos-grid">${positions.map(cell).join('')}</div><div class="hint" style="margin:8px 0 0">${note}</div></div>`;
   }
 
   // Cold-start / sustained-slump notes on the user's roster (from the blended model).
   function renderOutliers(outliers) {
     if (!outliers || !outliers.length) return '';
-    return `<div class="standings outliers"><div class="stand-title">🩺 Value watch</div>`
+    return `<div class="standings outliers"><div class="stand-title">Value watch</div>`
       + outliers.map((o) => {
           const cls = o.status === 'sustained' ? 'ow-sustained' : 'ow-watch';
           const tag = o.status === 'sustained' ? 'SUSTAINED' : 'OUTLIER?';
@@ -372,19 +373,19 @@
         const npCls = np > 0 ? 'imp-up' : np < 0 ? 'imp-dn' : '';
         const npStr = `<span class="${npCls}">${np > 0 ? '+' : ''}${np} proj. pts</span>`;
         const helps = (p.helpsWeak || []).length ? `<span class="imp-up">▲ fixes ${p.helpsWeak.map(escapeHtml).join(', ')}</span>` : '';
-        const thins = (p.thinsPos || []).length ? `<span class="imp-warn">⚠️ thins ${p.thinsPos.map(escapeHtml).join(', ')}</span>` : '';
+        const thins = (p.thinsPos || []).length ? `<span class="imp-warn">Risk: thins ${p.thinsPos.map(escapeHtml).join(', ')}</span>` : '';
         impact = `<div class="prop-impact">Net: ${npStr} ${helps} ${thins}</div>`;
       } else {
         const getCats = catChips(p.youGetCats, 'get'), giveCats = catChips(p.youGiveCats);
         const gained = (p.catGained || []).length ? `<span class="imp-up">▲ ${p.catGained.map(escapeHtml).join(', ')}</span>` : '';
         const lost = (p.catLost || []).length ? `<span class="imp-dn">▼ ${p.catLost.map(escapeHtml).join(', ')}</span>` : '';
-        const warn = (p.hurtsLosing || []).length ? `<span class="imp-warn">⚠️ weakens ${p.hurtsLosing.map(escapeHtml).join(', ')} (already losing)</span>` : '';
+        const warn = (p.hurtsLosing || []).length ? `<span class="imp-warn">Risk: weakens ${p.hurtsLosing.map(escapeHtml).join(', ')} (already losing)</span>` : '';
         if (gained || lost || warn) impact = `<div class="prop-impact">Category impact: ${gained} ${lost} ${warn}</div>`;
         impact = `<div class="prop-legs-cats">${getCats ? '<div class="cats get-cats">Get: ' + getCats + '</div>' : ''}${giveCats ? '<div class="cats">Give: ' + giveCats + '</div>' : ''}</div>` + impact;
       }
       return `<div class="prop">
         <div class="prop-head">
-          <div class="prop-partner">🤝 Trade with ${escapeHtml(p.partnerTeam || 'a team')}</div>
+          <div class="prop-partner">Trade with ${escapeHtml(p.partnerTeam || 'a team')}</div>
           <div class="fair"><span>Fairness ${f}</span><div class="fair-bar"><div class="fair-fill" style="width:${f}%;background:${fairColor(f)}"></div></div></div>
         </div>
         <div class="prop-legs">

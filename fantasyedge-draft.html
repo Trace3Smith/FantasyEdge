@@ -265,6 +265,7 @@
   .g-reach { background: rgba(229,76,76,0.18); color: #f3a1a1; }
 </style>
 <link rel="stylesheet" href="assets/mobile.css">
+  <link rel="stylesheet" href="assets/visual-refresh.css">
 </head>
 <body>
 <button class="nav-toggle" aria-label="Open menu"><span></span></button>
@@ -274,14 +275,14 @@
   <div class="sidebar-logo">FANTASY<span>EDGE</span></div>
   <div class="sidebar-section-label">Main</div>
   <ul class="sidebar-nav">
-    <li><a href="fantasyedge.html"><span class="icon">🏠</span> Home</a></li>
-    <li><a href="fantasyedge-rankings.html"><span class="icon">📊</span> Rankings</a></li>
-    <li><a href="fantasyedge-draft.html" id="navOffline"><span class="icon">📋</span> Draft Mode</a></li>
-    <li><a href="fantasyedge-draft.html?mode=mock" id="navMock"><span class="icon">🎯</span> Mock Draft</a></li>
-    <li><a href="fantasyedge-autopilot.html"><span class="icon">🎛️</span> Team Manager</a></li>
-    <li><a href="fantasyedge-trade-center.html"><span class="icon">🤝</span> Trade Center</a></li>
-    <li><a href="fantasyedge-brackets.html"><span class="icon">🏆</span> Brackets &amp; Bowls</a></li>
-    <li><a href="fantasyedge-about.html"><span class="icon">ℹ️</span> About &amp; Features</a></li>
+    <li><a href="fantasyedge.html"><span class="icon fe-icon" data-icon="house" aria-hidden="true"></span> Home</a></li>
+    <li><a href="fantasyedge-rankings.html"><span class="icon fe-icon" data-icon="chart-column-increasing" aria-hidden="true"></span> Rankings</a></li>
+    <li><a href="fantasyedge-draft.html" id="navOffline"><span class="icon fe-icon" data-icon="clipboard-list" aria-hidden="true"></span> Draft Mode</a></li>
+    <li><a href="fantasyedge-draft.html?mode=mock" id="navMock"><span class="icon fe-icon" data-icon="crosshair" aria-hidden="true"></span> Mock Draft</a></li>
+    <li><a href="fantasyedge-autopilot.html"><span class="icon fe-icon" data-icon="sliders-horizontal" aria-hidden="true"></span> Team Manager</a></li>
+    <li><a href="fantasyedge-trade-center.html"><span class="icon fe-icon" data-icon="arrow-left-right" aria-hidden="true"></span> Trade Center</a></li>
+    <li><a href="fantasyedge-brackets.html"><span class="icon fe-icon" data-icon="trophy" aria-hidden="true"></span> Brackets &amp; Bowls</a></li>
+    <li><a href="fantasyedge-about.html"><span class="icon fe-icon" data-icon="info" aria-hidden="true"></span> About &amp; Features</a></li>
   </ul>
   <div class="upgrade-box">
     <p>Unlimited mock drafts, full-draft assistant &amp; real draft mode.</p>
@@ -307,11 +308,11 @@
     <div class="page-title" style="font-size:22px; margin-bottom:4px;">CHOOSE A LEAGUE</div>
     <p class="muted" style="font-size:13px; margin: 0 0 16px;">Pick the sport you want to mock draft. More leagues are on the way.</p>
     <div class="league-grid">
-      <div class="league-tile" data-sport="nfl"><span class="lt-icon">🏈</span><span class="lt-name">NFL</span></div>
-      <div class="league-tile" data-sport="nba"><span class="lt-icon">🏀</span><span class="lt-name">NBA</span></div>
-      <div class="league-tile" data-sport="wnba"><span class="lt-icon">🏀</span><span class="lt-name">WNBA</span></div>
-      <div class="league-tile" data-sport="mlb"><span class="lt-icon">⚾</span><span class="lt-name">MLB</span></div>
-      <div class="league-tile" data-sport="nhl"><span class="lt-icon">🏒</span><span class="lt-name">NHL</span></div>
+      <div class="league-tile" data-sport="nfl"><span class="lt-icon sport-code">NFL</span><span class="lt-name">NFL</span></div>
+      <div class="league-tile" data-sport="nba"><span class="lt-icon sport-code">NBA</span><span class="lt-name">NBA</span></div>
+      <div class="league-tile" data-sport="wnba"><span class="lt-icon sport-code">WNBA</span><span class="lt-name">WNBA</span></div>
+      <div class="league-tile" data-sport="mlb"><span class="lt-icon sport-code">MLB</span><span class="lt-name">MLB</span></div>
+      <div class="league-tile" data-sport="nhl"><span class="lt-icon sport-code">NHL</span><span class="lt-name">NHL</span></div>
     </div>
   </div>
 
@@ -321,8 +322,8 @@
     <div class="page-title" style="font-size:22px; margin-bottom:4px;">DRAFT MODE</div>
     <p class="muted" style="font-size:13px; margin: 0 0 16px;">Sleeper drafts auto-track live. Every other platform — ESPN, Yahoo, in person — works too, you just mark each pick yourself as it happens. Either path drives the same board, and the Coach advises you on every pick.</p>
     <div class="league-grid">
-      <div class="league-tile" id="pathLinked"><span class="lt-icon">🔗</span><span class="lt-name">Link a Draft</span><span class="muted" style="font-size:11px">Sleeper (NFL/NBA only) — auto-tracks picks live</span></div>
-      <div class="league-tile" id="pathOffline"><span class="lt-icon">📋</span><span class="lt-name">Track Any Draft</span><span class="muted" style="font-size:11px">ESPN, Yahoo, in person — mark each pick yourself</span></div>
+      <div class="league-tile" id="pathLinked"><span class="lt-icon fe-icon" data-icon="link" aria-hidden="true"></span><span class="lt-name">Link a Draft</span><span class="muted" style="font-size:11px">Sleeper (NFL/NBA only) — auto-tracks picks live</span></div>
+      <div class="league-tile" id="pathOffline"><span class="lt-icon fe-icon" data-icon="clipboard-list" aria-hidden="true"></span><span class="lt-name">Track Any Draft</span><span class="muted" style="font-size:11px">ESPN, Yahoo, in person — mark each pick yourself</span></div>
     </div>
   </div>
 
@@ -417,14 +418,14 @@
     </div>
     <!-- AI Coach at the top: leads with the analyst's pick each turn, then takes follow-ups -->
     <div class="panel coach-panel">
-      <h3>🤖 Draft Coach</h3>
+      <h3>Draft Coach</h3>
       <div class="coach-scroll" id="coachScroll"></div>
       <div class="coach-composer" id="coachComposer">
         <textarea id="coachInput" rows="1" placeholder="Ask about your pick, a position run, anything…"></textarea>
         <button id="coachSend" type="button" title="Send">➤</button>
       </div>
       <div class="coach-lock hidden" id="coachLock">
-        <span class="muted" style="font-size:12.5px">🔒 Premium unlocks follow-up questions &amp; analyst picks every round.</span>
+        <span class="muted" style="font-size:12.5px">Premium unlocks follow-up questions &amp; analyst picks every round.</span>
         <button class="btn btn-gold" id="coachUpsell" type="button" style="padding:7px 14px; font-size:13px">Go Premium</button>
       </div>
     </div>
@@ -1647,7 +1648,7 @@ function renderDraftSummary() {
 }
 
 function finishDraft() {
-  $('clock').innerHTML = '✅ <b>Draft complete!</b>';
+  $('clock').innerHTML = '<b>Draft complete!</b>';
   setRuns(null);
   renderRoster();
   renderDraftSummary();
@@ -1749,7 +1750,7 @@ function offlineStep() {
 }
 
 function offlineFinish() {
-  $('clock').innerHTML = '✅ <b>Draft complete!</b> Your roster is set.';
+  $('clock').innerHTML = '<b>Draft complete!</b> Your roster is set.';
   setRuns(null);
   $('offlineBar').classList.add('hidden');
   renderRoster();
@@ -1833,7 +1834,7 @@ async function sleeperConnect() {
   const type = d.type || 'snake';
   const scoring = SLEEPER_SCORING[(d.metadata?.scoring_type || '').toLowerCase()] || 'ppr';
   msg.textContent = '';
-  const auctionNote = type === 'auction' ? ' · ⚠ auction: picks tracked, the snake clock is approximate' : '';
+  const auctionNote = type === 'auction' ? ' · Auction picks tracked; snake clock is approximate' : '';
   $('sleeperInfo').innerHTML = `Found <b>${escapeHtml(d.metadata?.name || (sp.toUpperCase() + ' draft'))}</b> — `
     + `${teams} teams · ${rounds} rounds · ${type}${sp === 'nfl' ? ' · ' + scoring.toUpperCase() : ' · 9-CAT'}${auctionNote}.`;
   $('sleeperSlot').innerHTML = Array.from({ length: teams }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
@@ -1939,7 +1940,7 @@ function linkedFinish() {
   if (state.sleeper.done) return;
   state.sleeper.done = true;
   if (state.sleeper.timer) { clearInterval(state.sleeper.timer); state.sleeper.timer = null; }
-  $('clock').innerHTML = '✅ <b>Draft complete!</b> Your roster is set.';
+  $('clock').innerHTML = '<b>Draft complete!</b> Your roster is set.';
   setRuns(null);
   renderSuggestion(false);
   renderRoster();
@@ -1987,7 +1988,7 @@ function applyCoachGate() {
 function addCoachMsg(role, text, cls) {
   const wrap = document.createElement('div');
   wrap.className = 'cmsg ' + (cls || (role === 'user' ? 'user' : 'coach'));
-  const av = role === 'user' ? '🧑' : (cls === 'error' ? '⚠️' : '🤖');
+  const av = role === 'user' ? 'YOU' : (cls === 'error' ? '!' : 'AI');
   wrap.innerHTML = `<div class="av">${av}</div><div class="cb"></div>`;
   wrap.querySelector('.cb').textContent = text;
   $('coachScroll').appendChild(wrap);
@@ -1997,7 +1998,7 @@ function addCoachMsg(role, text, cls) {
 function coachTyping() {
   const wrap = document.createElement('div');
   wrap.className = 'cmsg coach typing';
-  wrap.innerHTML = `<div class="av">🤖</div><div class="cb"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`;
+  wrap.innerHTML = `<div class="av">AI</div><div class="cb"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`;
   $('coachScroll').appendChild(wrap);
   cScroll();
   return wrap;

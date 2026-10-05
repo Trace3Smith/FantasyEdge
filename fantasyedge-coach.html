@@ -90,6 +90,7 @@
   .hidden { display: none !important; }
 </style>
 <link rel="stylesheet" href="assets/mobile.css">
+  <link rel="stylesheet" href="assets/visual-refresh.css">
 </head>
 <body>
 <button class="nav-toggle" aria-label="Open menu"><span></span></button>
@@ -99,14 +100,14 @@
   <div class="sidebar-logo">FANTASY<span>EDGE</span></div>
   <div class="sidebar-section-label">Main</div>
   <ul class="sidebar-nav">
-    <li><a href="fantasyedge.html"><span class="icon">🏠</span> Home</a></li>
-    <li><a href="fantasyedge-rankings.html"><span class="icon">📊</span> Rankings</a></li>
-    <li><a href="fantasyedge-draft.html"><span class="icon">📋</span> Draft Mode</a></li>
-    <li><a href="fantasyedge-draft.html?mode=mock"><span class="icon">🎯</span> Mock Draft</a></li>
-    <li><a href="fantasyedge-autopilot.html" class="active"><span class="icon">🎛️</span> Team Manager</a></li>
-    <li><a href="fantasyedge-trade-center.html"><span class="icon">🤝</span> Trade Center</a></li>
-    <li><a href="fantasyedge-brackets.html"><span class="icon">🏆</span> Brackets &amp; Bowls</a></li>
-    <li><a href="fantasyedge-about.html"><span class="icon">ℹ️</span> About &amp; Features</a></li>
+    <li><a href="fantasyedge.html"><span class="icon fe-icon" data-icon="house" aria-hidden="true"></span> Home</a></li>
+    <li><a href="fantasyedge-rankings.html"><span class="icon fe-icon" data-icon="chart-column-increasing" aria-hidden="true"></span> Rankings</a></li>
+    <li><a href="fantasyedge-draft.html"><span class="icon fe-icon" data-icon="clipboard-list" aria-hidden="true"></span> Draft Mode</a></li>
+    <li><a href="fantasyedge-draft.html?mode=mock"><span class="icon fe-icon" data-icon="crosshair" aria-hidden="true"></span> Mock Draft</a></li>
+    <li><a href="fantasyedge-autopilot.html" class="active"><span class="icon fe-icon" data-icon="sliders-horizontal" aria-hidden="true"></span> Team Manager</a></li>
+    <li><a href="fantasyedge-trade-center.html"><span class="icon fe-icon" data-icon="arrow-left-right" aria-hidden="true"></span> Trade Center</a></li>
+    <li><a href="fantasyedge-brackets.html"><span class="icon fe-icon" data-icon="trophy" aria-hidden="true"></span> Brackets &amp; Bowls</a></li>
+    <li><a href="fantasyedge-about.html"><span class="icon fe-icon" data-icon="info" aria-hidden="true"></span> About &amp; Features</a></li>
   </ul>
   <div class="upgrade-box">
     <p>Unlock the AI Coach, live stats &amp; full draft tools.</p>
@@ -123,7 +124,7 @@
   <!-- Premium lock (shown to non-premium users) -->
   <div class="coach-locked hidden" id="coachLocked">
     <div class="lock-card">
-      <div class="lock-emoji">🔒</div>
+      <span class="lock-emoji fe-icon" data-icon="lock-keyhole" aria-hidden="true"></span>
       <h2>The AI Coach is a Premium feature</h2>
       <p>Ask anything — "Should I trade Player A for Player B?", "Who do I start this week?", "Best waiver pickup in a 12-team PPR?" — and get straight, friendly advice across every sport.</p>
       <button id="coachUpsell">Go Premium</button>
@@ -168,7 +169,7 @@
   function addMessage(role, text, cls) {
     const wrap = document.createElement('div');
     wrap.className = 'msg ' + (cls || (role === 'user' ? 'user' : 'coach'));
-    const avatar = role === 'user' ? '🧑' : (cls === 'error' ? '⚠️' : '🤖');
+    const avatar = role === 'user' ? 'YOU' : (cls === 'error' ? '!' : 'AI');
     wrap.innerHTML = `<div class="avatar">${avatar}</div><div class="bubble"></div>`;
     wrap.querySelector('.bubble').textContent = text;
     inner.appendChild(wrap);
@@ -194,7 +195,7 @@
   function showTyping() {
     const wrap = document.createElement('div');
     wrap.className = 'msg coach typing';
-    wrap.innerHTML = `<div class="avatar">🤖</div><div class="bubble"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`;
+    wrap.innerHTML = `<div class="avatar">AI</div><div class="bubble"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`;
     inner.appendChild(wrap);
     scrollToBottom();
     return wrap;

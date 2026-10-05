@@ -312,6 +312,7 @@
 .gc-model ul{padding-left:18px;margin:8px 0}.gc-model p{margin:8px 0 0;color:var(--gray-light);font-size:11px}
 </style>
 <link rel="stylesheet" href="assets/mobile.css">
+  <link rel="stylesheet" href="assets/visual-refresh.css">
 </head>
 <body>
 <button class="nav-toggle" aria-label="Open menu"><span></span></button>
@@ -324,21 +325,21 @@
     <div class="sidebar-logo">Fantasy<span>Edge</span></div>
     <div class="sidebar-section">Main</div>
     <ul class="sidebar-nav">
-      <li><a href="fantasyedge.html"><span class="nav-icon">🏠</span> Home</a></li>      <li><a href="fantasyedge-rankings.html"><span class="nav-icon">📊</span> Rankings</a></li>
-      <li><a href="fantasyedge-draft.html"><span class="nav-icon">📋</span> Draft Mode</a></li>
-      <li><a href="fantasyedge-draft.html?mode=mock"><span class="nav-icon">🎯</span> Mock Draft</a></li>
-      <li><a href="fantasyedge-autopilot.html"><span class="nav-icon">🎛️</span> Team Manager</a></li>
-      <li><a href="fantasyedge-trade-center.html"><span class="nav-icon">🤝</span> Trade Center</a></li>
-      <li><a href="fantasyedge-brackets.html" class="active"><span class="nav-icon">🏆</span> Brackets & Bowls</a></li>
-      <li><a href="fantasyedge-about.html"><span class="nav-icon">ℹ️</span> About & Features</a></li>
+      <li><a href="fantasyedge.html"><span class="nav-icon fe-icon" data-icon="house" aria-hidden="true"></span> Home</a></li>      <li><a href="fantasyedge-rankings.html"><span class="nav-icon fe-icon" data-icon="chart-column-increasing" aria-hidden="true"></span> Rankings</a></li>
+      <li><a href="fantasyedge-draft.html"><span class="nav-icon fe-icon" data-icon="clipboard-list" aria-hidden="true"></span> Draft Mode</a></li>
+      <li><a href="fantasyedge-draft.html?mode=mock"><span class="nav-icon fe-icon" data-icon="crosshair" aria-hidden="true"></span> Mock Draft</a></li>
+      <li><a href="fantasyedge-autopilot.html"><span class="nav-icon fe-icon" data-icon="sliders-horizontal" aria-hidden="true"></span> Team Manager</a></li>
+      <li><a href="fantasyedge-trade-center.html"><span class="nav-icon fe-icon" data-icon="arrow-left-right" aria-hidden="true"></span> Trade Center</a></li>
+      <li><a href="fantasyedge-brackets.html" class="active"><span class="nav-icon fe-icon" data-icon="trophy" aria-hidden="true"></span> Brackets & Bowls</a></li>
+      <li><a href="fantasyedge-about.html"><span class="nav-icon fe-icon" data-icon="info" aria-hidden="true"></span> About & Features</a></li>
     </ul>
     <div class="sidebar-section">Sports</div>
     <ul class="sidebar-nav">
-      <li><a href="fantasyedge-rankings.html?sport=mlb"><span class="nav-icon">⚾</span> MLB</a></li>
-      <li><a href="fantasyedge-rankings.html?sport=nba"><span class="nav-icon">🏀</span> NBA</a></li>
-      <li><a href="fantasyedge-rankings.html?sport=nhl"><span class="nav-icon">🏒</span> NHL</a></li>
-      <li><a href="fantasyedge-rankings.html?sport=pga"><span class="nav-icon">⛳</span> PGA</a></li>
-      <li><a href="fantasyedge-rankings.html?sport=nfl"><span class="nav-icon">🏈</span> NFL</a></li>
+      <li><a href="fantasyedge-rankings.html?sport=mlb">MLB</a></li>
+      <li><a href="fantasyedge-rankings.html?sport=nba">NBA</a></li>
+      <li><a href="fantasyedge-rankings.html?sport=nhl">NHL</a></li>
+      <li><a href="fantasyedge-rankings.html?sport=pga">PGA</a></li>
+      <li><a href="fantasyedge-rankings.html?sport=nfl">NFL</a></li>
     </ul>
     <div class="sidebar-bottom">
       <div class="upgrade-card">
@@ -360,10 +361,10 @@
     <div class="content">
       <!-- MODE TABS -->
       <div class="mode-tabs">
-        <button class="mode-tab active" onclick="switchMode('nfl')">🏈 NFL Pick'em</button>
-        <button class="mode-tab" onclick="switchMode('cfbweek')">🏈 CFB Week</button>
-        <button class="mode-tab" onclick="switchMode('march')">🏀 March Madness</button>
-        <button class="mode-tab" onclick="switchMode('bowl')">🏈 Bowl Games</button>
+        <button class="mode-tab active" onclick="switchMode('nfl')">NFL Pick'em</button>
+        <button class="mode-tab" onclick="switchMode('cfbweek')">CFB Week</button>
+        <button class="mode-tab" onclick="switchMode('march')">March Madness</button>
+        <button class="mode-tab" onclick="switchMode('bowl')">Bowl Games</button>
       </div>
 
       <!-- NFL PICK'EM (live) -->
@@ -407,15 +408,15 @@
           <!-- INTRO -->
           <div class="bracket-intro">
             <div class="intro-card">
-              <span class="intro-icon">📊</span>
+              <span class="intro-icon fe-icon" data-icon="chart-column-increasing" aria-hidden="true"></span>
               <div><div class="intro-title">Model-Based Picks</div><div class="intro-sub">ESPN BPI strength + historical seed performance</div></div>
             </div>
             <div class="intro-card">
-              <span class="intro-icon">⚡</span>
+              <span class="intro-icon fe-icon" data-icon="zap" aria-hidden="true"></span>
               <div><div class="intro-title">Upset Alerts</div><div class="intro-sub"><span id="marchUpsetCount">—</span> live first-round upsets flagged</div></div>
             </div>
             <div class="intro-card">
-              <span class="intro-icon">🎯</span>
+              <span class="intro-icon fe-icon" data-icon="crosshair" aria-hidden="true"></span>
               <div><div class="intro-title">Bracket Optimizer</div><div class="intro-sub">Round-by-round odds → a recommended fill</div></div>
             </div>
           </div>
@@ -427,14 +428,14 @@
           <div id="marchReco"></div>
 
           <div class="bracket-section-title">First-Round Picks</div>
-          <div class="bracket-section-sub">Our model's favorite is highlighted in each game, with its win probability. ⚡ marks a live upset.</div>
+          <div class="bracket-section-sub">Our model's favorite is highlighted in each game, with its win probability. A live upset is marked on the board.</div>
 
           <!-- REGIONS -->
           <div class="regions-grid" id="regionsGrid"></div>
 
           <!-- CHAMPION -->
           <div class="champion-section">
-            <div class="champ-title">🏆 National Title Odds</div>
+            <div class="champ-title">National Title Odds</div>
             <div class="champ-sub" id="champSub">Model championship probabilities across the field.</div>
             <div class="champ-picks" id="champPicks"></div>
           </div>
@@ -719,8 +720,8 @@ function renderRails(d, railsId) {
     `<div class="rail-row"><span class="rr-team">${esc(u.underdog)} <span class="rr-meta">+dog vs ${esc(u.favorite)}</span></span><span class="rr-pct">${u.favWinProb}%</span></div>`
   ).join('') || '<div class="rail-empty">No coin-flip games flagged.</div>';
   document.getElementById(railsId).innerHTML =
-    `<div class="rail best"><div class="rail-title">🎯 Highest-confidence picks</div>${best}</div>`+
-    `<div class="rail upset"><div class="rail-title">⚡ Upset alerts</div>${ups}</div>`;
+    `<div class="rail best"><div class="rail-title">Highest-confidence picks</div>${best}</div>`+
+    `<div class="rail upset"><div class="rail-title">Upset alerts</div>${ups}</div>`;
 }
 
 function teamRow(t, picked, mkt, expand) {
@@ -1245,20 +1246,20 @@ function gameCard(g, feedId, hasReports) {
   const d = g.date ? new Date(g.date) : null;
   const when = d ? d.toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'})+' · '+d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '';
   const live = g.state==='in' ? '<span class="gc-live">● Live</span>' : (g.state==='post' ? '<span class="gc-live" style="background:rgba(136,136,136,.16);color:#aaa">Final</span>' : '');
-  const flag = g.upsetAlert ? '<span class="gc-upset">⚡ Upset alert</span>' : '';
+  const flag = g.upsetAlert ? '<span class="gc-upset">Upset alert</span>' : '';
   const pickTeam = g.pick ? g.pick.team : null;
   const pickBlock = g.pick
     ? `<div class="gc-pick"><div><div class="pk-lbl">Pick</div><div class="pk-team">${esc(g.pick.team)}</div></div>`+
       `<div class="pk-prob conf-${g.pick.confidence}">${g.pick.winProb}%</div></div>`
     : `<div class="gc-pick"><span class="pk-lbl">Line not set yet</span></div>`;
   const line = g.odds
-    ? `<div class="gc-line"><span>Spread <b>${esc(g.odds.details||g.odds.spread)}</b></span>${g.odds.overUnder!=null?`<span>O/U <b>${g.odds.overUnder}</b></span>`:''}<span>${g.venue.indoor?'🏟 Indoor':'☁ Outdoor'} · ${esc(g.venue.name)}</span></div>`
-    : `<div class="gc-line"><span>${g.venue.indoor?'🏟 Indoor':'☁ Outdoor'} · ${esc(g.venue.name)}</span></div>`;
+    ? `<div class="gc-line"><span>Spread <b>${esc(g.odds.details||g.odds.spread)}</b></span>${g.odds.overUnder!=null?`<span>O/U <b>${g.odds.overUnder}</b></span>`:''}<span>${g.venue.indoor?'Indoor':'Outdoor'} · ${esc(g.venue.name)}</span></div>`
+    : `<div class="gc-line"><span>${g.venue.indoor?'Indoor':'Outdoor'} · ${esc(g.venue.name)}</span></div>`;
   const side = (t, s) => impactLines(t.abbr, g.injuryImpact?.[s])
     + injuryResidual(t.abbr, g.injuryImpact?.[s], g.injuries?.[s], hasReports && !!t.id);
   const impact = side(g.away, 'away') + side(g.home, 'home');
   const wx = g.weather
-    ? `<div class="gc-wx">🌦 <span>${g.weather.tempF!=null?g.weather.tempF+'°F':''} ${esc(g.weather.condition||'')}${g.weather.windMph?' · wind '+g.weather.windMph+'mph':''}${g.weather.precipPct!=null?' · '+g.weather.precipPct+'% precip':''}${g.weather.covered?' · roof over the field':''}<span class="wx-age">${forecastAge(g.weather.fetchedAt)}</span></span></div>`
+    ? `<div class="gc-wx">Weather · <span>${g.weather.tempF!=null?g.weather.tempF+'°F':''} ${esc(g.weather.condition||'')}${g.weather.windMph?' · wind '+g.weather.windMph+'mph':''}${g.weather.precipPct!=null?' · '+g.weather.precipPct+'% precip':''}${g.weather.covered?' · roof over the field':''}<span class="wx-age">${forecastAge(g.weather.fetchedAt)}</span></span></div>`
     : '';
   // CFB bowl/playoff games carry a bowl name; NFL games don't. `@`/`vs` for site type.
   const bowl = g.bowlName ? `<div class="gc-bowl">${esc(g.bowlName)}</div>` : '';
@@ -1288,7 +1289,7 @@ function renderMarchLock() {
   const lock = document.getElementById('marchLocked');
   lock.style.display = 'block';
   lock.innerHTML = `<div class="nfl-error" style="padding:64px 24px">
-    <div style="font-size:34px;margin-bottom:14px">🔒</div>
+    <div class="lock-emoji fe-icon" data-icon="lock-keyhole" aria-hidden="true"></div>
     <div style="font-size:18px;color:var(--gold);font-weight:700;margin-bottom:8px">Premium feature</div>
     <div style="max-width:440px;margin:0 auto 22px">The bracket optimizer — every game's model pick, round-by-round advancement odds, title probabilities, and a recommended bracket — is part of FantasyEdge Premium.</div>
     <button class="submit-btn" onclick="(window.FE&&window.FE.openPricing)?window.FE.openPricing():(location.href='/fantasyedge-draft.html')">Unlock Premium →</button>
@@ -1344,8 +1345,8 @@ function renderMarch(d) {
     `<div class="rail-row"><span class="rr-team"><span class="rr-meta">(${u.dog.seed})</span> ${esc(u.dog.abbr)} <span class="rr-meta">over (${u.fav.seed}) ${esc(u.fav.abbr)}</span></span><span class="rr-pct">${u.dogWinProb}%</span></div>`
   ).join('') || '<div class="rail-empty">No live first-round upsets flagged.</div>';
   document.getElementById('marchRails').innerHTML =
-    `<div class="rail best"><div class="rail-title">🏆 Title odds</div>${champRail}</div>` +
-    `<div class="rail upset"><div class="rail-title">⚡ Upset alerts</div>${upsRail}</div>`;
+    `<div class="rail best"><div class="rail-title">Title odds</div>${champRail}</div>` +
+    `<div class="rail upset"><div class="rail-title">Upset alerts</div>${upsRail}</div>`;
 
   // Recommended bracket (the "optimal fill"). The Final Four pairing is the real bracket pairing
   // once ESPN's later rounds are set; before then the finalists are "projected" (no specific
@@ -1355,7 +1356,7 @@ function renderMarch(d) {
   const known = r && r.pairingKnown;
   document.getElementById('marchReco').innerHTML = r ? `
     <div class="reco-card">
-      <div class="reco-title">🎯 Recommended Bracket</div>
+      <div class="reco-title">Recommended Bracket</div>
       <div class="reco-row"><span class="reco-lbl">Final Four</span><span class="reco-teams">${r.finalFour.map(chip).join('')}</span></div>
       <div class="reco-row"><span class="reco-lbl">${known ? 'Championship' : 'Projected finalists'}</span><span class="reco-teams">${r.championship.map(chip).join(known ? ' <em>vs</em> ' : ' <em>·</em> ')}</span></div>
       <div class="reco-row champ"><span class="reco-lbl">Champion</span><span class="reco-teams">${chip(r.champion)}${r.champion.winProb != null ? ` <span class="reco-pct">${r.champion.winProb}%</span>` : ''}</span></div>
