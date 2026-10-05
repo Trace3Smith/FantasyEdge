@@ -13,7 +13,7 @@
   .cursor{width:10px;height:10px;background:var(--gold);border-radius:50%;position:fixed;pointer-events:none;z-index:9999;transform:translate(-50%,-50%);mix-blend-mode:difference;}
   .cursor-ring{width:32px;height:32px;border:1px solid var(--gold);border-radius:50%;position:fixed;pointer-events:none;z-index:9998;transform:translate(-50%,-50%);transition:all .15s ease;opacity:.5;}
   .app{display:flex;min-height:100vh;}
-  .sidebar{width:240px;flex-shrink:0;background:var(--dark);border-right:1px solid rgba(212,160,23,0.1);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:50;}
+  .sidebar{width:240px;flex-shrink:0;background:var(--dark);border-right:1px solid rgba(212,160,23,0.1);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:50;overflow-y:auto;}
   .sidebar-logo{padding:28px 24px;border-bottom:1px solid rgba(212,160,23,0.1);font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;}
   .sidebar-logo span{color:var(--gold);}
   .sidebar-section{padding:20px 16px 8px;font-size:10px;font-weight:700;letter-spacing:3px;color:var(--gray);text-transform:uppercase;}

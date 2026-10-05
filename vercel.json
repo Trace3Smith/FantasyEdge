@@ -1,5 +1,9 @@
 {
   "fluid": true,
+  "rewrites": [
+    { "source": "/privacy", "destination": "/privacy.html" },
+    { "source": "/terms", "destination": "/terms.html" }
+  ],
   "crons": [
     {
       "path": "/api/cron/refresh",
