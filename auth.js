@@ -1,6 +1,6 @@
 // Shared auth + paywall bootstrap for every FantasyEdge page (no build step).
 // Loads Clerk (vanilla JS), renders sign-in / user-button UI into the sidebar,
-// wires the "Get Pro" upsell to a pricing modal -> Stripe Checkout, and exposes
+// wires the "Get Premium" upsell to a pricing modal -> Stripe Checkout, and exposes
 // window.FE for the draft pages to make authenticated API calls.
 //
 // Subscription state is read from clerk.user.publicMetadata.plan (mirrored from
@@ -215,7 +215,7 @@ function renderLegalLinks() {
   sidebar.appendChild(el);
 }
 
-// Update the existing "Get Pro" box to the real price + premium-aware action.
+// Update the existing "Get Premium" box to the real price + premium-aware action.
 function wireUpgradeButton(modal) {
   document.querySelectorAll('.upgrade-btn').forEach((btn) => {
     if (isPremium()) {
@@ -226,7 +226,7 @@ function wireUpgradeButton(modal) {
         if (ok && data?.url) window.location.href = data.url;
       };
     } else {
-      btn.textContent = 'Get Pro — $5/mo';
+      btn.textContent = 'Get Premium — $5/mo';
       btn.onclick = (e) => { e.preventDefault(); openPricing(); };
     }
   });

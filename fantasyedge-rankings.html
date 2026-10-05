@@ -192,6 +192,7 @@
   .main {
     margin-left: 200px;
     flex: 1;
+    min-width: 0; /* let the main column shrink to the viewport so only .table-wrap scrolls sideways */
     display: flex;
     flex-direction: column;
     min-height: 100vh;
@@ -384,6 +385,20 @@
   tbody tr { border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.12s; }
   tbody tr:hover { background: rgba(255,255,255,0.03); }
   tbody td { padding: 13px 12px; font-size: 13px; vertical-align: middle; white-space: nowrap; }
+  /* Wide boards scroll sideways inside .table-wrap only; the Player column stays pinned on the left.
+     The pinned cell repaints the same viewport-fixed sport backdrop as .main so it reads as seamless,
+     with the row hover tint layered on top (--row-tint). Desktop only: phones stack rows into cards. */
+  @media (min-width: 769px) {
+    #rankingsTable thead th:nth-child(2),
+    #rankingsTable tbody tr > td:nth-child(2) {
+      position: sticky; left: 0; z-index: 2;
+      background-color: var(--dark);
+      background-image: var(--row-tint, none), var(--sport-scrim), var(--sport-bg-image);
+      background-repeat: no-repeat; background-size: cover; background-position: center; background-attachment: fixed;
+    }
+    #rankingsTable tbody tr:hover > td:nth-child(2) { --row-tint: linear-gradient(rgba(255,255,255,0.03), rgba(255,255,255,0.03)); }
+    #rankingsTable tbody tr.row-expand:hover > td:nth-child(2) { --row-tint: linear-gradient(rgba(212,160,23,0.05), rgba(212,160,23,0.05)); }
+  }
   .td-rank { font-family: 'Bebas Neue', sans-serif; font-size: 18px; color: var(--gray); text-align: center; width: 40px; }
   .player-cell { display: flex; align-items: center; gap: 10px; min-width: 180px; }
   .player-avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--dark3); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.08); }
