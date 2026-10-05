@@ -403,11 +403,10 @@ let currentTab = 'bigGames';
 
 const sportEmoji = {mlb:'⚾',nba:'🏀',nhl:'🏒',pga:'⛳',nfl:'🏈'};
 
-// Decorative initials stay within the avatar even when the API returns full team names.
-function playerMonogram(name) {
-  const words = String(name || '').match(/[\p{L}\p{N}]+/gu) || [];
-  const letters = words.length > 1 ? words[0][0] + words[1][0] : (words[0] || 'FE').slice(0, 2);
-  return letters.toUpperCase();
+// Nightly dashboard data already supplies team abbreviations (e.g. HOU, BAL).
+function teamBadge(team) {
+  const code = String(team || '').trim();
+  return /^[A-Za-z0-9]{2,4}$/.test(code) ? code.toUpperCase() : '—';
 }
 
 function getGradeClass(grade) {
@@ -495,7 +494,7 @@ function renderHero(player) {
       ${buildGameLog(player.history, player.sport)}
     </div>
     <div>
-      <div class="hero-big-num">${playerMonogram(player.name)}</div>
+      <div class="hero-big-num">${teamBadge(player.team)}</div>
       <div class="hero-streak-tag" style="color:${getGradeColor(player.performance.grade)};text-align:right;">
         ${player.streak.type !== 'none' ? player.streak.label : player.performance.label}
       </div>
@@ -517,7 +516,7 @@ function renderBigGames(players) {
           const topAlert = p.bigGameAlerts[0];
           return `<div class="player-row">
             <div class="cold-indicator cold-fire"></div>
-            <div class="p-avatar">${playerMonogram(p.name)}</div>
+            <div class="p-avatar">${teamBadge(p.team)}</div>
             <div class="p-info">
               <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span></div>
               <div class="p-meta">${p.pos} · ${p.team} · ${p.game}</div>
@@ -549,7 +548,7 @@ function renderHotStreaks(players) {
           const barColor = p.streak.type === 'fire' ? 'cold-fire' : 'cold-hot';
           return `<div class="player-row p-link"${feFocusAttr(p)} title="Open ${p.name} in Player Rankings">
             <div class="cold-indicator ${barColor}"></div>
-            <div class="p-avatar">${playerMonogram(p.name)}</div>
+            <div class="p-avatar">${teamBadge(p.team)}</div>
             <div class="p-info">
               <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span></div>
               <div class="p-meta">${p.pos} · ${p.team}</div>
@@ -580,7 +579,7 @@ function renderColdStreaks(players) {
           const barColor = p.streak.type === 'ice' ? 'cold-ice' : 'cold-cold';
           return `<div class="player-row">
             <div class="cold-indicator ${barColor}"></div>
-            <div class="p-avatar">${playerMonogram(p.name)}</div>
+            <div class="p-avatar">${teamBadge(p.team)}</div>
             <div class="p-info">
               <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span></div>
               <div class="p-meta">${p.pos} · ${p.team}</div>
@@ -610,7 +609,7 @@ function renderAddDrop(data) {
         ${adds.map(p => `
           <div class="add-drop-row p-link"${feFocusAttr(p)} title="Open ${p.name} in Player Rankings">
             <span class="action-tag tag-add">+ Add</span>
-            <div class="p-avatar">${playerMonogram(p.name)}</div>
+            <div class="p-avatar">${teamBadge(p.team)}</div>
             <div class="p-info">
               <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span> · ${p.pos} · ${p.team}</div>
               <div class="add-drop-reason">Big game last night${p.streak.type!=='none'?' and '+p.streak.label.toLowerCase():''}. Strong add candidate if available.</div>
@@ -619,7 +618,7 @@ function renderAddDrop(data) {
         ${drops.map(p => `
           <div class="add-drop-row">
             <span class="action-tag tag-drop">Drop</span>
-            <div class="p-avatar">${playerMonogram(p.name)}</div>
+            <div class="p-avatar">${teamBadge(p.team)}</div>
             <div class="p-info">
               <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span> · ${p.pos} · ${p.team}</div>
               <div class="add-drop-reason">${p.streak.label} — production trending down. Consider dropping if better options are available.</div>
@@ -628,7 +627,7 @@ function renderAddDrop(data) {
         ${watches.map(p => `
           <div class="add-drop-row p-link"${feFocusAttr(p)} title="Open ${p.name} in Player Rankings">
             <span class="action-tag tag-watch">Watch</span>
-            <div class="p-avatar">${playerMonogram(p.name)}</div>
+            <div class="p-avatar">${teamBadge(p.team)}</div>
             <div class="p-info">
               <div class="p-name">${p.name} <span class="sport-badge">${p.sport.toUpperCase()}</span> · ${p.pos} · ${p.team}</div>
               <div class="add-drop-reason">${p.streak.label} — monitor ownership and pick up before ownership rises.</div>

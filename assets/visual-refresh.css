@@ -265,7 +265,7 @@ body { cursor: default !important; }
 a, button, [role="button"], .sport-tab, .strip-clickable, .league-tile, .p-link { cursor: pointer !important; }
 input, textarea { cursor: text !important; }
 
-/* Player initials replace emoji without letting full team names spill over MLB rows. */
+/* Bounded team abbreviations prevent full MLB team names from spilling over player rows. */
 #rankingsTable .player-avatar, .p-avatar {
   overflow: hidden;
   white-space: nowrap;
