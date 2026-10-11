@@ -17,7 +17,8 @@
     "capture:league-settings": "node scripts/capture-league-settings.mjs",
     "check:brackets": "node scripts/check-brackets.mjs cfbweek nfl bowl",
     "check:model": "node scripts/check-model.mjs && node --experimental-test-module-mocks scripts/check-cfb-sp-snapshots.mjs",
-    "fit:nfl-model": "node scripts/fit-nfl-model.mjs"
+    "fit:nfl-model": "node scripts/fit-nfl-model.mjs",
+    "check:lineup-accounting": "node scripts/check-lineup-accounting.mjs"
   },
   "dependencies": {
     "@clerk/backend": "^1.21.0",
