@@ -1,3 +1,4 @@
+import { beginLifecycle } from '../_lib/espnLifecycle.js';
 // Daily Lineup Autopilot cron (scheduled in vercel.json). For every user who has
 // opted IN on at least one league, re-fetch that league's roster, compute the optimal
 // legal lineup from our valuations for that league's sport, and apply it to ESPN.
@@ -9,8 +10,11 @@
 // user's cookies have died we disable their autopilot (so we stop hammering a
 // broken account) until they reconnect. Protected by CRON_SECRET like the refresh cron.
 import { redis, DATASET_KEY, WNBA_DATASET_KEY, NBA_DATASET_KEY, NFL_DATASET_KEY } from '../_lib/kv.js';
+import { AUTOPILOT_SPORTS } from '../../leagueCapabilities.js';
+import { parseLeagueKey } from '../../leagueIdentity.js';
+import { premiumForUser } from '../_lib/auth.js';
 import {
-  getCreds, getAutopilot, listAutopilotUsers, setAutopilotLeague,
+  getCreds, getAutopilot, listAutopilotUsers, setAutopilotLeague, clearAutopilot,
   fetchLeagueRoster, setLineup, autopilotSportOf, EspnAuthError, fetchNflByes,
 } from '../_lib/espnFantasy.js';
 import { buildValueIndex, suggestLineup } from '../_lib/lineupAdvisor.js';
@@ -69,6 +73,7 @@ export default async function handler(req, res) {
   const summary = {
     users: 0, leagues: 0, applied: 0, optimal: 0, expired: 0, errors: 0, noData: 0, callUps: 0,
     moves: 0, lockedSkipped: 0, alreadySet: 0, deferredLeagues: 0, noopLeagues: 0,
+    skippedEntitlement: 0, entitlementErrors: 0,
   };
   try {
     // Lazily load + cache each sport's dataset players (a dataset may be missing
@@ -107,8 +112,27 @@ export default async function handler(req, res) {
 
     const users = await listAutopilotUsers(redis);
     for (const userId of users) {
-      const creds = await getCreds(redis, userId);
-      if (!creds) continue;
+      let revision;
+      try {
+        revision = await beginLifecycle(redis, userId);
+        if (!await premiumForUser(userId)) {
+          summary.skippedEntitlement++;
+          await clearAutopilot(redis, userId, revision);
+          continue;
+        }
+      } catch {
+        // Fail closed on a Clerk/Redis outage without interpreting it as a
+        // cancellation or erasing a paying user's preferences.
+        summary.entitlementErrors++;
+        continue;
+      }
+      let creds;
+      try { creds = await getCreds(redis, userId); }
+      catch { summary.errors++; continue; } // one unreadable record must not abort the run/sweep
+      if (!creds) {
+        await clearAutopilot(redis, userId, revision).catch(() => { summary.errors++; });
+        continue;
+      }
       summary.users++;
       const prefs = await getAutopilot(redis, userId);
       // League DNA: capture only for a user who opted in on the current notice. Autopilot being on is
@@ -116,8 +140,11 @@ export default async function handler(req, res) {
       const dnaOk = await dnaCaptureAllowed(redis, userId);
       const mlbLeagues = []; // fetched MLB leagues, for background prospect call-up detection
       for (const [leagueKey, prefVal] of Object.entries(prefs)) {
-        const [season, leagueId, teamId] = leagueKey.split(':');
-        const sport = autopilotSportOf(prefVal);
+        const ids = parseLeagueKey(leagueKey, autopilotSportOf(prefVal));
+        if (!ids || !AUTOPILOT_SPORTS.has(ids.sport) || !prefVal) continue;
+        const { season, leagueId, teamId, sport } = ids;
+        if (sport !== autopilotSportOf(prefVal)) continue;
+        if (prefVal.connectionId !== creds.connectionId) continue;
         summary.leagues++;
         try {
           const players = await playersFor(sport);
@@ -132,6 +159,20 @@ export default async function handler(req, res) {
           const sugg = suggestLineup(league, indexFor(sport, players, scoring?.weights || null), sport,
             sport === 'nfl' && nflByes ? { byeWeeks: nflByes } : {});
           if (!sugg.plan.length) { summary.optimal++; continue; }
+          // Recheck after provider/model work, immediately before submitting.
+          let premium;
+          try { premium = await premiumForUser(userId); }
+          catch { summary.entitlementErrors++; break; }
+          if (!premium) {
+            summary.skippedEntitlement++;
+            await clearAutopilot(redis, userId, creds.lifecycleRevision);
+            break;
+          }
+          const currentCreds = await getCreds(redis, userId);
+          const currentPrefs = await getAutopilot(redis, userId);
+          if (!currentCreds || currentCreds.lifecycleRevision !== creds.lifecycleRevision || !currentPrefs[leagueKey]
+            || currentCreds.connectionId !== creds.connectionId
+            || currentPrefs[leagueKey].connectionId !== creds.connectionId) break;
           const applyRes = await setLineup(creds, {
             leagueId, seasonId: Number(season), teamId: Number(teamId), scoringPeriodId: league.scoringPeriodId,
           }, sugg.plan, { roster: league.roster, sport });
@@ -140,7 +181,7 @@ export default async function handler(req, res) {
         } catch (err) {
           if (err instanceof EspnAuthError) {
             summary.expired++;
-            await setAutopilotLeague(redis, userId, leagueKey, false).catch(() => {});
+            await setAutopilotLeague(redis, userId, leagueKey, false, sport, 'legacy', creds.lifecycleRevision).catch(() => {});
           } else {
             summary.errors++;
           }
@@ -154,7 +195,7 @@ export default async function handler(req, res) {
           if (idx) {
             const watch = await getWatch(redis, userId);
             const { watch: next, byLeague } = reconcileWatch({ watch, leagues: mlbLeagues, idx });
-            await setWatch(redis, userId, next);
+            await setWatch(redis, userId, next, creds);
             summary.callUps += Object.values(byLeague).reduce((n, b) => n + b.callUps.length, 0);
           }
         } catch { /* monitoring is best-effort */ }

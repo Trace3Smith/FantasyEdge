@@ -3,6 +3,7 @@
 // env vars; we accept both the KV_* names (Vercel's compatibility prefix) and the
 // UPSTASH_* names so either integration setup works.
 import { Redis } from '@upstash/redis';
+import { epochRedis } from './storageEpoch.js';
 
 export const DATASET_KEY = 'dataset:mlb';
 export const NBA_DATASET_KEY = 'dataset:nba';
@@ -151,7 +152,9 @@ export const redisConfigured = Boolean(
   && (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN),
 );
 
-export const redis = new Redis({
+export const redis = epochRedis(new Redis({
+  automaticDeserialization: false, // epoch codec decodes exactly once, including JSON-looking strings
+
   url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL,
   token: process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN,
-});
+}));

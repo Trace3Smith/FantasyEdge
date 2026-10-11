@@ -29,7 +29,7 @@ import { buildMarchMadness } from '../_lib/marchMadness.js';
 import { buildNflRatings } from '../_lib/nflRatings.js';
 import { recordSpSnapshot } from '../_lib/cfbSpSnapshots.js';
 import { buildCfbRatings } from '../_lib/cfbRatings.js';
-import { redis, NFL_RATINGS_KEY, CFB_RATINGS_KEY, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NHL_MATCHUP_KEY, NBA_MATCHUP_KEY, WNBA_MATCHUP_KEY, NFL_DVP_KEY, nflDvpPriorKey, DATASET_VERSION } from '../_lib/kv.js';
+import { redis, NFL_RATINGS_KEY, CFB_RATINGS_KEY, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, PGA_DATASET_KEY, NFL_PICKEM_KEY, CFB_BOWL_KEY, CFB_WEEK_KEY, MM_KEY, BVP_KEY, NHL_MATCHUP_KEY, NBA_MATCHUP_KEY, WNBA_MATCHUP_KEY, NFL_DVP_KEY, nflDvpPriorKey, DATASET_VERSION, NHL_DATASET_VERSION } from '../_lib/kv.js';
 
 // Per-league day-of matchup keys for the basketball leagues (built in the secondary loop below).
 const HOOPS_MATCHUP_KEY = { nba: NBA_MATCHUP_KEY, wnba: WNBA_MATCHUP_KEY };
@@ -238,7 +238,7 @@ export default async function handler(req, res) {
             }
           }
         }
-        built.version = DATASET_VERSION; // keep cache in sync with the handler's check
+        built.version = s.sport === 'nhl' ? NHL_DATASET_VERSION : DATASET_VERSION; // match each sport's readers
         await redis.set(s.key, built);
         secondary[s.sport] = built.counts;
       } catch (err) {
