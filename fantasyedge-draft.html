@@ -41,6 +41,13 @@
   /* Custom roster inputs (NFL setup): compact per-position steppers + bench. */
   #rosterWrap { display: inline-flex; align-items: center; gap: 8px; }
   .rs-lbl { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; font-size: 10px; letter-spacing: 0.3px; color: var(--gray); text-transform: uppercase; }
+  .nba-league { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .nba-league.hidden { display: none; }
+  .nl-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+  .nl-cat { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--white); background: var(--dark3); border: 1px solid rgba(255,255,255,0.12); border-radius: 5px; padding: 4px 8px; cursor: pointer; }
+  .nl-cat input { margin: 0; }
+  .nl-note { font-size: 12px; }
+  .nl-warn { color: var(--gold); }
   .rs-lbl input { width: 40px; text-align: center; padding: 3px; font-size: 12px; background: var(--dark3); color: var(--white); border: 1px solid rgba(255,255,255,0.12); border-radius: 5px; }
   /* League chooser (mock mode, no sport in URL) */
   .league-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-top: 8px; }
@@ -385,6 +392,20 @@
       </span>
       <span class="muted" id="usageNote"></span>
     </div>
+    <!-- Basketball league settings (NBA/WNBA): the categories your league scores and its roster.
+         Drives the board order, the Coach, and the AI opponents; rounds = starters + bench. -->
+    <div class="nba-league hidden" id="nbaLeagueWrap">
+      <div class="nl-row">
+        <label class="muted" style="font-size:13px">Categories
+          <select id="nbaPreset"><option value="std9">Standard 9-cat</option><option value="noTo">8-cat · no TO</option><option value="custom">Custom</option></select>
+        </label>
+        <span id="nbaCats" class="nl-row"></span>
+      </div>
+      <div class="nl-row" id="nbaRoster">
+        <span class="muted" style="font-size:13px">Starters</span>
+      </div>
+      <span class="muted nl-note" id="nbaLeagueNote"></span>
+    </div>
     <!-- Keepers (dynasty/keeper leagues). Optional; collapsed by default so a redraft setup is
          unchanged. Every team's keepers leave the pool; the user's also hydrate their roster. -->
     <div class="kp-wrap premium-only" id="keepersWrap">
@@ -410,6 +431,7 @@
     <div class="clock" id="clock"></div>
     <div class="hidden" id="offlineBar" style="margin-bottom:14px">
       <button class="btn btn-ghost" id="undoBtn" type="button" style="padding:6px 14px; font-size:13px">↶ Undo last pick</button>
+      <button class="btn btn-ghost" id="unlistedBtn" type="button" style="padding:6px 14px; font-size:13px; margin-left:6px" title="Log a pick of someone who isn't on the board (a rookie, or a player with no stats last season) so the clock stays in sync.">Player not listed</button>
       <span class="muted" style="font-size:12px; margin-left:10px">As each team picks, click the player they took — in order. We track whose turn it is.</span>
     </div>
     <div class="hidden" id="linkedBar" style="margin-bottom:14px">
@@ -472,7 +494,7 @@
 // ranks players identically (no separate ranking system). NFL is points/VORP; NBA/WNBA/MLB/NHL
 // are category (roto) z-score games. We import all and dispatch on the active sport via a shim.
 import { nflFpts, nflReplacementLevels, nflBoardCmp, nflRankValue } from '/nflScoring.js';
-import { nbaPlayerValue, nbaBoardCmp, nbaRankMap, DEFAULT_LINEUP as nbaLineup, eligibleSlots as nbaElig } from '/nbaScoring.js';
+import { nbaPlayerValue, nbaBoardCmp, nbaBoardCmpFor, nbaRankMap, nbaDraftable, DEFAULT_LINEUP as nbaLineup, eligibleSlots as nbaElig, NBA_CATS, CAT_KEYS as NBA_CAT_KEYS, LINEUP_BOUNDS as NBA_LINEUP_BOUNDS, BENCH_RANGE as NBA_BENCH_RANGE, DEFAULT_BENCH as NBA_DEFAULT_BENCH, resolveNbaLeague, resolveNbaLineup, resolveNbaCats, nbaCatLabel, nbaCatList } from '/nbaScoring.js';
 import { value as mlbValue, boardCmp as mlbBoardCmp, rankMap as mlbRankMap, DEFAULT_LINEUP as mlbLineup, eligibleSlots as mlbElig } from '/mlbScoring.js';
 import { value as nhlValue, boardCmp as nhlBoardCmp, rankMap as nhlRankMap, DEFAULT_LINEUP as nhlLineup, eligibleSlots as nhlElig } from '/nhlScoring.js';
 // AI opponent pick logic — roster-need + ADP/value aware (see draftAI.js). Pure module, unit-tested.
@@ -576,7 +598,25 @@ const ROTO = {
   nhl:  { cmp: nhlBoardCmp, rank: nhlRankMap, val: nhlValue, label: 'ROTO', stat: rotoStatLine, lineup: nhlLineup, elig: nhlElig },
 };
 const isRoto = () => !!ROTO[sport];
-const rotoMod = () => ROTO[sport];
+const isHoops = () => sport === 'nba' || sport === 'wnba';
+// Basketball reads the LEAGUE's categories + lineup (setup controls before a draft starts, the
+// draft's own settings after), so the board, grades, opponents and lineup panel all value players
+// by the cats this league actually scores. Cached per league shape — rebuilt only when it changes.
+let nbaModKey = '';
+let nbaModCache = null;
+function nbaMod() {
+  const lg = (state && state.settings && state.settings.cats) ? resolveNbaLeague(state.settings) : (collectNbaLeague() || resolveNbaLeague({}));
+  const key = lg.cats.join(',') + '|' + JSON.stringify(lg.lineup);
+  if (key !== nbaModKey) {
+    nbaModKey = key;
+    nbaModCache = {
+      cmp: nbaBoardCmpFor(lg.cats), rank: (pl) => nbaRankMap(pl, lg.cats), val: (p) => nbaPlayerValue(p, lg.cats),
+      label: nbaCatLabel(lg.cats), stat: nbaStatLine, lineup: lg.lineup, elig: nbaElig, cats: lg.cats,
+    };
+  }
+  return nbaModCache;
+}
+const rotoMod = () => (isHoops() ? nbaMod() : ROTO[sport]);
 
 const $ = (id) => document.getElementById(id);
 const posClass = (p) => ({
@@ -736,8 +776,10 @@ async function loadPool() {
   if (players.length) return;
   const r = await fetch('/api/sports?sport=' + sport);
   const j = await r.json();
-  players = (j.players || []).filter((p) => p.rank != null && !p.searchOnly)
-    .sort((a, b) => a.rank - b.rank);
+  // Basketball also keeps short-sample players the builder flagged draftEligible (e.g. a star who
+  // missed most of last season): scored, off the rankings table, but very much draftable.
+  players = (j.players || []).filter((p) => (p.rank != null && !p.searchOnly) || (isHoops() && nbaDraftable(p)))
+    .sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
   byId = new Map(players.map((p) => [p.id, p]));
   adpBuiltAt = j.adpBuiltAt || null; // NBA carries no ADP, so the stamp stays blank
   renderAdpStamp();
@@ -805,11 +847,85 @@ function collectRoster() {
   return { starters, rounds: Object.values(starters).reduce((a, b) => a + b, 0) + bench };
 }
 
+// ---- Basketball league settings (NBA/WNBA) -------------------------------------------------
+// Categories + starting slots + bench, remembered per sport in this browser so a returning user
+// doesn't re-enter their league. Storage is a convenience only — every read/write is guarded and the
+// controls fall back to the standard 9-cat / 13-round default when it's unavailable.
+const NBA_PRESETS = { std9: NBA_CAT_KEYS.slice(), noTo: NBA_CAT_KEYS.filter((k) => k !== 'to') };
+const nbaStoreKey = () => `fe.draft.league.${sport}`;
+function loadNbaLeague() {
+  try { const raw = localStorage.getItem(nbaStoreKey()); return raw ? JSON.parse(raw) : null; } catch { return null; }
+}
+function saveNbaLeague(lg) {
+  try { localStorage.setItem(nbaStoreKey(), JSON.stringify({ cats: lg.cats, lineup: lg.lineup, bench: lg.bench })); } catch {}
+}
+// Raw values off the controls (unsanitized) — used to warn about an invalid lineup before it's reset.
+function rawNbaControls() {
+  const cats = [...document.querySelectorAll('#nbaCats input[data-cat]')].filter((i) => i.checked).map((i) => i.dataset.cat);
+  const lineup = {};
+  for (const slot of Object.keys(NBA_LINEUP_BOUNDS)) { const el = $('nb' + slot); if (el) lineup[slot] = Number(el.value); }
+  const benchEl = $('nbBench');
+  return { cats, lineup, bench: benchEl ? Number(benchEl.value) : NBA_DEFAULT_BENCH };
+}
+// The resolved league shape from the setup controls (null for non-basketball sports or before the
+// controls exist). resolveNbaLeague is the same sanitizer the server applies, so what's shown here
+// is exactly what the Coach drafts for.
+function collectNbaLeague() {
+  if (!isHoops() || !$('nbaCats') || !$('nbaCats').children.length) return null;
+  return resolveNbaLeague(rawNbaControls());
+}
+let nbaControlsSport = null;
+function renderNbaLeagueControls() {
+  if (nbaControlsSport === sport) return updateNbaLeagueNote();
+  nbaControlsSport = sport;
+  const saved = resolveNbaLeague(loadNbaLeague() || {});
+  $('nbaCats').innerHTML = NBA_CATS.map((c) =>
+    `<label class="nl-cat"><input type="checkbox" data-cat="${c.key}"${saved.cats.includes(c.key) ? ' checked' : ''}>${c.label}</label>`).join('');
+  const slotInputs = Object.entries(NBA_LINEUP_BOUNDS).map(([slot, [lo, hi]]) =>
+    `<label class="rs-lbl">${slot}<input type="number" id="nb${slot}" min="${lo}" max="${hi}" value="${saved.lineup[slot] ?? 0}"></label>`).join('');
+  $('nbaRoster').innerHTML = `<span class="muted" style="font-size:13px">Starters</span>${slotInputs}`
+    + `<label class="rs-lbl">Bench<input type="number" id="nbBench" min="${NBA_BENCH_RANGE[0]}" max="${NBA_BENCH_RANGE[1]}" value="${saved.bench}"></label>`;
+  syncNbaPreset();
+  $('nbaLeagueWrap').querySelectorAll('input').forEach((el) => el.addEventListener('change', onNbaLeagueChange));
+  updateNbaLeagueNote();
+}
+function syncNbaPreset() {
+  const cats = rawNbaControls().cats;
+  const same = (a, b) => a.length === b.length && a.every((k) => b.includes(k));
+  $('nbaPreset').value = same(cats, NBA_PRESETS.std9) ? 'std9' : same(cats, NBA_PRESETS.noTo) ? 'noTo' : 'custom';
+}
+function onNbaLeagueChange() {
+  syncNbaPreset();
+  const lg = collectNbaLeague();
+  if (lg) saveNbaLeague(lg);
+  updateNbaLeagueNote();
+  if (typeof renderKeeperReport === 'function') { try { renderKeeperReport(); } catch {} }
+}
+function updateNbaLeagueNote() {
+  const raw = rawNbaControls();
+  const lg = resolveNbaLeague(raw);
+  const starters = Object.values(lg.lineup).reduce((a, b) => a + b, 0);
+  const warn = [];
+  if (!resolveNbaCats(raw.cats)) warn.push('pick at least 3 categories — using the standard 9 until you do');
+  if (!resolveNbaLineup(raw.lineup)) warn.push('starters must total 5–15 — using the default lineup until they do');
+  $('nbaLeagueNote').innerHTML = `${nbaCatLabel(lg.cats)} (${escapeHtml(nbaCatList(lg.cats))}) · ${starters} starters + ${lg.bench} bench = <b>${lg.rounds} rounds</b>`
+    + (warn.length ? ` · <span class="nl-warn">${escapeHtml(warn.join('; '))}</span>` : '');
+}
+$('nbaPreset').addEventListener('change', () => {
+  const want = NBA_PRESETS[$('nbaPreset').value];
+  if (!want) return; // "Custom" — leave the checkboxes as they are
+  document.querySelectorAll('#nbaCats input[data-cat]').forEach((i) => { i.checked = want.includes(i.dataset.cat); });
+  onNbaLeagueChange();
+});
+
 function syncSportUI() {
   const roto = isRoto();
   $('scoringWrap').style.display = roto ? 'none' : '';
   $('rosterWrap').style.display = roto ? 'none' : '';   // custom roster is NFL-only (roto uses its module lineup)
-  $('roundsWrap').style.display = roto ? '' : 'none';   // NFL derives rounds from starters + bench, not a select
+  // NFL and basketball derive rounds from starters + bench; MLB/NHL keep the rounds select.
+  $('roundsWrap').style.display = roto && !isHoops() ? '' : 'none';
+  $('nbaLeagueWrap').classList.toggle('hidden', !isHoops());
+  if (isHoops()) renderNbaLeagueControls();
   $('roundsSel').value = roto ? '13' : '15';
   applyMode();
 }
@@ -913,11 +1029,13 @@ async function startMock() {
   const position = Math.min(Math.max(1, Number($('posSel').value) || 1), teams);
   // League size + draft position are basic settings for everyone; scoring/rounds are premium.
   const settings = { teams };
+  // Basketball league shape (cats + lineup + bench) is honored for every tier, like the NFL roster.
+  if (isHoops()) { const lg = collectNbaLeague() || resolveNbaLeague({}); Object.assign(settings, { cats: lg.cats, lineup: lg.lineup, bench: lg.bench }); }
   if (window.FE?.isPremium()) {
     if (!isRoto()) settings.scoring = $('scoringSel').value; // roto is always category (server-set)
     const r = collectRoster();
     if (r) { settings.starters = r.starters; settings.rounds = r.rounds; } // NFL: custom roster + derived rounds
-    else settings.rounds = Number($('roundsSel').value) || 13;             // roto: rounds select
+    else if (!isHoops()) settings.rounds = Number($('roundsSel').value) || 13; // MLB/NHL: rounds select
   }
   const { ok, status, data } = await window.FE.apiPost('/api/draft/mock-start', { sport, settings, position });
   $('startBtn').disabled = false;
@@ -1176,7 +1294,8 @@ function assignLineup() {
   const open = { ...slots };
   const bench = [];
   for (const r of state.roster) {
-    const p = byId.get(r.id); if (!p) continue;
+    // An unlisted pick (not in the pool) still occupies a roster spot — show it from its own entry.
+    const p = byId.get(r.id) || (r.unlisted ? { id: r.id, name: r.name, pos: r.pos || '—', team: '' } : null); if (!p) continue;
     let placed = false;
     for (const s of elig(p.pos)) {
       if ((open[s] || 0) > 0) {
@@ -1469,7 +1588,8 @@ function renderKeeperReport(matchedCount) {
   const you = Math.min(Math.max(1, Number($('posSel').value) || 1), Number($('teamsSel').value) || 10) - 1;
   const mine = keeperCountFor(you);
   const r = collectRoster();
-  const fullRounds = r ? r.rounds : (Number($('roundsSel').value) || (isRoto() ? 13 : 15));
+  const lgK = isHoops() ? collectNbaLeague() : null;
+  const fullRounds = r ? r.rounds : lgK ? lgK.rounds : (Number($('roundsSel').value) || (isRoto() ? 13 : 15));
   const lenNote = mine ? ` · you keep ${mine}, so you draft ${Math.max(1, fullRounds - mine)} rounds` : '';
   $('kpSummary').textContent = total || keeperPending.length
     ? `${total} keeper${total === 1 ? '' : 's'} set · ${keeperPending.length} need${keeperPending.length === 1 ? 's' : ''} attention${lenNote}`
@@ -1663,12 +1783,14 @@ async function startOffline() {
   const teams = Number($('teamsSel').value);
   const position = Math.min(Math.max(1, Number($('posSel').value) || 1), teams);
   const r = collectRoster();
+  const lg = isHoops() ? (collectNbaLeague() || resolveNbaLeague({})) : null;
   const settings = {
     teams,
     sport,
-    rounds: r ? r.rounds : (Number($('roundsSel').value) || (isRoto() ? 13 : 15)),
+    rounds: r ? r.rounds : lg ? lg.rounds : (Number($('roundsSel').value) || (isRoto() ? 13 : 15)),
     scoring: isRoto() ? 'roto' : ($('scoringSel') ? $('scoringSel').value : 'ppr'),
     ...(r ? { starters: r.starters } : {}),
+    ...(lg ? { cats: lg.cats, lineup: lg.lineup, bench: lg.bench } : {}),
   };
   const format = $('formatSel').value === 'linear' ? 'linear' : 'snake';
 
@@ -1723,12 +1845,45 @@ function offlineRecord(id) {
 }
 
 // Undo the last recorded pick (real drafts have mistakes / corrections).
+// Log a pick of a player who isn't in our pool (a rookie, or someone with no stats last season).
+// Without this the tracker can only record board players, so one unlisted pick would leave every
+// later pick attributed to the wrong team. The pick advances the clock and shows in the feed like a
+// Sleeper pick we couldn't match (id null, no grade). It carries a synthetic `unlistedId` that goes
+// into `drafted` (so the overall pick count the server derives stays exact) and, when it's the
+// user's own pick, onto their roster with a position — so picks-left and open slots stay right.
+let unlistedSeq = 0;
+function offlineRecordUnlisted() {
+  if (!state || state.mode !== 'offline' || state.pickIndex >= state.totalPicks) return;
+  const teamIdx = teamOnClock(state.pickIndex, state.settings.teams, state.format);
+  const mine = teamIdx === state.userTeam;
+  const typed = window.prompt(`Who did ${mine ? 'you' : 'Team ' + (teamIdx + 1)} take? (optional — leave blank to just advance the pick)`, '');
+  if (typed === null) return; // cancelled
+  const name = typed.replace(/[^\p{L}\p{N} .'-]/gu, '').trim().slice(0, 40) || 'Unlisted player';
+  let pos = '';
+  if (mine) {
+    // Your own roster needs a position to fill the right slot; anything unrecognized counts as UTIL/bench.
+    const opts = POS_ORDER[sport] || [];
+    const ans = window.prompt(`Position for ${name}? (${opts.join(' / ')})`, opts[0] || '');
+    if (ans === null) return;
+    const up = ans.trim().toUpperCase();
+    pos = opts.includes(up) ? up : '';
+  }
+  const unlistedId = `unlisted-${++unlistedSeq}`;
+  const round = roundOf(state.pickIndex, state.settings.teams);
+  state.drafted.add(unlistedId);
+  state.picks.push({ id: null, unlistedId, name, pos, team: '', teamIndex: teamIdx, round, grade: null });
+  if (mine) state.roster.push({ id: unlistedId, pos, name, unlisted: true });
+  state.pickIndex++;
+  offlineStep();
+}
+
 function offlineUndo() {
   const last = state.picks.pop();
   if (!last) return;
-  state.drafted.delete(last.id);
+  const lastId = last.id ?? last.unlistedId; // an unlisted pick is tracked by its synthetic id
+  state.drafted.delete(lastId);
   if (last.teamIndex === state.userTeam) {
-    const i = state.roster.findIndex((r) => r.id === last.id);
+    const i = state.roster.findIndex((r) => r.id === lastId);
     if (i >= 0) state.roster.splice(i, 1);
   }
   state.pickIndex = Math.max(0, state.pickIndex - 1);
@@ -1760,6 +1915,7 @@ function offlineFinish() {
 }
 
 $('undoBtn').addEventListener('click', offlineUndo);
+$('unlistedBtn').addEventListener('click', offlineRecordUnlisted);
 
 // Linked draft (Sleeper) ---------------------------------------------------------
 // Drives the SAME board as offline mode — the only difference is where picks come from:
@@ -1836,9 +1992,18 @@ async function sleeperConnect() {
   msg.textContent = '';
   const auctionNote = type === 'auction' ? ' · Auction picks tracked; snake clock is approximate' : '';
   $('sleeperInfo').innerHTML = `Found <b>${escapeHtml(d.metadata?.name || (sp.toUpperCase() + ' draft'))}</b> — `
-    + `${teams} teams · ${rounds} rounds · ${type}${sp === 'nfl' ? ' · ' + scoring.toUpperCase() : ' · 9-CAT'}${auctionNote}.`;
+    + `${teams} teams · ${rounds} rounds · ${type}${sp === 'nfl' ? ' · ' + scoring.toUpperCase() : ' · categories from your Draft Mode league settings'}${auctionNote}.`;
   $('sleeperSlot').innerHTML = Array.from({ length: teams }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
   $('sleeperDetected').classList.remove('hidden');
+}
+
+// Basketball league shape for a linked Sleeper draft: the saved categories + lineup, with bench set so
+// starters + bench equals Sleeper's own round count (the server derives rounds from them).
+function sleeperHoopsLeague(rounds) {
+  if (!isHoops()) return {};
+  const lg = resolveNbaLeague(loadNbaLeague() || {});
+  const starters = Object.values(lg.lineup).reduce((a, b) => a + b, 0);
+  return { cats: lg.cats, lineup: lg.lineup, bench: Math.max(0, rounds - starters) };
 }
 
 // Step 2: start tracking — premium-gated (the linked path is premium; offline stays as-is).
@@ -1858,7 +2023,7 @@ async function sleeperStart() {
   await loadPool();
   state = {
     mode: 'linked',
-    settings: { teams, sport, rounds, scoring: isRoto() ? 'roto' : scoring },
+    settings: { teams, sport, rounds, scoring: isRoto() ? 'roto' : scoring, ...sleeperHoopsLeague(rounds) },
     format: type,
     userTeam: slot - 1,
     premium: true,
@@ -2012,6 +2177,17 @@ function coachTypeOut(bubble, text) {
   });
 }
 
+// The scoring label the Coach chat reads. Basketball spells out the league's scored categories (and
+// names any standard cat it does NOT score) so chat follow-ups never argue a category that doesn't
+// count — the same list the pick analyst gets server-side. MLB/NHL keep their plain label.
+function coachScoringLabel() {
+  const m = rotoMod();
+  if (!isHoops() || !m.cats) return m.label;
+  const dropped = NBA_CATS.filter((c) => !m.cats.includes(c.key)).map((c) => c.label);
+  return `${m.label} categories (${nbaCatList(m.cats)}`
+    + (dropped.length ? `; ${dropped.join(', ')} NOT scored — never cite ${dropped.length > 1 ? 'them' : 'it'} as a strength or weakness` : '') + ')';
+}
+
 // Compact snapshot of the live draft for the Coach's system context.
 function buildDraftContext() {
   if (!state) return '';
@@ -2019,7 +2195,7 @@ function buildDraftContext() {
   // (draftContext.js), so the browser and the offline regression suite produce identical strings.
   return buildDraftContextString({
     state, players, byId, rankMap, lastBoard, lastReco, lastCandidates,
-    isRoto: isRoto(), rotoLabel: isRoto() ? rotoMod().label : null,
+    isRoto: isRoto(), rotoLabel: isRoto() ? coachScoringLabel() : null,
     roundOf, boardCmp, adpFor, nflFpts,
   });
 }

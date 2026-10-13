@@ -7,8 +7,8 @@
 // Claude call is unavailable or returns anything unparseable, so advice always ships.
 // Free users get advice through round 7 (FREE_MAX_ROUND); later rounds return an upsell.
 import { getEntitlement, sendError, HttpError, FREE_MAX_ROUND } from '../_lib/auth.js';
-import { loadPlayers, recommend, DEFAULT_SETTINGS, isRoto, resolveStarters, vonaScarcityClause, vonaScarcityPromptNote, scarcityLine } from '../_lib/draft.js';
-import { NBA_CATS } from '../../nbaScoring.js';
+import { loadPlayers, recommend, DEFAULT_SETTINGS, isRoto, resolveStarters, applyNbaLeague, vonaScarcityClause, vonaScarcityPromptNote, scarcityLine } from '../_lib/draft.js';
+import { NBA_CATS, CAT_KEYS as NBA_CAT_KEYS, nbaCatLabel, nbaCatList } from '../../nbaScoring.js';
 import { MLB_CATS } from '../../mlbScoring.js';
 import { NHL_CATS } from '../../nhlScoring.js';
 import { adpFitPhrase } from '../../pickReasons.js';
@@ -35,11 +35,11 @@ When the prompt includes a SCARCITY TRADEOFF note, you are deliberately prioriti
 Respond with ONLY a JSON object — no prose, no markdown fences:
 {"pick": <candidate number>, "rationale": "<2-3 conversational sentences like a sharp friend; speak in projected points, ADP value, roster fit and scarcity; NEVER mention internal jargon like VORP, value-over-replacement, or a 'score'>", "reach": <true only if you are recommending reaching for a falling elite player ahead of a positional need, else false>}`;
 
-const SYSTEM_NBA = `You are an elite fantasy basketball draft analyst for a standard 9-category roto league (PTS, REB, AST, STL, BLK, 3PM, TO, FG%, FT%). The user is on the clock and you make ONE decisive pick recommendation. Balance four things:
+const SYSTEM_NBA = `You are an elite fantasy basketball draft analyst for a category league; the prompt states exactly which categories it scores. The user is on the clock and you make ONE decisive pick recommendation. Balance four things:
 1. Category balance — a roto team wins by being competitive across categories, not by stacking one. Favor players who shore up the categories the roster is currently WEAK in; don't pile onto a category you've already locked up.
 2. Best player available — total all-around category value is the baseline; a clearly superior multi-cat player is worth taking even when his strengths overlap what you have.
 3. Roster slots — you must end with a legal lineup (PG/SG/SF/PF/C/G/F/UTIL). Fill open starting slots, leaning on positional flexibility (G/F/UTIL) to stay flexible.
-4. Percentage cats — FG% and FT% are volume-weighted: an efficient high-usage scorer lifts them, while a high-volume poor free-throw shooter (often a center) actively drags down your FT%. Weigh that against his counting stats.
+4. Percentage cats — when the league scores them, FG% and FT% are volume-weighted: an efficient high-usage scorer lifts them, while a high-volume poor free-throw shooter (often a center) actively drags down your FT%. Weigh that against his counting stats.
 
 ROSTER NECESSITY OVERRIDE: if the prompt includes a ROSTER NECESSITY note, it overrides everything above — you MUST use this pick to fill one of the named open starting slots. An incomplete, illegal lineup is worse than any category edge, so take the slot now and set reach=false.
 
@@ -75,8 +75,16 @@ Respond with ONLY a JSON object — no prose, no markdown fences:
 {"pick": <candidate number>, "rationale": "<2-3 conversational sentences like a sharp friend; speak in categories, roster balance, and which cats this player wins; NEVER mention internal jargon like z-score or a 'score'>", "reach": <true only if you are reaching for a clearly superior all-around player ahead of a slot or category need, else false>}`;
 
 const isNba = (sport) => sport === 'nba' || sport === 'wnba';
-function systemFor(sport) {
-  if (isNba(sport)) return SYSTEM_NBA;
+// The NBA system prompt plus the league's actual category list, so the analyst never argues
+// for (or against) a player on a category this league doesn't score.
+function systemNba(cats) {
+  const list = nbaCatList(cats);
+  const dropped = NBA_CATS.filter((c) => !cats.includes(c.key)).map((c) => c.label);
+  return SYSTEM_NBA + `\n\nTHIS LEAGUE scores ${cats.length} categories: ${list}.`
+    + (dropped.length ? ` It does NOT score ${dropped.join(', ')} — ignore ${dropped.length > 1 ? 'those' : 'that'} entirely (never cite it as a strength or a weakness).` : '');
+}
+function systemFor(sport, cats) {
+  if (isNba(sport)) return systemNba(cats || NBA_CAT_KEYS);
   if (sport === 'mlb') return SYSTEM_MLB;
   if (sport === 'nhl') return SYSTEM_NHL;
   return SYSTEM_NFL;
@@ -114,12 +122,20 @@ function describeNfl(c, n, teams) {
 
 // Describe one NBA candidate in category terms: real stat line + which cats he wins/hurts
 // (from his per-cat z block) + roster-slot relevance. Never internal scoring metrics.
-function describeNba(c, i) {
+function describeNba(c, i, _teams, cats = NBA_CAT_KEYS) {
   const bits = [`[${i}] ${c.name} (${c.pos}, ${c.team})`, `board #${c.rank ?? '—'}`];
   const n = c.n;
-  if (n) bits.push(`${fmt1(n.pts)}p/${fmt1(n.reb)}r/${fmt1(n.ast)}a, ${fmt1(n.tpm)} 3PM, ${fmt1(n.stl)} STL, ${fmt1(n.blk)} BLK, ${pct3(n.fgPct)} FG, ${pct3(n.ftPct)} FT, ${fmt1(n.to)} TO`);
+  const has = (k) => cats.includes(k);
+  if (n) {
+    const line = [`${fmt1(n.pts)}p/${fmt1(n.reb)}r/${fmt1(n.ast)}a`, `${fmt1(n.tpm)} 3PM`, `${fmt1(n.stl)} STL`, `${fmt1(n.blk)} BLK`];
+    if (has('fgPct')) line.push(`${pct3(n.fgPct)} FG`);
+    if (has('ftPct')) line.push(`${pct3(n.ftPct)} FT`);
+    if (has('to')) line.push(`${fmt1(n.to)} TO`);
+    bits.push(line.join(', '));
+  }
+  if (c.lowSample) bits.push(`short sample last season (${c.games ?? '?'} GP) — availability risk`);
   if (c.z) {
-    const ranked = NBA_CATS.map((cat) => ({ label: cat.label, z: c.z[cat.key] || 0 })).sort((a, b) => b.z - a.z);
+    const ranked = NBA_CATS.filter((cat) => has(cat.key)).map((cat) => ({ label: cat.label, z: c.z[cat.key] || 0 })).sort((a, b) => b.z - a.z);
     const strong = ranked.filter((x) => x.z >= 0.7).slice(0, 3).map((x) => x.label);
     const weak = ranked.filter((x) => x.z <= -0.6).map((x) => x.label).slice(-2);
     if (strong.length) bits.push(`elite ${strong.join('/')}`);
@@ -179,7 +195,7 @@ function parseAnalysis(text, n) {
 
 // Ask Claude to make the call. Returns { pick, rationale, reach } (1-based pick index
 // into `candidates`) or null on any failure (no key, API error, bad JSON).
-async function analyzePick({ sport, round, scoring, teams, roster, candidates, runs, board }) {
+async function analyzePick({ sport, round, scoring, teams, roster, candidates, runs, board, cats }) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key || !candidates.length) return null;
   const describe = describeFor(sport);
@@ -194,7 +210,7 @@ async function analyzePick({ sport, round, scoring, teams, roster, candidates, r
   // Startable-left by position, fewest first — K/DST excluded (see scarcityLine) so their tiny counts
   // can't float to the front and make the analyst frame them as scarce positions needing early urgency.
   const scarcityStr = scarcityLine(board?.startableLeft);
-  const listed = candidates.map((c, i) => describe(c, i + 1, teams)).join('\n');
+  const listed = candidates.map((c, i) => describe(c, i + 1, teams, cats || NBA_CAT_KEYS)).join('\n');
   // Roster necessity (late draft): name the mandatory slots still open so the analyst
   // fills them instead of chasing value when there's no cushion left to wait.
   // forceNeeds = the slots that force a pick NOW (K/DST excluded until the final pick(s)); fall back to
@@ -220,7 +236,7 @@ async function analyzePick({ sport, round, scoring, teams, roster, candidates, r
   }
   // Roto leagues run on categories, not a points format; surface the roster's weak categories
   // so the analyst steers toward balance instead of stacking a strength.
-  const scoringLabel = isNba(sport) ? '9-CAT' : roto ? 'roto categories' : `${scoring.toUpperCase()} scoring`;
+  const scoringLabel = isNba(sport) ? `${nbaCatLabel(cats || NBA_CAT_KEYS)} (${nbaCatList(cats || NBA_CAT_KEYS)})` : roto ? 'roto categories' : `${scoring.toUpperCase()} scoring`;
   const leagueLabel = roto ? 'category league' : 'league';
   const weakLine = roto && board?.weakCats?.length
     ? `\nMy weak categories right now: ${board.weakCats.join(', ')} (favor candidates who help these).`
@@ -246,7 +262,7 @@ async function analyzePick({ sport, round, scoring, teams, roster, candidates, r
       body: JSON.stringify({
         model: MODEL,
         max_tokens: 320,
-        system: systemFor(sport),
+        system: systemFor(sport, cats),
         messages: [{ role: 'user', content: prompt }],
       }),
     });
@@ -292,6 +308,9 @@ export default async function handler(req, res) {
       settings.scoring = isNba(sport) ? '9cat' : 'roto';
       settings.rounds = 13;
     }
+    // Basketball league shape (cats + lineup + bench), every tier — mirrors mock-start, which already
+    // echoed these back to the client; the offline tracker sends the same fields from its setup.
+    if (isNba(sport)) applyNbaLeague(settings, o);
     if ([8, 10, 12, 14].includes(Number(o.teams))) settings.teams = Number(o.teams);
     if (premium) {
       if (!isRoto(sport) && (o.scoring === 'standard' || o.scoring === 'ppr' || o.scoring === 'half')) settings.scoring = o.scoring;
@@ -301,8 +320,8 @@ export default async function handler(req, res) {
         settings.starters = cs;
         const startCount = Object.values(cs).reduce((a, b) => a + b, 0);
         settings.rounds = Math.max(startCount, Math.min(20, Number(o.rounds) || startCount + 6));
-      } else if (Number.isInteger(o.rounds) && o.rounds >= 10 && o.rounds <= 20) {
-        settings.rounds = o.rounds;
+      } else if (!isNba(sport) && Number.isInteger(o.rounds) && o.rounds >= 10 && o.rounds <= 20) {
+        settings.rounds = o.rounds; // basketball rounds come from lineup + bench (applyNbaLeague)
       }
     }
     const players = await loadPlayers(sport);
@@ -325,7 +344,7 @@ export default async function handler(req, res) {
     let reach = false;
     if (b.rationale !== false && candidates.length) {
       const analysis = await analyzePick({
-        sport, round, scoring: settings.scoring, teams: settings.teams, roster, candidates, runs, board,
+        sport, round, scoring: settings.scoring, teams: settings.teams, roster, candidates, runs, board, cats: settings.cats,
       });
       if (analysis) {
         // Promote Claude's pick to the front so the panel headline + board highlight

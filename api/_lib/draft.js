@@ -117,7 +117,38 @@ export async function loadPlayers(sport = 'nfl') {
   }
   // Exclude two-way pitcher clones (Ohtani's Pitchers-tab entry): the draft lists a two-way player
   // once (his primary hitter record), never twice. The rankings board still shows both.
-  return (dataset.players || []).filter((p) => !p.searchOnly && !p.twoWay);
+  // draftEligible: a real player on a short sample (basketball builder) — scored, kept off the
+  // rankings table, but draftable. Absent everywhere else, so other sports are unchanged.
+  return (dataset.players || []).filter((p) => (!p.searchOnly || p.draftEligible) && !p.twoWay);
+}
+
+// Apply a client's NBA/WNBA league settings (scored categories + starting lineup + bench) to a
+// server settings object. League SHAPE, not a premium perk: like the NFL roster layout in
+// mock-start it's honored for every tier, because drafting for the wrong categories or roster
+// gives wrong advice. Rounds = starters + bench (resolveNbaLeague). Invalid input → defaults.
+export function applyNbaLeague(settings, raw = {}) {
+  const lg = NBA.resolveNbaLeague(raw || {});
+  settings.cats = lg.cats;
+  settings.lineup = lg.lineup;
+  settings.bench = lg.bench;
+  settings.rounds = lg.rounds;
+  settings.scoring = NBA.nbaCatLabel(lg.cats).toLowerCase().replace('-', ''); // '9cat' | '8cat' …
+  return settings;
+}
+
+// The basketball roto adapter bound to ONE league's categories: value, category need, weak-cat
+// labels and the board rank all read only the cats that league scores. With the standard nine it
+// is behaviourally identical to ROTO.nba.
+function nbaAdapterFor(players, settings) {
+  const cats = NBA.nbaCatsOf(settings);
+  const rankMap = NBA.nbaRankMap(players, cats);
+  return {
+    ...ROTO.nba,
+    CAT_KEYS: cats,
+    value: (p) => NBA.nbaPlayerValue(p, cats),
+    categoryNeed: (roster) => NBA.nbaCategoryNeed(roster, cats),
+    rankOf: (p) => rankMap.get(p.id) ?? p.rank ?? null,
+  };
 }
 
 // A player's ADP for the league's scoring. Half-PPR uses FFC's native half-PPR ADP
@@ -391,7 +422,7 @@ function positionRuns(recentPicks) {
  */
 export function recommend(players, drafted, roster = [], settings = DEFAULT_SETTINGS, round = 1, recentPicks = [], picksUntilNext = Infinity) {
   const sport = settings.sport || 'nfl';
-  const cfg = ROTO[sport];
+  const cfg = (sport === 'nba' || sport === 'wnba') ? nbaAdapterFor(players, settings) : ROTO[sport];
   // Re-hydrate the roster: callers pass [{ id, pos }] (positions + ids only), but the team-balance logic
   // needs each drafted player's full profile — the per-category z (roto category need) and the signal set
   // (consistency, form). Join the ids back to the full pool so categoryNeed/adjustedValue/weakCats actually
@@ -475,7 +506,7 @@ function recommendRoto(players, drafted, roster = [], settings = {}, round = 1, 
       const slotBoost = fills ? (slack <= 0 ? 1.6 : slack <= 2 ? 1.2 : 1.05) : 1;
       const runBump = fills && runSet.has(p.pos) ? 1.08 : 1;
       return {
-        id: p.id, name: p.name, team: p.team, pos: p.pos, rank: p.rank,
+        id: p.id, name: p.name, team: p.team, pos: p.pos, rank: M.rankOf ? M.rankOf(p) : p.rank,
         value: Math.round(v * 100) / 100,
         vorp: Math.round((v - replacement) * 100) / 100,
         score: Math.round((adj * slotBoost * runBump - capPenalty) * 100) / 100,
@@ -483,6 +514,7 @@ function recommendRoto(players, drafted, roster = [], settings = {}, round = 1, 
         forced: fills && slack <= 0,       // out of spare picks — must lock a starter now
         adp: null, picksPastAdp: 0, falling: false, proj: null, // no roto ADP/projections in v1
         z: p.z, n: p.n, cats: p.cats,      // category detail for the analyst layer
+        lowSample: !!p.lowSample, games: p.games ?? null, // short-sample flag (basketball) for the analyst
         form: (p.tag === 'hot' || p.tag === 'cold') ? p.tag : null, // in-season only; usually absent preseason
         statLabels: p.statLabels, stats: [p.s1, p.s2, p.s3, p.s4, p.s5, p.s6], // real stat line
         // Which of the roster's WEAK categories he fills (team-balance point), else his elite cats + open slot.

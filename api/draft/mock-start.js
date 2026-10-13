@@ -2,7 +2,7 @@
 // premium users get unlimited mocks and may tweak settings. Returns the league setup
 // the frontend uses to simulate the snake draft (AI opponents pick client-side).
 import { getEntitlement, consumeMockQuota, getMockUsage, sendError, FREE_MAX_ROUND } from '../_lib/auth.js';
-import { DEFAULT_SETTINGS, isRoto, resolveStarters } from '../_lib/draft.js';
+import { DEFAULT_SETTINGS, isRoto, resolveStarters, applyNbaLeague } from '../_lib/draft.js';
 
 // Sports whose mock draft we can start (a roto sport, or the NFL points flow).
 const SUPPORTED = new Set(['nfl', 'nba', 'wnba', 'mlb', 'nhl']);
@@ -48,8 +48,12 @@ export default async function handler(req, res) {
       } else if (Number.isInteger(o.rounds) && o.rounds >= 10 && o.rounds <= 20) {
         settings.rounds = o.rounds;
       }
+    } else if (sport === 'nba' || sport === 'wnba') {
+      // Basketball league shape (scored categories + lineup + bench → rounds), every tier — same
+      // reasoning as the NFL roster above. Absent fields fall back to the 9-cat / 13-round default.
+      applyNbaLeague(settings, o);
     } else if (premium && Number.isInteger(o.rounds) && o.rounds >= 10 && o.rounds <= 20) {
-      settings.rounds = o.rounds; // roto rounds override remains Premium
+      settings.rounds = o.rounds; // MLB/NHL rounds override remains Premium
     }
     // Free tier: still enforce the daily mock-draft quota (unlimited mocks stay Premium).
     if (!premium) await consumeMockQuota(userId);
