@@ -159,7 +159,16 @@
   .pos-tabs button { background: var(--dark3); color: var(--gray); border: 1px solid rgba(255,255,255,0.1); border-radius: 5px;
     padding: 3px 8px; font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; cursor: pointer; font-family: inherit; }
   .pos-tabs button.active { color: var(--gold); border-color: var(--gold); background: rgba(212,160,23,0.1); }
-  .avail-list { max-height: 640px; overflow-y: auto; }
+  /* Phones / stacked layout: a capped, self-scrolling list so the page isn't one endless scroll. */
+  .avail-list { max-height: 70vh; overflow-y: auto; }
+  /* Two-column layout: the grid stretches the Available Players panel to the right-hand column's
+     height, and the list fills what's left of it. flex-basis 0 keeps the list's own rows from
+     setting the row height (it scrolls instead); min-height is the floor when that column is short. */
+  @media (min-width: 901px) {
+    .avail-panel { display: flex; flex-direction: column; margin-bottom: 0; }
+    .avail-panel .avail { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .avail-panel .avail-list { flex: 1 1 0px; min-height: 420px; max-height: none; }
+  }
   .avail-more { text-align: center; padding: 10px 8px 2px; font-size: 11px; color: var(--gray); letter-spacing: 0.3px; }
 
   .clock-you { color: var(--gold); font-weight: 700; }
@@ -461,7 +470,7 @@
 
     <!-- Board / roster / recent at the bottom -->
     <div class="draft-grid">
-      <div class="panel">
+      <div class="panel avail-panel">
         <div class="avail">
           <h3>Available Players</h3>
           <div class="adp-stamp" id="adpStamp"></div>
