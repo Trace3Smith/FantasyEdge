@@ -6,7 +6,7 @@ import { buildDataset } from './buildDataset.js';
 import { buildNflDataset } from './buildNflDataset.js';
 import { buildNbaDataset, buildWnbaDataset } from './buildNbaDataset.js';
 import { buildNhlDataset } from './buildNhlDataset.js';
-import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, DATASET_VERSION, NHL_DATASET_VERSION } from './kv.js';
+import { redis, DATASET_KEY, NBA_DATASET_KEY, WNBA_DATASET_KEY, NHL_DATASET_KEY, NFL_DATASET_KEY, DATASET_VERSION, NHL_DATASET_VERSION, NBA_DATASET_VERSION } from './kv.js';
 // The board ranks by the same per-format value function the rankings tab and draft board
 // use — one shared definition (see /nflScoring.js), so the engine never drifts from the UI.
 import { nflRankValue as valueOf, nflReplacementDepths } from '../../nflScoring.js';
@@ -22,8 +22,8 @@ import * as NHL from '../../nhlScoring.js';
 // value (zTotal) rather than a version bump — see loadPlayers.
 const SPORTS = {
   nfl: { key: NFL_DATASET_KEY, build: () => buildNflDataset(), version: DATASET_VERSION },
-  nba: { key: NBA_DATASET_KEY, build: () => buildNbaDataset(), version: DATASET_VERSION },
-  wnba: { key: WNBA_DATASET_KEY, build: () => buildWnbaDataset(), version: DATASET_VERSION },
+  nba: { key: NBA_DATASET_KEY, build: () => buildNbaDataset(), version: NBA_DATASET_VERSION },
+  wnba: { key: WNBA_DATASET_KEY, build: () => buildWnbaDataset(), version: NBA_DATASET_VERSION },
   nhl: { key: NHL_DATASET_KEY, build: () => buildNhlDataset(), version: NHL_DATASET_VERSION },
   mlb: { key: DATASET_KEY, build: () => buildDataset({ season: new Date().getFullYear() }), needsValue: true },
 };

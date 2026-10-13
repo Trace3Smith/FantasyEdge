@@ -259,7 +259,7 @@ part('PART 6 — full 12-team, 14-round Superstars mock: every roster is legal')
 
 part('PART 7 — handlers: mock-start + advise carry the league end to end');
 {
-  store.set(realKv.NBA_DATASET_KEY, { ...ds, version: realKv.DATASET_VERSION });
+  store.set(realKv.NBA_DATASET_KEY, { ...ds, version: realKv.NBA_DATASET_VERSION });
   const call = async (h, body) => {
     let status = 200; let out;
     const res = { setHeader() {}, status(c) { status = c; return this; }, json(j) { out = j; return this; } };
@@ -296,6 +296,50 @@ part('PART 8 — Coach chat context: a "Player not listed" pick is named on the 
   check('unlisted pick appears by position AND name', withName === `${known.pos} ${known.name}, F My Rookie`, withName);
   check('unlisted pick with no position still shows the name', owned(ctxFor([{ id: 'unlisted-2', pos: '', name: 'My Rookie', unlisted: true }])) === 'My Rookie');
   check('an unknown id with no name still falls back to the bare position', owned(ctxFor([{ id: 'gone', pos: 'C' }])) === 'C');
+}
+
+part('PART 9 — NBA/WNBA dataset version: a deploy rebuilds the hoops boards alone');
+{
+  const { readFileSync } = await import('node:fs');
+  const { loadPlayers } = await import(lib('draft.js'));
+  const { default: sports } = await import('../api/sports.js');
+  const get = async (sport) => {
+    let out;
+    const res = { setHeader() {}, status() { return this; }, json(j) { out = j; return this; } };
+    await sports({ method: 'GET', query: { sport }, headers: {} }, res);
+    return out;
+  };
+  check('NBA_DATASET_VERSION is 12 and the shared DATASET_VERSION is still 11', realKv.NBA_DATASET_VERSION === 12 && realKv.DATASET_VERSION === 11 && realKv.NHL_DATASET_VERSION === 12);
+
+  // A board cached by the pre-patch builder: stamped with the shared version, no short-sample players.
+  const prePatch = () => ({ ...ds, players: ds.players.filter((p) => !p.draftEligible), version: realKv.DATASET_VERSION });
+  const hasStar = (players) => (players || []).some((p) => p.name === 'Injured Star' && p.draftEligible);
+
+  store.set(realKv.NBA_DATASET_KEY, prePatch());
+  check('draft loader: a board on the old shared version is rebuilt with short-sample players', hasStar(await loadPlayers('nba')));
+  check('draft loader: the rebuilt board is stamped NBA_DATASET_VERSION', store.get(realKv.NBA_DATASET_KEY).version === realKv.NBA_DATASET_VERSION);
+
+  for (const [sport, key] of [['nba', realKv.NBA_DATASET_KEY], ['wnba', realKv.WNBA_DATASET_KEY]]) {
+    store.set(key, prePatch());
+    const out = await get(sport);
+    check(`/api/sports ${sport}: a board on the old shared version is rebuilt and restamped`, hasStar(out?.players) && store.get(key).version === realKv.NBA_DATASET_VERSION);
+    // A current board must be served as-is — a rebuild here would drop the cron's form/rolling data.
+    store.set(key, { ...store.get(key), sentinel: 'kept' });
+    await get(sport);
+    check(`/api/sports ${sport}: a current board is served without a rebuild`, store.get(key).sentinel === 'kept');
+  }
+  await loadPlayers('nba');
+  check('draft loader: a current board is served without a rebuild', store.get(realKv.NBA_DATASET_KEY).sentinel === 'kept');
+
+  // The shared version did not move, so an NFL board stamped with it must survive untouched.
+  store.set(realKv.NFL_DATASET_KEY, { players: [{ id: 'n1', name: 'Kept QB', pos: 'QB' }], version: realKv.DATASET_VERSION, sentinel: 'kept' });
+  await get('nfl');
+  await loadPlayers('nfl');
+  check('an NFL board on the shared version is NOT rebuilt', store.get(realKv.NFL_DATASET_KEY).sentinel === 'kept');
+
+  // The cron handler is too heavy to run here (it rebuilds every sport), so pin its stamp in source.
+  const cron = readFileSync(new URL('../api/cron/refresh.js', import.meta.url), 'utf8');
+  check('cron stamps NBA/WNBA with NBA_DATASET_VERSION', /built\.version = \(s\.sport === 'nba' \|\| s\.sport === 'wnba'\) \? NBA_DATASET_VERSION : DATASET_VERSION;/.test(cron));
 }
 
 console.log(failed ? `\n${failed} CHECK(S) FAILED` : '\nALL NBA LEAGUE CHECKS PASSED');
