@@ -342,5 +342,34 @@ part('PART 9 — NBA/WNBA dataset version: a deploy rebuilds the hoops boards al
   check('cron stamps NBA/WNBA with NBA_DATASET_VERSION', /built\.version = \(s\.sport === 'nba' \|\| s\.sport === 'wnba'\) \? NBA_DATASET_VERSION : DATASET_VERSION;/.test(cron));
 }
 
+part('PART 10 — pick grades: board rank vs overall pick (no ADP), not value over next-best');
+{
+  const { rankGrade, draftGrade } = await import('../draftSummary.js');
+  const g = (rank, pick, teams = 12) => rankGrade({ rank, pick, teams });
+  check('the #1 player at pick 1 is fair value, not a steal', g(1, 1).label === 'value' && g(1, 1).delta === 0);
+  check('ranked #1, taken at pick 4: good value, positive, not a steal', g(1, 4).label === 'value' && g(1, 4).delta === 3);
+  check('ranked #20, taken at pick 4: a reach', g(20, 4).label === 'reach' && g(20, 4).delta === -16);
+  check('a steal needs a full round past rank (12-team: 11 picks no, 12 picks yes)', g(10, 21).label === 'value' && g(10, 22).label === 'steal');
+  check('a reach needs a full round ahead of rank', g(33, 22).label === 'value' && g(34, 22).label === 'reach');
+  check('round length sets the bar: 12 picks past rank is a steal in a 10-team league, not a 14-team one', g(10, 22, 10).label === 'steal' && g(10, 22, 14).label === 'value');
+  check('late in the draft the bar widens (pick 120: 29 picks no, 30 picks yes)', g(91, 120).label === 'value' && g(90, 120).label === 'steal');
+  check('an unranked player gets no grade', rankGrade({ rank: undefined, pick: 5, teams: 12 }) === null);
+
+  // A whole 12-team, 14-round draft where every team takes the best player left on the 8-cat board.
+  const players = draftPool(ds);
+  const rank = NBA.nbaRankMap(players, SUPERSTARS.cats);
+  const board = players.filter((p) => rank.has(p.id)).sort(NBA.nbaBoardCmpFor(SUPERSTARS.cats));
+  const grades = board.slice(0, 12 * 14).map((p, i) => rankGrade({ rank: rank.get(p.id), pick: i + 1, teams: 12 }));
+  check('best-available at every pick: all 168 grade as value, none as steal', grades.every((x) => x.label === 'value' && x.delta === 0));
+  // Round 1 can never produce a steal, whoever is taken.
+  let r1Steal = false;
+  for (let pick = 1; pick <= 12; pick++) for (let r = 1; r <= 200; r++) if (g(r, pick).label === 'steal') r1Steal = true;
+  check('no steal is possible anywhere in round 1', !r1Steal);
+  // The draft grade averages the scale-free signal: on-rank picks land at B, a run of fallers above it.
+  const onRank = draftGrade([g(5, 5), g(20, 20), g(29, 29)].map((x) => ({ pos: 'G', delta: x.norm })), 1).grade;
+  const fallers = draftGrade([g(1, 5), g(8, 20), g(15, 29)].map((x) => ({ pos: 'G', delta: x.norm })), 1).grade;
+  check('draft grade: on-rank picks are a B, fallers grade higher', onRank === 'B' && fallers.startsWith('A'), `${onRank} / ${fallers}`);
+}
+
 console.log(failed ? `\n${failed} CHECK(S) FAILED` : '\nALL NBA LEAGUE CHECKS PASSED');
 process.exit(failed ? 1 : 0);

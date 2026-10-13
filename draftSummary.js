@@ -38,6 +38,21 @@ export function leagueRanking(teams, valueFn) {
   return { rows, userRank: user ? user.rank : null, teams: rows.length };
 }
 
+// Pick grade for sports with no ADP (NBA/WNBA, MLB, NHL): the player's board rank under the league's
+// settings against the overall pick he went at. delta = pick − rank, in picks: positive means he fell
+// past his rank, negative means he went early. A "steal" or "reach" needs a gap of at least one full
+// round, widening to a quarter of the pick number late in the draft, where neighbouring ranks are
+// separated by very little value. So the #1 player at pick 1 is fair value, never a steal, and nobody
+// can be a steal in round 1. `norm` (delta / threshold) is the scale-free signal the draft grade
+// averages. Returns null when the player has no rank.
+export function rankGrade({ rank, pick, teams }) {
+  if (!Number.isFinite(rank) || !Number.isFinite(pick) || rank < 1 || pick < 1) return null;
+  const T = Math.max(Number(teams) || 10, pick / 4);
+  const delta = pick - rank;
+  const label = delta >= T ? 'steal' : (delta <= -T ? 'reach' : 'value');
+  return { delta, label, norm: Math.round((delta / T) * 100) / 100, rank, pick };
+}
+
 // Letter grade from a value index (vi = avg per-pick value-over-next-best / the sport's steal/reach
 // threshold). vi > 0 means the roster consistently beat the board (value); vi < 0 means it reached. Centered
 // so an average, on-value draft (vi≈0) lands at B.

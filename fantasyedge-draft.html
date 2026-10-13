@@ -504,7 +504,7 @@ import { teamOnClock } from '/draftOrder.js';
 // Shared player-display module — the SAME code Player Rankings renders through, so the detail
 // sidebar's stars, category pills, tags/trends, sortable category list, and prior-year line match it.
 import { renderStarsBlock, renderCategoryList, renderPrevYear, renderOpportunity, getTagHTML, getTrendHTML, renderConsistencyHTML, injuryBadgeHTML, injuryLineHTML } from '/playerDisplay.js';
-import { positionalRanks, posRankLabel, leagueRanking, draftGrade } from '/draftSummary.js';
+import { positionalRanks, posRankLabel, leagueRanking, draftGrade, rankGrade } from '/draftSummary.js';
 // Coach chat's live-draft context string — extracted so it has one source of truth + pre-push
 // regression coverage (scripts/verify-draft-coach.mjs). Pure; we inject our globals/helpers below.
 import { buildDraftContext as buildDraftContextString } from '/draftContext.js';
@@ -650,13 +650,24 @@ function boardValue(p) {
 const gradeUnit = () => (isRoto() ? (rotoMod().label) : 'VORP');
 const gradeThreshold = () => (isRoto() ? 1.5 : 15);
 
-// Post-pick grade = value(picked) − value(best OTHER player still available at pick time.
-// Positive means the pick was worth more than the next-best on the board (a faller/steal);
-// negative means a better player was passed (a reach). MUST be computed BEFORE the player
-// is added to state.drafted. Returns { delta, label } or null when the pick isn't valued.
+// Post-pick grade. MUST be computed BEFORE the player is added to state.drafted and before
+// state.pickIndex advances. Returns { delta, label } or null when the pick isn't valued.
+//
+// Sports with no ADP (roto: NBA/WNBA, MLB, NHL) grade against DRAFT POSITION: the player's board
+// rank under the league's settings vs the overall pick (rankGrade — delta is in picks). Comparing
+// against the next-best player left would call the top available player a steal at every pick.
+//
+// NFL: value(picked) − value(best OTHER player still available at pick time). Positive means the
+// pick was worth more than the next-best on the board (a faller/steal); negative means a better
+// player was passed (a reach).
 function gradePick(player, opts = {}) {
   const v = boardValue(player);
   if (!isFinite(v)) return null;
+  if (isRoto()) {
+    const g = rankGrade({ rank: rankMap.get(player.id), pick: opts.pickNo ?? (state.pickIndex + 1), teams: state.settings.teams });
+    if (g && g.label === 'reach' && reachJustified(player, opts)) g.label = 'value';
+    return g;
+  }
   let best = -Infinity;
   for (const p of players) {
     if (p.id === player.id || state.drafted.has(p.id)) continue;
@@ -707,7 +718,11 @@ function gradeTag(g) {
   if (!g) return '';
   const cls = g.label === 'steal' ? 'g-steal' : g.label === 'reach' ? 'g-reach' : 'g-value';
   const sign = g.delta > 0 ? '+' : '';
-  return ` <span class="grade ${cls}" title="Value over next-best available at pick time (${gradeUnit()})">${g.label} ${sign}${g.delta}</span>`;
+  // Roto grades carry the rank + pick they were judged on; their number is picks, not value.
+  const title = g.rank != null
+    ? `Board rank #${g.rank}, taken at pick ${g.pick}: ${g.delta === 0 ? 'right at his rank' : `${Math.abs(g.delta)} pick${Math.abs(g.delta) === 1 ? '' : 's'} ${g.delta > 0 ? 'past' : 'ahead of'} his rank`}`
+    : `Value over next-best available at pick time (${gradeUnit()})`;
+  return ` <span class="grade ${cls}" title="${title}">${g.label} ${sign}${g.delta}</span>`;
 }
 
 // Live suggestion panel: the top few available players by value, shown on the user's turn.
@@ -1745,8 +1760,9 @@ function renderDraftSummary() {
   // Grade tracks the roster's projected finish (league standing) with a small capped value nudge; forced
   // K/DST picks excluded. Falls back to pure value when opponents weren't logged (leagueRank null).
   const g = draftGrade(
-    userPicks.map((p) => ({ pos: p.pos, delta: p.grade?.delta })),
-    gradeThreshold(),
+    // Roto grades are already scaled to their own steal/reach threshold (norm), so the unit is 1.
+    userPicks.map((p) => ({ pos: p.pos, delta: isRoto() ? p.grade?.norm : p.grade?.delta })),
+    isRoto() ? 1 : gradeThreshold(),
     { leagueRank: lr.userRank, leagueTeams: lr.teams },
   );
 
@@ -2062,7 +2078,7 @@ function applySleeperPicks(picks) {
     const round = pick.round || roundOf(no - 1, state.settings.teams);
     const player = matchSleeper(pick);
     if (player && !state.drafted.has(player.id)) {
-      const grade = gradePick(player, { isUser: teamIdx === state.userTeam });
+      const grade = gradePick(player, { isUser: teamIdx === state.userTeam, pickNo: no });
       state.drafted.add(player.id);
       state.picks.push({ id: player.id, name: player.name, pos: player.pos, team: player.team, teamIndex: teamIdx, round, grade });
       if (teamIdx === state.userTeam) state.roster.push({ id: player.id, pos: player.pos });
