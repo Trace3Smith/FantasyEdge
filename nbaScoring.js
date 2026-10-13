@@ -33,8 +33,49 @@ export const CAT_KEYS = NBA_CATS.map((c) => c.key);
 // A player's raw category value: the summed 9-cat z. The one function every surface calls so
 // the board, the draft engine, and the UI never diverge. Falls back to 0 for unscored
 // (search-only / sub-threshold) players so they sort to the bottom rather than NaN.
-export function nbaPlayerValue(p) {
-  return p && typeof p.zTotal === 'number' ? p.zTotal : 0;
+//
+// `cats` (optional) is the league's scored categories. Omitted or the full standard nine, the value is
+// the stored 9-cat zTotal exactly (unchanged behaviour). A custom set (e.g. 8-cat with no turnovers)
+// sums only those cats' z, so a category the league doesn't score can neither help nor hurt a player.
+export function nbaPlayerValue(p, cats) {
+  if (!p || typeof p.zTotal !== 'number') return 0;
+  if (!cats || isStandardCats(cats) || !p.z) return p.zTotal;
+  let s = 0;
+  for (const k of cats) s += p.z[k] || 0;
+  return s;
+}
+
+// ---- League settings: categories ------------------------------------------------------------
+// Leagues customize which categories count (8-cat without TO, or without FT%, etc.). Only the
+// nine standard cats are supported, because they're the ones the dataset carries a z for. A
+// request naming anything else is dropped rather than guessed at.
+const isStandardCats = (cats) => cats.length === CAT_KEYS.length && CAT_KEYS.every((k) => cats.includes(k));
+
+// Sanitize a client-supplied category list → an ordered subset of CAT_KEYS (board order), or null
+// when it isn't usable (not an array, or fewer than MIN_CATS valid entries). Shared by the draft
+// page and the server so both read the same league shape.
+export const MIN_CATS = 3;
+export function resolveNbaCats(raw) {
+  if (!Array.isArray(raw)) return null;
+  const want = new Set(raw.map((k) => String(k)));
+  const cats = CAT_KEYS.filter((k) => want.has(k));
+  return cats.length >= MIN_CATS ? cats : null;
+}
+
+// The league's scored categories from a settings object, defaulting to the standard nine.
+export function nbaCatsOf(settings) {
+  return resolveNbaCats(settings && settings.cats) || CAT_KEYS.slice();
+}
+
+// Short board/analyst label: "9-CAT" for the standard set, otherwise "8-CAT" etc.
+export function nbaCatLabel(cats) {
+  return `${(cats && cats.length) || CAT_KEYS.length}-CAT`;
+}
+
+// Human list of the scored cats, e.g. "PTS, REB, AST, STL, BLK, 3PM, FG%, FT%".
+export function nbaCatList(cats) {
+  const label = Object.fromEntries(NBA_CATS.map((c) => [c.key, c.label]));
+  return (cats || CAT_KEYS).map((k) => label[k]).join(', ');
 }
 
 // ---- Roster slots + positional eligibility --------------------------------------------------
@@ -55,13 +96,60 @@ const SLOT_ELIGIBILITY = {
   F: ['F', 'SF', 'PF', 'UTIL'],
 };
 
+// Compound positions ("G-F", "F-C", "PG/SG") take the union of each part's slots, kept
+// most-specific-first, so a swingman can fill either a guard or a forward slot.
 export function eligibleSlots(pos) {
-  return SLOT_ELIGIBILITY[pos] || ['UTIL'];
+  if (SLOT_ELIGIBILITY[pos]) return SLOT_ELIGIBILITY[pos];
+  const parts = String(pos || '').toUpperCase().split(/[-/,\s]+/).filter((x) => SLOT_ELIGIBILITY[x]);
+  if (!parts.length) return ['UTIL'];
+  const out = [];
+  for (const part of parts) for (const slot of SLOT_ELIGIBILITY[part]) if (slot !== 'UTIL' && !out.includes(slot)) out.push(slot);
+  out.push('UTIL');
+  return out;
 }
 
-// The starting lineup for a league (counts per slot). settings.lineup overrides the default.
+// ---- League settings: roster ----------------------------------------------------------------
+// Per-slot bounds for a custom lineup. Every ESPN/Yahoo/Sleeper basketball layout we know of
+// fits inside these; anything outside is clamped, never trusted.
+export const LINEUP_BOUNDS = { PG: [0, 3], SG: [0, 3], SF: [0, 3], PF: [0, 3], C: [0, 3], G: [0, 3], F: [0, 3], UTIL: [0, 6] };
+export const STARTERS_RANGE = [5, 15];
+export const BENCH_RANGE = [0, 12];
+export const DEFAULT_BENCH = 3; // 10 starters + 3 bench = the legacy 13-round default
+
+// Sanitize a client-supplied lineup → full { PG..UTIL } counts, or null when unusable (not an
+// object, or a starter total outside STARTERS_RANGE). Missing slots count as 0 once any is given.
+export function resolveNbaLineup(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out = {};
+  let total = 0;
+  for (const [slot, [lo, hi]] of Object.entries(LINEUP_BOUNDS)) {
+    const v = Math.round(Number(raw[slot]));
+    const n = Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : 0;
+    out[slot] = n;
+    total += n;
+  }
+  return total >= STARTERS_RANGE[0] && total <= STARTERS_RANGE[1] ? out : null;
+}
+
+export function resolveNbaBench(raw) {
+  const v = Math.round(Number(raw));
+  if (!Number.isFinite(v)) return null;
+  return Math.min(BENCH_RANGE[1], Math.max(BENCH_RANGE[0], v));
+}
+
+// The starting lineup for a league (counts per slot). A valid settings.lineup replaces the default.
 export function nbaRosterSlots(settings = {}) {
-  return { ...DEFAULT_LINEUP, ...(settings.lineup || {}) };
+  return resolveNbaLineup(settings && settings.lineup) || { ...DEFAULT_LINEUP };
+}
+
+// Normalize a whole NBA league-settings object (cats + lineup + bench) and derive rounds =
+// starters + bench. The one place both the server and the draft page turn raw input into a
+// league shape, so a lineup the client shows is exactly the one the engine drafts for.
+export function resolveNbaLeague(raw = {}) {
+  const lineup = nbaRosterSlots(raw);
+  const bench = resolveNbaBench(raw.bench) ?? DEFAULT_BENCH;
+  const starters = Object.values(lineup).reduce((a, b) => a + b, 0);
+  return { cats: nbaCatsOf(raw), lineup, bench, rounds: starters + bench };
 }
 
 // Which starting slots are still OPEN given the drafted roster. Greedy bipartite assignment:
@@ -101,18 +189,20 @@ export function specificOpenSlots(roster, settings = {}) {
 // the drafted roster's current category profile — cats the team is weak in get weight > 1 so the
 // recommender favors a player who shores them up over one who piles onto an existing strength.
 // An empty roster yields ~1.0 everywhere, so early picks are just best-available by total z.
-export function nbaCategoryNeed(roster) {
+// `cats` limits the balance to the league's scored categories (default: all nine), so an
+// unscored cat (e.g. TO in an 8-cat league) is never reported as a weakness to fix.
+export function nbaCategoryNeed(roster, cats = CAT_KEYS) {
   const totals = {};
-  for (const k of CAT_KEYS) totals[k] = 0;
+  for (const k of cats) totals[k] = 0;
   for (const p of roster) {
     if (!p || !p.z) continue;
-    for (const k of CAT_KEYS) totals[k] += p.z[k] || 0;
+    for (const k of cats) totals[k] += p.z[k] || 0;
   }
-  const vals = CAT_KEYS.map((k) => totals[k]);
+  const vals = cats.map((k) => totals[k]);
   const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
   const sd = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length) || 1;
   const weight = {};
-  for (const k of CAT_KEYS) {
+  for (const k of cats) {
     const deficit = (mean - totals[k]) / sd; // > 0 == this cat lags the roster's others
     weight[k] = Math.min(1.6, Math.max(0.6, 1 + deficit * 0.3));
   }
@@ -123,9 +213,10 @@ export function nbaCategoryNeed(roster) {
 // Equals nbaPlayerValue when weights are flat (empty roster), and tilts toward weak cats as the
 // roster fills — the core of smart category drafting. Falls back to total z if z block missing.
 export function nbaAdjustedValue(p, weight) {
-  if (!p || !p.z || !weight) return nbaPlayerValue(p);
+  if (!p || !p.z || !weight) return nbaPlayerValue(p, weight ? Object.keys(weight) : undefined);
+  // Iterate the weight's own keys: categoryNeed builds it over the league's scored cats only.
   let s = 0;
-  for (const k of CAT_KEYS) s += (p.z[k] || 0) * (weight[k] ?? 1);
+  for (const k of Object.keys(weight)) s += (p.z[k] || 0) * weight[k];
   return s;
 }
 
@@ -138,9 +229,12 @@ export function nbaReplacementLevel(players, settings = {}) {
   const teams = settings.teams || 12;
   const lineup = nbaRosterSlots(settings);
   const startersPerTeam = Object.values(lineup).reduce((a, b) => a + b, 0);
+  const cats = nbaCatsOf(settings);
+  // Same pool the board drafts from (nbaDraftable): ranked players plus the short-sample ones the
+  // builder flagged draftEligible, so "startable" counts and VORP agree with what's actually on the board.
   const ranked = players
-    .filter((p) => p && !p.searchOnly && typeof p.zTotal === 'number')
-    .map(nbaPlayerValue)
+    .filter(nbaDraftable)
+    .map((p) => nbaPlayerValue(p, cats))
     .sort((a, b) => b - a);
   if (!ranked.length) return 0;
   const depth = Math.min(teams * startersPerTeam, ranked.length) - 1;
@@ -152,11 +246,21 @@ export function nbaBoardCmp(a, b) {
   return nbaPlayerValue(b) - nbaPlayerValue(a);
 }
 
-// id -> 1..N board rank for a player pool (search-only excluded), ordered by total z.
-export function nbaRankMap(players) {
+// Comparator for a league's own category set (the standard nine → identical to nbaBoardCmp).
+export function nbaBoardCmpFor(cats) {
+  return (a, b) => nbaPlayerValue(b, cats) - nbaPlayerValue(a, cats);
+}
+
+// Draftable for the board: scored, and either in the ranked table or flagged draftEligible
+// (a real player on a short sample — e.g. missed most of last season — scored against the
+// ranked pool's norms so he's on the draft board without entering the rankings table).
+export const nbaDraftable = (p) => !!p && typeof p.zTotal === 'number' && (!p.searchOnly || !!p.draftEligible);
+
+// id -> 1..N board rank for a player pool, ordered by value under `cats` (default: all nine).
+export function nbaRankMap(players, cats) {
   const ranked = players
-    .filter((p) => p && !p.searchOnly && typeof p.zTotal === 'number')
+    .filter(nbaDraftable)
     .slice()
-    .sort(nbaBoardCmp);
+    .sort(nbaBoardCmpFor(cats));
   return new Map(ranked.map((p, i) => [p.id, i + 1]));
 }

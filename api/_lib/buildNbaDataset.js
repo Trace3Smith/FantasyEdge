@@ -35,6 +35,23 @@ const GAMES_FRAC = 0.4;
 const GAMES_FLOOR = 5;
 const MIN_MINUTES = 10;
 
+// Below this many games for the season leader, the current season is too young to rank on (opening
+// week: a 3-game sample would replace a full season of evidence). The build then ranks on the
+// PRIOR full season instead and says so in counts.basis — the board a preseason drafter needs.
+const MIN_SEASON_GAMES = 10;
+
+// Shrinkage prior for short-sample (draft-eligible, sub-gate) players, as a fraction of the games
+// gate — never below GAMES_PRIOR, so a short sample is always regressed at least as hard as a
+// ranked player. The first cut used the whole gate (~33 games at season's end), which buried every
+// star who missed time: on real 2025-26 data Anthony Davis (20 GP) sat at #74 and Jayson Tatum
+// (16 GP) at #88 of an 8-cat board, picks no real room would let them reach. 0.4 (~13 games) puts
+// them at #48 and #56 — still a real availability discount against the same line over a full
+// season — while short-sample players with ordinary lines stay where their production puts them
+// (Morant #89, Sabonis #101, Trae Young #112) and end-of-bench names stay outside the top 130.
+// Lower is not better: at the GAMES_PRIOR floor (0.25) a 5-game sample starts ranking in the 50s.
+const LOW_SAMPLE_PRIOR_FRAC = 0.4;
+const lowSamplePrior = (gamesGate) => Math.max(GAMES_PRIOR, Math.round(gamesGate * LOW_SAMPLE_PRIOR_FRAC));
+
 // Category-strength pills (drives the star count, like the MLB cats).
 function buildNbaCats(n) {
   const cats = [];
@@ -48,6 +65,13 @@ function buildNbaCats(n) {
   if (n.ftPct >= 0.85 && n.fta >= 2) cats.push('FT%');
   if (n.to > 0 && n.to <= 1.5) cats.push('TO');
   return cats;
+}
+
+// Most games any athlete has played in a byathlete payload (the season's progress).
+function maxGamesOf(athletes, val) {
+  let m = 0;
+  for (const a of athletes || []) m = Math.max(m, val(a, 'general', 'gamesPlayed') || 0);
+  return m;
 }
 
 const fmt = (v, d = 1) => (v == null ? '—' : v.toFixed(d));
@@ -72,24 +96,38 @@ const GAMES_PRIOR = 8;
 
 // Standard 9-cat z-score. Counting cats are regressed-then-z-scored; turnovers
 // subtract; FG%/FT% are volume-weighted marginal impacts. Sets rec.score in place.
-function scoreNba(pool) {
+//
+// `extra` players are scored against the SAME pool norms (league means, SDs, FG/FT baselines) without
+// joining the pool — so adding them can't move anyone else's value. Used for short-sample players
+// (e.g. a star who missed most of last season): their regressed rates already shrink toward the
+// league mean, which is the right discount for a small sample.
+function scoreNba(pool, extra = [], extraPrior = GAMES_PRIOR) {
   if (!pool.length) return;
+  // Short-sample extras are regressed harder than the pool (extraPrior = lowSamplePrior(gamesGate),
+  // ~13 games at season's end vs 8): a player who missed most of the season carries real
+  // availability risk, so his value is pulled toward the league average rather than trusted at face
+  // value. Pool players keep GAMES_PRIOR exactly.
+  const extraSet = new Set(extra);
+  const priorOf = (p) => (extraSet.has(p) ? extraPrior : GAMES_PRIOR);
   const sum = (f) => pool.reduce((a, p) => a + f(p._n), 0);
   const lgFG = sum((n) => n.fgm) / (sum((n) => n.fga) || 1);
   const lgFT = sum((n) => n.ftm) / (sum((n) => n.fta) || 1);
-  for (const p of pool) {
+  for (const p of [...pool, ...extra]) {
     const n = p._n;
-    n.impFG = (n.fgPct - lgFG) * n.fga; // makes above expectation, weighted by volume
-    n.impFT = (n.ftPct - lgFT) * n.fta;
+    // Shooting impacts aren't rate-regressed for the pool (unchanged); extras get the same
+    // games-share discount as their counting cats so a short hot streak can't carry FG%/FT%.
+    const w = extraSet.has(p) ? n.g / (n.g + extraPrior) : 1;
+    n.impFG = (n.fgPct - lgFG) * n.fga * w; // makes above expectation, weighted by volume
+    n.impFT = (n.ftPct - lgFT) * n.fta * w;
   }
   // Games-weighted league per-game mean for each counting cat (the shrink target).
   const totalG = sum((n) => n.g) || 1;
   const lgRate = {};
   for (const k of COUNTING_CATS) lgRate[k] = sum((n) => n[k] * n.g) / totalG;
   // Regressed per-game value used for ranking (display stats stay the real rates).
-  const valOf = (n, k) => {
+  const valOf = (n, k, prior = GAMES_PRIOR) => {
     if (k === 'impFG' || k === 'impFT') return n[k];
-    return (n[k] * n.g + lgRate[k] * GAMES_PRIOR) / (n.g + GAMES_PRIOR);
+    return (n[k] * n.g + lgRate[k] * prior) / (n.g + prior);
   };
 
   // sign: +1 helps, -1 hurts (turnovers)
@@ -104,12 +142,12 @@ function scoreNba(pool) {
     const sd = Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / xs.length) || 1;
     norm[k] = { m, sd };
   }
-  for (const p of pool) {
+  for (const p of [...pool, ...extra]) {
     // Per-category z (sign already folded in, so turnovers contribute negatively). Stored
     // under category names via Z_KEY; the sum is the 9-cat ranking value (zTotal).
     const z = {};
     for (const [k, sign] of keys) {
-      z[Z_KEY[k] || k] = (sign * (valOf(p._n, k) - norm[k].m)) / norm[k].sd;
+      z[Z_KEY[k] || k] = (sign * (valOf(p._n, k, priorOf(p)) - norm[k].m)) / norm[k].sd;
     }
     p._z = z;
     p.score = Object.values(z).reduce((a, b) => a + b, 0);
@@ -160,10 +198,25 @@ async function fetchPrevYearBasketball(sport, priorSeasonParam) {
 }
 
 async function buildBasketballDataset(sport) {
-  const { athletes, categories, season } = await fetchByAthlete({
+  let { athletes, categories, season } = await fetchByAthlete({
     sportPath: `basketball/${sport}`,
     sort: 'offensive.avgPoints:desc',
   });
+  // Opening-week guard: too few games into the new season → rank on the prior full season.
+  let basis = 'season';
+  const leaderGames = maxGamesOf(athletes, makeReader(buildIndex(categories)));
+  if (leaderGames < MIN_SEASON_GAMES) {
+    const priorParam = priorSeasonParam(season);
+    if (Number.isFinite(priorParam)) {
+      try {
+        const prior = await fetchByAthlete({ sportPath: `basketball/${sport}`, sort: 'offensive.avgPoints:desc', season: priorParam });
+        if (maxGamesOf(prior.athletes, makeReader(buildIndex(prior.categories))) >= MIN_SEASON_GAMES) {
+          ({ athletes, categories, season } = prior);
+          basis = 'prior-season';
+        }
+      } catch { /* prior season unavailable — keep the young current season */ }
+    }
+  }
   const idx = buildIndex(categories);
   const val = makeReader(idx);
   // Prior full season (e.g. NBA "2025-26" -> param 2025 = "2024-25"; WNBA "2026" -> 2025), fetched once
@@ -215,14 +268,21 @@ async function buildBasketballDataset(sport) {
   const qualifies = (r) => r._n.g >= gamesGate && r._n.min >= MIN_MINUTES;
   const ranked = records.filter(qualifies);
   const subThreshold = records.filter((r) => !qualifies(r));
+  // Short-sample but real: enough games to be a player (GAMES_FLOOR) at rotation minutes. Scored for
+  // the draft board against the ranked pool's norms; still kept OUT of the rankings table.
+  const lowSample = subThreshold.filter((r) => r._n.g >= GAMES_FLOOR && r._n.min >= MIN_MINUTES);
 
-  scoreNba(ranked);
+  scoreNba(ranked, lowSample, lowSamplePrior(gamesGate));
   ranked.sort((a, b) => b.score - a.score);
   ranked.forEach(decorate);
 
   for (const r of subThreshold) {
     r.searchOnly = true; // kept for search, out of the ranked table (small sample)
     r.emoji = '🏀';
+  }
+  for (const r of lowSample) {
+    r.draftEligible = true; // …but on the draft board, flagged so the Coach can call out the risk
+    r.lowSample = true;
   }
 
   // Expose the per-game stat object and (for ranked players) the per-category z block +
@@ -258,8 +318,10 @@ async function buildBasketballDataset(sport) {
     counts: {
       season,
       athletes: athletes.length,
+      basis, // 'season' | 'prior-season' (opening-week guard)
       ranked: ranked.length,
       subThreshold: subThreshold.length,
+      draftEligibleLowSample: lowSample.length,
       gamesGate,
       maxGames: maxG,
       total: players.length,

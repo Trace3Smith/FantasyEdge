@@ -29,16 +29,21 @@ export function buildDraftContext(ctx) {
   // Explicit per-position OWNERSHIP so an empty slot (e.g. no QB yet) is unmissable and can never be
   // confused with the available board. NFL lists the standard positions even when empty ("none"); roto
   // keeps a flat list. This is the ONLY place that says what the user owns.
+  // A roster entry normally carries only { id, pos } and takes its name from the pool. A player logged
+  // through "Player not listed" isn't in the pool, so his entry carries its own `name` — use it, so the
+  // Coach knows WHO fills the slot, not just that a position is taken. Entries without a name (every
+  // pool player, in every sport) fall back to the bare position exactly as before.
+  const ownName = (r, p) => (p ? p.name : (r.name || r.pos));
   let rosterOwnedStr;
   if (!isRoto) {
     const owned = {};
-    for (const r of s.roster) { const p = byId.get(r.id); (owned[r.pos] ||= []).push(p ? p.name : r.pos); }
+    for (const r of s.roster) { const p = byId.get(r.id); (owned[r.pos] ||= []).push(ownName(r, p)); }
     const order = ['QB', 'RB', 'WR', 'TE', 'K', 'DST'];
     rosterOwnedStr = order
       .filter((pos) => ['QB', 'RB', 'WR', 'TE'].includes(pos) || owned[pos]?.length)
       .map((pos) => `${pos}: ${owned[pos]?.length ? owned[pos].join(', ') : 'none'}`).join('; ');
   } else {
-    rosterOwnedStr = s.roster.map((r) => { const p = byId.get(r.id); return p ? `${p.pos} ${p.name}` : r.pos; }).join(', ') || 'none yet';
+    rosterOwnedStr = s.roster.map((r) => { const p = byId.get(r.id); return p ? `${p.pos} ${p.name}` : (r.name ? `${r.pos} ${r.name}`.trim() : r.pos); }).join(', ') || 'none yet';
   }
   const recent = s.picks.slice(-8).map((p) => `${p.pos} ${p.name}`).join(', ') || 'none yet';
   // Roto only: best-available overall (NFL uses the per-position board below). Relabeled as NOT-owned.

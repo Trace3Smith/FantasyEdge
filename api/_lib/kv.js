@@ -24,6 +24,12 @@ export const DATASET_VERSION = 11;
 //   12 — 11-category rework: hits/blocks from the committed NHL snapshot, DEF over the
 //        defensemen pool, workload-weighted GAA; dropped FOW/GWG/SO/SV from the z block.
 export const NHL_DATASET_VERSION = 12;
+// NBA/WNBA carry their own build version for the same reason: both come from buildNbaDataset, so
+// a basketball change can invalidate the two hoops boards without cold-rebuilding nfl/pga. Bump
+// this whenever buildNbaDataset's output shape or logic moves.
+//   12 — short-sample players (lowSample/draftEligible) scored onto the draft board, the
+//        opening-week prior-season fallback, and counts.basis.
+export const NBA_DATASET_VERSION = 12;
 // Persistent Phase 2 state, survives the daily dataset rebuild:
 //   PROSPECT_STATE_KEY — per-player prospect record (milb lines, synopsis cache,
 //     event-detection snapshot) + the last good FanGraphs board for graceful degrade.
