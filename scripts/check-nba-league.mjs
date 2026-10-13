@@ -109,6 +109,7 @@ const NBA = await import('../nbaScoring.js');
 const { recommend, applyNbaLeague, DEFAULT_SETTINGS } = await import(lib('draft.js'));
 const { pickRotoOpponent } = await import('../draftAI.js');
 const { rotoOpenSlots } = await import('../draftRoster.js');
+const { buildDraftContext } = await import('../draftContext.js');
 const { default: mockStart } = await import('../api/draft/mock-start.js');
 const { default: advise } = await import('../api/draft/advise.js');
 
@@ -278,6 +279,23 @@ part('PART 7 — handlers: mock-start + advise carry the league end to end');
   check('advise board: weak cats exclude TO, picks left from 14 rounds', !(ad.out.board.weakCats || []).includes('TO') && ad.out.board.picksLeft === 11, JSON.stringify(ad.out.board));
   const ad9 = await call(advise, { sport: 'nba', round: 1, settings: { teams: 12 }, drafted: [], roster: [], rationale: false });
   check('advise with no league settings keeps the legacy 9-cat / 13-round default', ad9.status === 200 && ad9.out.board.picksLeft === 13);
+}
+
+part('PART 8 — Coach chat context: a "Player not listed" pick is named on the roster');
+{
+  const players = draftPool(ds);
+  const byId = new Map(players.map((p) => [p.id, p]));
+  const known = players[0];
+  const ctxFor = (roster) => buildDraftContext({
+    state: { mode: 'offline', settings: { teams: 12, rounds: 14 }, pickIndex: 2, totalPicks: 168, format: 'snake', userTeam: 1, roster, picks: [], drafted: new Set(roster.map((r) => r.id)) },
+    players, byId, rankMap: NBA.nbaRankMap(players, SUPERSTARS.cats), lastBoard: null, lastReco: null, lastCandidates: null,
+    isRoto: true, rotoLabel: '8-CAT', roundOf: (i, t) => Math.floor(i / t) + 1, boardCmp: NBA.nbaBoardCmpFor(SUPERSTARS.cats), adpFor: () => null, nflFpts: () => 0,
+  });
+  const owned = (c) => (c.match(/YOUR ROSTER \([^)]*\): (.*?)\. Recent picks/) || [])[1];
+  const withName = owned(ctxFor([{ id: known.id, pos: known.pos }, { id: 'unlisted-1', pos: 'F', name: 'My Rookie', unlisted: true }]));
+  check('unlisted pick appears by position AND name', withName === `${known.pos} ${known.name}, F My Rookie`, withName);
+  check('unlisted pick with no position still shows the name', owned(ctxFor([{ id: 'unlisted-2', pos: '', name: 'My Rookie', unlisted: true }])) === 'My Rookie');
+  check('an unknown id with no name still falls back to the bare position', owned(ctxFor([{ id: 'gone', pos: 'C' }])) === 'C');
 }
 
 console.log(failed ? `\n${failed} CHECK(S) FAILED` : '\nALL NBA LEAGUE CHECKS PASSED');
