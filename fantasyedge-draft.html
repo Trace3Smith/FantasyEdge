@@ -132,6 +132,8 @@
   .kp-wrap { margin-top: 14px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px; }
   .kp-toggle { background: none; border: 0; color: var(--gold); font-family: inherit; font-size: 13px; cursor: pointer; padding: 0; }
   .kp-body { margin-top: 10px; }
+  .ln-text { width: 100%; box-sizing: border-box; background: var(--dark3, rgba(0,0,0,0.25)); color: inherit; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 10px 12px; font-family: inherit; font-size: 13px; line-height: 1.45; resize: vertical; }
+  .notes-tag { display: inline-block; margin-top: 8px; font-size: 10.5px; font-weight: 600; letter-spacing: .3px; color: var(--gold); border: 1px solid rgba(212,160,23,0.45); border-radius: 5px; padding: 1px 7px; }
   .kp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
   .kp-team { background: var(--dark3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 8px; }
   .kp-team h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: .5px; text-transform: uppercase; color: var(--gray); font-weight: 700; }
@@ -361,6 +363,15 @@
         </label>
         <button class="btn btn-gold" id="sleeperStart" type="button">Start tracking</button>
       </div>
+    <div class="kp-wrap ln-wrap">
+      <button type="button" class="kp-toggle ln-toggle" aria-expanded="false">▸ League notes for the Coach — optional</button>
+      <div class="kp-body ln-body hidden">
+        <p class="muted" style="font-size:12px; margin:0 0 8px;">Anything the Coach should know about your league or your plan — injury worries, keepers, scoring quirks, a category you're punting.
+          It is sent with every pick recommendation and every Coach question, and saved in this browser.</p>
+        <textarea class="ln-text" id="leagueNotesLinked" maxlength="2000" rows="4" placeholder="e.g. Games-played cap of 820. I don't trust Embiid's knees. Punting FT%."></textarea>
+        <div class="muted ln-count" style="font-size:11px; text-align:right"></div>
+      </div>
+    </div>
     </div>
   </div>
 
@@ -430,6 +441,16 @@
           <span class="muted" id="kpSummary" style="font-size:12px"></span>
         </div>
         <div class="kp-report" id="kpReport"></div>
+      </div>
+    </div>
+    <!-- League notes: free-text context for the Coach (every sport). Collapsed by default. -->
+    <div class="kp-wrap ln-wrap">
+      <button type="button" class="kp-toggle ln-toggle" aria-expanded="false">▸ League notes for the Coach — optional</button>
+      <div class="kp-body ln-body hidden">
+        <p class="muted" style="font-size:12px; margin:0 0 8px;">Anything the Coach should know about your league or your plan — injury worries, keepers, scoring quirks, a category you're punting.
+          It is sent with every pick recommendation and every Coach question, and saved in this browser.</p>
+        <textarea class="ln-text" id="leagueNotes" maxlength="2000" rows="4" placeholder="e.g. Games-played cap of 820. I don't trust Embiid's knees. Punting FT%."></textarea>
+        <div class="muted ln-count" style="font-size:11px; text-align:right"></div>
       </div>
     </div>
   </div>
@@ -960,8 +981,55 @@ $('sportSel').addEventListener('change', () => {
   sport = normSport($('sportSel').value);
   players = []; byId = new Map(); // drop the other sport's cached pool
   syncSportUI();
+  loadLeagueNotes();
 });
 syncSportUI();
+
+// ---- League notes (every sport) ---------------------------------------------------------------
+// Free-text context for the Coach, typed at setup and sent with every advise + chat request.
+// Saved in this browser per sport, and per league where the page knows one: the manual setup has
+// no league identity beyond the sport, a linked Sleeper draft is keyed by its league (or draft) id.
+const LEAGUE_NOTES_MAX = 2000;
+let linkedNotesId = null; // '<sport>.sleeper.<league or draft id>', set once a Sleeper draft is detected
+const notesKey = (linked) => `fe.draft.notes.${linked ? linkedNotesId : sport}`;
+const notesBox = (linked) => $(linked ? 'leagueNotesLinked' : 'leagueNotes');
+function loadLeagueNotes(linked = false) {
+  const box = notesBox(linked);
+  if (!box) return;
+  let v = '';
+  try { v = localStorage.getItem(notesKey(linked)) || ''; } catch {}
+  box.value = v.slice(0, LEAGUE_NOTES_MAX);
+  syncNotesUI(box);
+}
+function syncNotesUI(box) {
+  const wrap = box.closest('.ln-wrap');
+  const n = box.value.trim().length;
+  wrap.querySelector('.ln-count').textContent = `${box.value.length} / ${LEAGUE_NOTES_MAX}`;
+  const open = !wrap.querySelector('.ln-body').classList.contains('hidden');
+  wrap.querySelector('.ln-toggle').textContent = `${open ? '▾' : '▸'} League notes for the Coach — ${n ? 'added' : 'optional'}`;
+}
+document.querySelectorAll('.ln-wrap').forEach((wrap) => {
+  const box = wrap.querySelector('.ln-text');
+  const linked = box.id === 'leagueNotesLinked';
+  wrap.querySelector('.ln-toggle').addEventListener('click', (e) => {
+    const open = wrap.querySelector('.ln-body').classList.toggle('hidden') === false;
+    e.currentTarget.setAttribute('aria-expanded', String(open));
+    syncNotesUI(box);
+  });
+  box.addEventListener('input', () => {
+    try {
+      if (box.value.trim()) localStorage.setItem(notesKey(linked), box.value.slice(0, LEAGUE_NOTES_MAX));
+      else localStorage.removeItem(notesKey(linked));
+    } catch {}
+    syncNotesUI(box);
+  });
+});
+loadLeagueNotes();
+// The notes for the draft in progress: the linked panel's box for a Sleeper draft, else setup's.
+function leagueNotes() {
+  const box = notesBox(state?.mode === 'linked');
+  return box ? box.value.trim().slice(0, LEAGUE_NOTES_MAX) : '';
+}
 
 // In mock mode with no ?sport= in the URL, gate the settings screen behind a league
 // chooser. Deep links (?mode=mock&sport=nba) and offline mode skip it entirely. Once a
@@ -1250,6 +1318,7 @@ async function analystOpening() {
     roster: state.roster,
     recentPicks: state.picks.slice(-6).map((p) => ({ pos: p.pos })),
     settings: state.settings, // league size applies to all tiers; advise sanitizes the rest
+    leagueNotes: leagueNotes(),
     ...(offline ? { mode: 'offline' } : {}),
   };
   let resp;
@@ -1293,7 +1362,14 @@ async function analystOpening() {
   const reachLine = data.reach ? reachSuffix(top, { roto: isRoto() }) : '';
   const text = `My pick: ${top.name} (${top.pos}, ${top.team})${reachLine}.`
     + (data.rationale ? `\n\n${data.rationale}` : '');
-  await coachTypeOut(addCoachMsg('coach', '').querySelector('.cb'), text);
+  const bubble = addCoachMsg('coach', '').querySelector('.cb');
+  await coachTypeOut(bubble, text);
+  // Only when the analyst actually had the notes in front of it for this pick (the server says so).
+  if (data.notesUsed) {
+    const tag = document.createElement('div');
+    tag.innerHTML = '<span class="notes-tag" title="The Coach read your league notes for this pick">Using your league notes</span>';
+    bubble.appendChild(tag);
+  }
 }
 
 // Renders ----------------------------------------------------------------------
@@ -2010,6 +2086,8 @@ async function sleeperConnect() {
   const sp = SLEEPER_SPORT[d.sport];
   if (!sp) return fail(`Sleeper ${String(d.sport || '?').toUpperCase()} drafts aren't supported yet (NFL & NBA only).`);
   sleeperDraft = d;
+  linkedNotesId = `${sp}.sleeper.${d.league_id || d.draft_id}`;
+  loadLeagueNotes(true);
   const teams = d.settings?.teams || 12;
   const rounds = d.settings?.rounds || (sp === 'nba' ? 13 : 15);
   const type = d.type || 'snake';
@@ -2235,7 +2313,7 @@ async function coachSend(text) {
   $('coachInput').value = ''; coachGrow();
   const typing = coachTyping();
   try {
-    const { ok, data } = await window.FE.apiPost('/api/coach/chat', { messages: coachHistory, draftContext: buildDraftContext() });
+    const { ok, data } = await window.FE.apiPost('/api/coach/chat', { messages: coachHistory, draftContext: buildDraftContext(), leagueNotes: leagueNotes() });
     typing.remove();
     if (!ok) { addCoachMsg('coach', data?.error || 'The Coach had trouble — try again in a sec.', 'error'); coachHistory.pop(); return; }
     const reply = data.reply || '';
