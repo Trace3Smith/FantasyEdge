@@ -457,5 +457,28 @@ part('PART 11 — league notes: one user-typed context for pick advice AND Coach
   }
 }
 
+part('PART 12 — Rankings page: the league\'s categories re-rank the board; the standard nine change nothing');
+{
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../fantasyedge-rankings.html', import.meta.url), 'utf8');
+  const draftHtml = readFileSync(new URL('../fantasyedge-draft.html', import.meta.url), 'utf8');
+  const ranked = ds.players.filter((p) => !p.searchOnly);
+  const std = NBA.nbaRankMap(ranked, NBA.CAT_KEYS);
+  // Rankings keeps the dataset's own rank for the standard nine. That is only safe if it IS the
+  // standard-nine rank map, so a user who never touched the selector sees the identical board.
+  check('standard nine: nbaRankMap over the ranked pool reproduces every dataset rank', ranked.every((p) => std.get(p.id) === p.rank));
+  const noTo = NBA.nbaRankMap(ranked, SUPERSTARS.cats);
+  check('8-cat (no TO): every ranked player gets a gap-free rank 1..N', [...noTo.values()].sort((a, b) => a - b).every((r, i) => r === i + 1) && noTo.size === ranked.length);
+  check('8-cat (no TO): the order really changes', ranked.some((p) => noTo.get(p.id) !== p.rank));
+  check('8-cat ranks follow nbaPlayerValue under those categories', ranked.every((p) => ranked.every((q) => noTo.get(p.id) >= noTo.get(q.id) || NBA.nbaPlayerValue(p, SUPERSTARS.cats) >= NBA.nbaPlayerValue(q, SUPERSTARS.cats) - 1e-9)));
+  check('short-sample (draftEligible) players never take a Rankings rank', ds.players.filter((p) => p.draftEligible).every((p) => !noTo.has(p.id)));
+  // The two pages must read one saved league: same key, same presets.
+  check('Rankings and Draft Mode share the saved-league key', html.includes('`fe.draft.league.${sport}`') && draftHtml.includes('`fe.draft.league.${sport}`'));
+  check('Rankings offers the same three presets as Draft Mode', ['value="std9">Standard 9-cat', 'value="noTo">8-cat · no TO', 'value="custom">Custom'].every((o) => html.includes(o) && draftHtml.includes(o)));
+  check('Rankings ranks with the shared nbaRankMap / resolveNbaCats', /import \{[^}]*nbaRankMap[^}]*resolveNbaCats[^}]*\} from '\/nbaScoring\.js'/.test(html));
+  check('basketball columns include FG%, FT% and TO', html.includes("nba:     ['PTS', 'REB', 'AST', '3PM', 'STL', 'BLK', 'FG%', 'FT%', 'TO']") && html.includes("wnba:    ['PTS', 'REB', 'AST', '3PM', 'STL', 'BLK', 'FG%', 'FT%', 'TO']"));
+  check('every record carries the per-game fields those columns read', ranked.every((p) => p.n && ['fgPct', 'ftPct', 'fga', 'fta', 'to'].every((k) => typeof p.n[k] === 'number')));
+}
+
 console.log(failed ? `\n${failed} CHECK(S) FAILED` : '\nALL NBA LEAGUE CHECKS PASSED');
 process.exit(failed ? 1 : 0);
