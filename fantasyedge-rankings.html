@@ -573,6 +573,16 @@
   /* Two spare sortable columns beyond the stat line — PGA's CUT%/FIT and NFL's Proj/'25 points. */
   .extra-col { display: none; }
   #rankingsTable.show-extra-cols .extra-col { display: table-cell; }
+  /* NBA/WNBA's ninth stat column (TO); FG%/FT% ride the two extra columns above. */
+  .hoops-col { display: none; }
+  #rankingsTable.show-hoops-cols .hoops-col { display: table-cell; }
+  /* NBA/WNBA category selector — the same presets as Draft Mode, sharing its saved league. */
+  .hoops-cats { flex-wrap: wrap; gap: 8px; align-items: center; }
+  .hoops-cat-boxes { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+  .hoops-cat { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--gray-light); background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 3px 7px; cursor: pointer; }
+  .hoops-cat input { margin: 0; accent-color: var(--sport-accent, var(--gold)); }
+  .hoops-cat-note { font-size: 11px; color: var(--gray); }
+  .hoops-cat-note .warn { color: #f3a1a1; }
   /* Locked (premium) / inactive (off-season) states replace the body with a
      message; hide the now-empty column header so it doesn't hang above it. */
   #rankingsTable.locked thead { display: none; }
@@ -688,6 +698,14 @@
       <span class="nfl-personal-status" id="nflPersonalStatus"></span>
     </span>
   </div>
+  <div class="pos-filters league-filters hoops-cats" id="hoopsCatsRow" style="display:none">
+    <span class="filter-group-label">Categories</span>
+    <select id="hoopsPreset" class="nfl-sel" aria-label="Scored categories">
+      <option value="std9">Standard 9-cat</option><option value="noTo">8-cat · no TO</option><option value="custom">Custom</option>
+    </select>
+    <span class="hoops-cat-boxes" id="hoopsCatBoxes"></span>
+    <span class="hoops-cat-note" id="hoopsCatNote"></span>
+  </div>
   <div class="type-tabs" id="typeTabs" style="display:none">
     <button class="type-tab-btn active" data-type="H">Hitters</button>
     <button class="type-tab-btn" data-type="P">Pitchers</button>
@@ -716,12 +734,12 @@
           <th id="hGP" class="sortable" data-stat="GP" title="Games played / team games (season or the active L15/L30 window). Pitchers and NHL goalies show a bare count of starts/appearances — they don't play every team game.">GP</th>
           <th id="h1" class="sortable">AVG</th><th id="h2" class="sortable">HR</th><th id="h3" class="sortable">RBI</th><th id="h4" class="sortable">SB</th>
           <th id="h5" class="sortable">ERA</th><th id="h6" class="sortable">WHIP</th>
-          <th id="h7" class="extra-col sortable">CUT%</th><th id="h8" class="extra-col sortable">FIT</th>
+          <th id="h7" class="extra-col sortable">CUT%</th><th id="h8" class="extra-col sortable">FIT</th><th id="h9" class="hoops-col sortable">TO</th>
           <th id="hRate">Stars</th><th>Trend</th><th>Own%</th>
         </tr>
       </thead>
       <tbody id="tableBody">
-        <tr class="loading-row"><td colspan="16"><div class="loading-title">Loading Rankings…</div><div class="loading-sub">Fetching the latest daily dataset…</div></td></tr>
+        <tr class="loading-row"><td colspan="17"><div class="loading-title">Loading Rankings…</div><div class="loading-sub">Fetching the latest daily dataset…</div></td></tr>
       </tbody>
     </table>
   </div>
@@ -731,6 +749,9 @@
   // Shared NFL scoring — the SAME functions the draft board uses, so rankings and the
   // draft board order players by FPTS in a format identically (one ranking system).
   import { nflFpts, nflReplacementLevels, nflBoardCmp, nflRankValue } from '/nflScoring.js';
+  // Shared basketball scoring — the same category value and rank map Draft Mode uses, so a league's
+  // scored categories order this board exactly as they order the draft board.
+  import { NBA_CATS, CAT_KEYS as NBA_CAT_KEYS, nbaRankMap, resolveNbaCats } from '/nbaScoring.js';
   // Shared player-display primitives (stars, category pills, formatStat, tag/trend/tier badges) —
   // the SAME code the Mock Draft detail sidebar renders through, so both views are identical.
   import { getStarCount, getStarLabel, renderStars, renderStarsBlock, formatStat, getTrendHTML, getTagHTML, getTierHTML, renderOpportunity, renderConsistencyHTML } from '/playerDisplay.js';
@@ -802,8 +823,9 @@
     pitcher: ['K', 'W', 'SV', 'HD', 'ERA', 'WHIP'],
     hitter:  ['AVG', 'HR', 'RBI', 'R', 'SB', 'OBP'],
     generic: ['AVG', 'HR', 'RBI', 'SB', 'ERA', 'WHIP'],
-    nba:     ['PTS', 'REB', 'AST', '3PM', 'STL', 'BLK'],
-    wnba:    ['PTS', 'REB', 'AST', '3PM', 'STL', 'BLK'],
+    // Basketball: the six counting columns, then FG% / FT% / TO (filled from the per-game line, p.n).
+    nba:     ['PTS', 'REB', 'AST', '3PM', 'STL', 'BLK', 'FG%', 'FT%', 'TO'],
+    wnba:    ['PTS', 'REB', 'AST', '3PM', 'STL', 'BLK', 'FG%', 'FT%', 'TO'],
     nhl_skater: ['G', 'A', 'PTS', '+/-', 'SOG', 'PPP'],
     nhl_goalie: ['W', 'GAA', 'SV%', 'SO', 'SV', 'SA'],
     // NFL columns vary by position; FPTS (PPR fantasy points) is always last. The
@@ -838,6 +860,7 @@
     K: { roll: 'k' }, W: { roll: 'w' }, SV: { roll: 'sv' }, HD: { roll: 'hd' }, IP: { roll: 'ip' }, ERA: { roll: 'era', low: true }, WHIP: { roll: 'whip', low: true },
     PTS: { roll: 'pts' }, REB: { roll: 'reb' }, AST: { roll: 'ast' }, STL: { roll: 'stl' }, BLK: { roll: 'blk' },
     GAA: { low: true }, // NHL goalie: lower is better (no rolling source; sort direction only)
+    TO: { low: true },  // basketball turnovers: fewer is better (no rolling source; sort direction only)
   };
   // Sports whose board splits into player-TYPE tabs (homogeneous stat columns per tab), each with a
   // label, its position sub-filter set, its 'ALL' button label, and its header set. `classify` maps a
@@ -864,8 +887,8 @@
   // Per-category z-score keys (on p.z) for the fixed-column sports, parallel to their STAT_HEADERS.
   // A null entry = that column has no z (can't be combined). NFL/PGA have no z block at all.
   const Z_HEADERS = {
-    nba: ['pts', 'reb', 'ast', 'tpm', 'stl', 'blk'],
-    wnba: ['pts', 'reb', 'ast', 'tpm', 'stl', 'blk'],
+    nba: ['pts', 'reb', 'ast', 'tpm', 'stl', 'blk', 'fgPct', 'ftPct', 'to'],
+    wnba: ['pts', 'reb', 'ast', 'tpm', 'stl', 'blk', 'fgPct', 'ftPct', 'to'],
   };
   function updateStatHeaders() {
     const cfg = TYPE_TABS[currentSport];
@@ -927,6 +950,7 @@
         // Projection basis: the stat columns show the projected line, matched by label; missing → '—'.
         if (nflBasis === 'proj' && i <= 4) { const lab = p.statLabels?.[i]; const hit = (p.proj?.line || []).find(x => x.label === lab); return hit ? hit.val : null; }
       }
+      if (i >= 6 && isHoops()) return hoopsExtraCell(p, i);
       return p['s' + (i + 1)];
     }
     const meta = STAT_META[p.statLabels?.[i]];
@@ -989,7 +1013,8 @@
   function sortNum(p, label) {
     if (label === 'GP') return gpVal(p); // the GP column isn't in statLabels; sort on the same value it shows
     if (label === 'Proj' || label === "'25") { const v = cellVal(p, label === 'Proj' ? 6 : 7); return v == null ? null : parseFloat(String(v)); }
-    const idx = p.statLabels?.indexOf(label);
+    const hx = isHoops() ? HOOPS_EXTRA_COLS.indexOf(label) : -1;
+    const idx = hx >= 0 ? 6 + hx : p.statLabels?.indexOf(label);
     if (idx == null || idx < 0) return null;
     const v = cellVal(p, idx);
     if (v == null) return null;
@@ -1024,16 +1049,16 @@
   // '#' is the default (rank) order, highlighted when no stat sort is active.
   function markSortHeader() {
     const hGP = document.getElementById('hGP');
-    for (let i = 1; i <= 8; i++) { const th = document.getElementById('h' + i); if (th) th.classList.remove('sort-active', 'sort-asc', 'combine-active'); }
+    for (let i = 1; i <= 9; i++) { const th = document.getElementById('h' + i); if (th) th.classList.remove('sort-active', 'sort-asc', 'combine-active'); }
     if (hGP) hGP.classList.remove('sort-active', 'sort-asc'); // GP has no z, so no combine-active
     if (combineCats.length) {
       // Highlight every checked column (no direction arrow — a combine is a multi-cat sum).
-      for (let i = 1; i <= 8; i++) { const th = document.getElementById('h' + i); if (th && combineCats.some(c => c.zkey === th.dataset.zkey)) th.classList.add('combine-active'); }
+      for (let i = 1; i <= 9; i++) { const th = document.getElementById('h' + i); if (th && combineCats.some(c => c.zkey === th.dataset.zkey)) th.classList.add('combine-active'); }
       return;
     }
     if (sortStat == null) return; // default (rank) order highlights nothing
     if (sortStat === 'GP') { if (hGP) { hGP.classList.add('sort-active'); if (sortAsc) hGP.classList.add('sort-asc'); } return; }
-    for (let i = 1; i <= 8; i++) { const th = document.getElementById('h' + i); if (th && th.dataset.stat === sortStat) { th.classList.add('sort-active'); if (sortAsc) th.classList.add('sort-asc'); break; } }
+    for (let i = 1; i <= 9; i++) { const th = document.getElementById('h' + i); if (th && th.dataset.stat === sortStat) { th.classList.add('sort-active'); if (sortAsc) th.classList.add('sort-asc'); break; } }
   }
   // Show the explicit "Back to Rankings" button (+ a note of what's active) only while a column sort is
   // on; it's the obvious, documented way back to default rank order (the '#' header still works too).
@@ -1132,6 +1157,11 @@
         if (nflSaved) for (const [p, a, b] of nflSaved) { p.fpPpr = a; p.fpStd = b; }
       }
     }
+    // NBA/WNBA under a non-standard category set: re-rank the ranked pool by the league's categories
+    // (the same nbaRankMap Draft Mode uses). The standard nine keep the dataset's own rank and order,
+    // so the default board is unchanged.
+    const hoopsRank = (isHoops() && hoopsCats && !isStdHoops(hoopsCats))
+      ? nbaRankMap(players.filter(p => !p.searchOnly), hoopsCats) : null;
     // Type-tab sports split by player type first (Hitters/Pitchers or Skaters/Goalies), then position.
     let filtered = players;
     if (typeCfg) filtered = filtered.filter(p => typeCfg.classify(p) === currentType);
@@ -1159,6 +1189,7 @@
     // Order by the NFL rank computed above — nflRank already encodes nflBoardCmp on the active basis, so
     // no live fpPpr is needed here (the basis swap is fully contained in the guarded block above).
     // Unranked (searchOnly) rows sink to the bottom.
+    if (hoopsRank) filtered = filtered.slice().sort((a, b) => (hoopsRank.get(a.id) ?? Infinity) - (hoopsRank.get(b.id) ?? Infinity));
     if (isNfl) filtered = filtered.slice().sort(currentPos === 'FLEX'
       ? (a, b) => (nflFlexVal.get(b.id) ?? -Infinity) - (nflFlexVal.get(a.id) ?? -Infinity)
       : (a, b) => (nflRank.get(a.id) ?? Infinity) - (nflRank.get(b.id) ?? Infinity));
@@ -1188,7 +1219,7 @@
       const emptySub = term
         ? `No players matching “${escHtml(searchTerm.trim())}” in ${currentSport.toUpperCase()} — try another sport.`
         : 'Try a different position filter';
-      tbody.innerHTML = `<tr class="loading-row"><td colspan="16"><div class="loading-title">No Players Found</div><div class="loading-sub">${emptySub}</div></td></tr>`;
+      tbody.innerHTML = `<tr class="loading-row"><td colspan="17"><div class="loading-title">No Players Found</div><div class="loading-sub">${emptySub}</div></td></tr>`;
       return;
     }
     tbody.innerHTML = filtered.map(p => {
@@ -1260,7 +1291,7 @@
       const muted = '<span class="td-stat muted">—</span>';
       // In a league view, show the within-league rank; in NFL Standard mode, the
       // re-ranked board position; otherwise the global rank.
-      const dispRank = nflRank ? (nflRank.get(p.id) ?? '—') : typeRank ? (typeRank.get(p) ?? '—') : (p.rank ?? '—');
+      const dispRank = nflRank ? (nflRank.get(p.id) ?? '—') : hoopsRank ? (hoopsRank.get(p.id) ?? '—') : typeRank ? (typeRank.get(p) ?? '—') : (p.rank ?? '—');
       const rowClass = [so ? 'search-only-row' : '', hasDetail ? 'row-expand' : ''].filter(Boolean).join(' ');
       const mainRow = `<tr class="${rowClass}" data-pid="${p.id != null ? p.id : ''}">
         <td class="td-rank">${dispRank}</td>
@@ -1269,12 +1300,12 @@
         <td style="color:var(--gray-light)">${p.team||'—'}</td>
         <td class="gp-col" data-label="GP">${formatStat(gpDisplay(p), null)}</td>
         <td data-label="${p.statLabels?.[0]||''}">${formatStat(cellVal(p, 0), showInline ? p.statLabels?.[0] : null)}</td><td data-label="${p.statLabels?.[1]||''}">${formatStat(cellVal(p, 1), showInline ? p.statLabels?.[1] : null)}</td><td data-label="${p.statLabels?.[2]||''}">${formatStat(cellVal(p, 2), showInline ? p.statLabels?.[2] : null)}</td><td data-label="${p.statLabels?.[3]||''}">${formatStat(cellVal(p, 3), showInline ? p.statLabels?.[3] : null)}</td><td data-label="${p.statLabels?.[4]||''}">${formatStat(cellVal(p, 4), showInline ? p.statLabels?.[4] : null)}</td><td data-label="${p.statLabels?.[5]||''}">${formatStat(cellVal(p, 5), showInline ? p.statLabels?.[5] : null)}</td>
-        <td class="extra-col" data-label="${currentSport === 'nfl' ? 'Proj' : (p.statLabels?.[6]||'')}">${formatStat(cellVal(p, 6), showInline ? (currentSport === 'nfl' ? 'Proj' : p.statLabels?.[6]) : null)}</td><td class="extra-col" data-label="${currentSport === 'nfl' ? "'25" : (p.statLabels?.[7]||'')}">${formatStat(cellVal(p, 7), showInline ? (currentSport === 'nfl' ? "'25" : p.statLabels?.[7]) : null)}</td>
-        <td class="${(isPga || isNfl) ? 'tier-cell' : 'stars-cell'}" data-label="${isPga ? 'Tier' : isNfl ? 'Consist' : 'Stars'}">${so ? muted : isPga ? getTierHTML(p.tier, p.inField) : isNfl ? renderConsistencyHTML(p) : renderStarsBlock(cats)}</td>
+        <td class="extra-col" data-label="${currentSport === 'nfl' ? 'Proj' : (extraLbl(p, 6)||'')}">${formatStat(cellVal(p, 6), showInline ? (currentSport === 'nfl' ? 'Proj' : extraLbl(p, 6)) : null)}</td><td class="extra-col" data-label="${currentSport === 'nfl' ? "'25" : (extraLbl(p, 7)||'')}">${formatStat(cellVal(p, 7), showInline ? (currentSport === 'nfl' ? "'25" : extraLbl(p, 7)) : null)}</td><td class="hoops-col" data-label="TO">${isHoops() ? formatStat(cellVal(p, 8), showInline ? 'TO' : null) : ''}</td>
+        <td class="${(isPga || isNfl) ? 'tier-cell' : 'stars-cell'}" data-label="${isPga ? 'Tier' : isNfl ? 'Consist' : 'Stars'}">${so ? muted : isPga ? getTierHTML(p.tier, p.inField) : isNfl ? renderConsistencyHTML(p) : isHoops() ? hoopsStarsBlock(cats) : renderStarsBlock(cats)}</td>
         <td data-label="Trend">${so ? muted : getTrendHTML(p.trend, p.trendVal)}</td>
         <td class="own-pct" data-label="Own%">${so ? '—' : (p.own!=null?p.own+'%':'—')}</td>
       </tr>`;
-      return mainRow + (hasDetail ? `<tr class="row-detail"><td colspan="16">${detailHtml}</td></tr>` : '');
+      return mainRow + (hasDetail ? `<tr class="row-detail"><td colspan="17">${detailHtml}</td></tr>` : '');
     }).join('');
   }
 
@@ -1917,7 +1948,7 @@
     document.getElementById('updateLabel').textContent = 'Premium feature';
     document.getElementById('rankingsTable').classList.add('locked'); // hide the empty column header behind the upsell
     ['stripTotal', 'stripHot', 'stripCold'].forEach(id => document.getElementById(id).textContent = '—');
-    document.getElementById('tableBody').innerHTML = `<tr><td colspan="16" style="padding:64px 24px;text-align:center">
+    document.getElementById('tableBody').innerHTML = `<tr><td colspan="17" style="padding:64px 24px;text-align:center">
       <div class="lock-emoji fe-icon" data-icon="lock-keyhole" aria-hidden="true"></div>
       <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:var(--gold);margin-bottom:8px">PGA Rankings is a Premium feature</div>
       <div style="font-size:13px;color:var(--gray);max-width:440px;margin:0 auto 20px;line-height:1.6">World rankings, recent-form trends, course-fit scores, and cut probabilities for the current tournament — updated daily.</div>
@@ -1935,7 +1966,7 @@
     document.getElementById('updateLabel').textContent = 'No current data';
     document.getElementById('rankingsTable').classList.add('locked');
     ['stripTotal', 'stripHot', 'stripCold'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '—'; });
-    document.getElementById('tableBody').innerHTML = `<tr><td colspan="16" style="padding:56px 24px;text-align:center">
+    document.getElementById('tableBody').innerHTML = `<tr><td colspan="17" style="padding:56px 24px;text-align:center">
       <div class="lock-emoji fe-icon" data-icon="calendar-days" aria-hidden="true"></div>
       <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2px;color:var(--gold);margin-bottom:8px">${label} — no active slate right now</div>
       <div style="font-size:13px;color:var(--gray);max-width:440px;margin:0 auto;line-height:1.6">This sport looks off-season or between games, so there are no current rankings. Check back when the season is underway.</div>
@@ -2025,7 +2056,7 @@
     currentSport = sport;
     if (isLocked(sport)) { renderLocked(); return; }
     document.getElementById('rankingsTable').classList.remove('locked'); // restore the header if we came from a locked/inactive sport
-    document.getElementById('tableBody').innerHTML = '<tr class="loading-row"><td colspan="16"><div class="loading-title">Loading Rankings…</div><div class="loading-sub">Fetching the latest daily dataset…</div></td></tr>';
+    document.getElementById('tableBody').innerHTML = '<tr class="loading-row"><td colspan="17"><div class="loading-title">Loading Rankings…</div><div class="loading-sub">Fetching the latest daily dataset…</div></td></tr>';
     try {
       // Premium sports are gated server-side, so attach the Clerk session token.
       // (isLocked already short-circuits non-premium users before we get here.)
@@ -2059,7 +2090,7 @@
       // here — not at bootstrap — so it also fires after a premium sport unlocks and loads via auth-ready.
       if (pendingFocus) { const k = pendingFocus; pendingFocus = null; focusPlayer(k); }
     } catch(err) {
-      document.getElementById('tableBody').innerHTML = `<tr class="error-row"><td colspan="16"><div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;margin-bottom:6px">Failed to Load Data</div><div style="font-size:12px;color:var(--gray)">${err.message}</div></td></tr>`;
+      document.getElementById('tableBody').innerHTML = `<tr class="error-row"><td colspan="17"><div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;margin-bottom:6px">Failed to Load Data</div><div style="font-size:12px;color:var(--gray)">${err.message}</div></td></tr>`;
     }
   }
 
@@ -2106,6 +2137,90 @@
     nhl: ['G', 'A', 'PTS', '+/-', 'PIM', 'PPP', 'SOG', 'FOW', 'GWG'],
     pga: ['Strokes Gained', 'Scrambling', 'Fairways', 'Greens', 'Cut Prob', 'Course Fit', 'DFS Value'],
   };
+  // ---- NBA/WNBA scored categories -------------------------------------------------------------
+  // The Rankings board reads the league's categories from the SAME browser key Draft Mode saves
+  // ('fe.draft.league.<sport>' → { cats, lineup, bench }), and a change here is written back to it
+  // (lineup/bench kept), so both pages describe one league. Nothing saved → the standard nine,
+  // which keeps the dataset's own ranking: the default board is unchanged.
+  let hoopsCats = null; // active scored category keys (NBA_CATS order) while a basketball board is up
+  const isHoops = () => currentSport === 'nba' || currentSport === 'wnba';
+  const HOOPS_PRESETS = { std9: NBA_CAT_KEYS.slice(), noTo: NBA_CAT_KEYS.filter(k => k !== 'to') };
+  const HOOPS_LABEL = Object.fromEntries(NBA_CATS.map(c => [c.key, c.label]));
+  const HOOPS_EXTRA_COLS = ['FG%', 'FT%', 'TO']; // stat columns 7-9 on the basketball boards
+  const sameCats = (a, b) => a.length === b.length && a.every(k => b.includes(k));
+  const isStdHoops = (cats) => sameCats(cats, HOOPS_PRESETS.std9);
+  const hoopsStoreKey = (sport) => `fe.draft.league.${sport}`;
+  function loadHoopsCats(sport) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(hoopsStoreKey(sport)) || 'null');
+      return resolveNbaCats(saved && saved.cats) || HOOPS_PRESETS.std9.slice();
+    } catch { return HOOPS_PRESETS.std9.slice(); }
+  }
+  function saveHoopsCats(sport, cats) {
+    try {
+      const prev = JSON.parse(localStorage.getItem(hoopsStoreKey(sport)) || 'null');
+      const next = prev && typeof prev === 'object' && !Array.isArray(prev) ? { ...prev, cats } : { cats };
+      localStorage.setItem(hoopsStoreKey(sport), JSON.stringify(next));
+    } catch {}
+  }
+  // FG% / FT% / TO cells, from the per-game line every basketball record carries.
+  function hoopsExtraCell(p, i) {
+    const n = p.n;
+    if (!n) return null;
+    if (i === 6) return n.fga ? '.' + String(Math.round(n.fgPct * 1000)).padStart(3, '0') : null;
+    if (i === 7) return n.fta ? '.' + String(Math.round(n.ftPct * 1000)).padStart(3, '0') : null;
+    if (i === 8) return n.to == null ? null : Number(n.to).toFixed(1);
+    return null;
+  }
+  // Column label for stat cells 7-8 (FG%/FT% on basketball, the record's own label elsewhere).
+  const extraLbl = (p, i) => (isHoops() ? HOOPS_EXTRA_COLS[i - 6] : p.statLabels?.[i]);
+  // Stars block for basketball: only the categories this league scores count, and the label says
+  // what the stars mean ("Elite in 5") instead of the generic "5-Cat".
+  function hoopsStarsBlock(cats) {
+    const scored = new Set((hoopsCats || HOOPS_PRESETS.std9).map(k => HOOPS_LABEL[k]));
+    const elite = (Array.isArray(cats) ? cats : []).filter(c => scored.has(c));
+    const n = elite.length;
+    const pills = elite.map(c => `<span class="stars-cat-pill">${c}</span>`).join('');
+    return `<div class="stars-row">${renderStars(n)}</div><div class="stars-label">${n ? `Elite in ${n}` : 'No elite categories'}</div><div class="stars-cats">${pills}</div>`;
+  }
+  // The "Stars = Roto Categories" banner: the sport's list, narrowed to the scored cats on basketball.
+  function renderRotoBanner() {
+    let cats = ROTO_CATS[currentSport] || ROTO_CATS.mlb;
+    if (isHoops() && hoopsCats) { const on = new Set(hoopsCats.map(k => HOOPS_LABEL[k])); cats = cats.filter(c => on.has(c)); }
+    document.getElementById('rotoCats').innerHTML = cats.map(c => `<span class="cat-pill">${c}</span>`).join('');
+  }
+  function renderHoopsCatControls() {
+    document.getElementById('hoopsCatBoxes').innerHTML = NBA_CATS.map(c =>
+      `<label class="hoops-cat"><input type="checkbox" data-cat="${c.key}"${hoopsCats.includes(c.key) ? ' checked' : ''}>${c.label}</label>`).join('');
+    syncHoopsPreset();
+    document.getElementById('hoopsCatNote').textContent = '';
+  }
+  function syncHoopsPreset() {
+    document.getElementById('hoopsPreset').value = sameCats(hoopsCats, HOOPS_PRESETS.std9) ? 'std9'
+      : sameCats(hoopsCats, HOOPS_PRESETS.noTo) ? 'noTo' : 'custom';
+  }
+  // A change from the selector or a checkbox: re-rank, relabel, save (only a valid set of 3+ cats).
+  function onHoopsCatsChange(raw) {
+    const cats = resolveNbaCats(raw);
+    const note = document.getElementById('hoopsCatNote');
+    if (!cats) { note.innerHTML = '<span class="warn">Pick at least 3 categories — still ranking by the last valid set.</span>'; return; }
+    note.textContent = '';
+    hoopsCats = cats;
+    syncHoopsPreset();
+    saveHoopsCats(currentSport, cats);
+    renderRotoBanner();
+    if (allPlayers.length) renderTable(allPlayers);
+  }
+  document.getElementById('hoopsPreset').addEventListener('change', e => {
+    const want = HOOPS_PRESETS[e.target.value];
+    if (!want) return; // "Custom": leave the boxes as they are
+    document.querySelectorAll('#hoopsCatBoxes input[data-cat]').forEach(i => { i.checked = want.includes(i.dataset.cat); });
+    onHoopsCatsChange(want);
+  });
+  document.getElementById('hoopsCatBoxes').addEventListener('change', () => {
+    onHoopsCatsChange([...document.querySelectorAll('#hoopsCatBoxes input[data-cat]')].filter(i => i.checked).map(i => i.dataset.cat));
+  });
+
   // Rebuild the position filters + roto-category banner for a sport and reset both
   // filters to their defaults; the AL/NL league toggle is MLB-only (hidden else).
   function applySport(sport) {
@@ -2129,7 +2244,10 @@
     const isPga = sport === 'pga';
     document.getElementById('hPos').textContent = isPga ? 'Country' : 'Pos';
     // Two extra sortable columns: PGA's CUT%/FIT, or NFL's Proj/'25 points. PGA also swaps stars→tier.
-    document.getElementById('rankingsTable').classList.toggle('show-extra-cols', isPga || sport === 'nfl');
+    const hoops = sport === 'nba' || sport === 'wnba';
+    // Basketball shows FG% / FT% in the two extra columns and TO in its own ninth column.
+    document.getElementById('rankingsTable').classList.toggle('show-extra-cols', isPga || sport === 'nfl' || hoops);
+    document.getElementById('rankingsTable').classList.toggle('show-hoops-cols', hoops);
     document.getElementById('hRate').textContent = isPga ? 'Tier' : sport === 'nfl' ? 'Consistency' : 'Stars';
     // Type-tab sports (MLB Hitters/Pitchers, NHL Skaters/Goalies) show their tabs above the position
     // sub-filters, built from TYPE_TABS; other sports hide the row.
@@ -2146,9 +2264,10 @@
     // The "Stars = Roto Categories" banner is only meaningful for the roto sports; NFL uses a positional
     // tier (points league), so hide it there.
     document.querySelector('.roto-bar').style.display = sport === 'nfl' ? 'none' : '';
-    const cats = ROTO_CATS[sport] || ROTO_CATS.mlb;
-    document.getElementById('rotoCats').innerHTML =
-      cats.map(c => `<span class="cat-pill">${c}</span>`).join('');
+    hoopsCats = hoops ? loadHoopsCats(sport) : null;
+    document.getElementById('hoopsCatsRow').style.display = hoops ? '' : 'none';
+    if (hoops) renderHoopsCatControls();
+    renderRotoBanner();
     const lf = document.getElementById('leagueFilters');
     lf.style.display = sport === 'mlb' ? '' : 'none';
     lf.querySelectorAll('.pos-btn').forEach(b => b.classList.toggle('active', b.dataset.league === 'ALL'));
@@ -2298,7 +2417,7 @@
     const th = e.target.closest('th');
     if (!th) return;
     if (th.id === 'hRank') { if (sortStat !== null || combineCats.length) { sortStat = null; combineCats = []; renderTable(allPlayers); } return; }
-    if (!/^h([1-8]|GP)$/.test(th.id || '')) return; // only the stat columns (+ GP) are sortable
+    if (!/^h([1-9]|GP)$/.test(th.id || '')) return; // only the stat columns (+ GP) are sortable
     const label = th.dataset.stat;
     if (!label || label === '—') return;
     combineCats = []; // a header-text click is single-column sort mode; drop any active combine
