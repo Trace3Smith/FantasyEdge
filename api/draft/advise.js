@@ -13,6 +13,7 @@ import { MLB_CATS } from '../../mlbScoring.js';
 import { NHL_CATS } from '../../nhlScoring.js';
 import { adpFitPhrase } from '../../pickReasons.js';
 import { teamOnClock, picksUntilNextTurn } from '../../draftOrder.js';
+import { cleanLeagueNotes, leagueNotesBlock } from '../_lib/leagueNotes.js';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-4-6';
@@ -195,7 +196,7 @@ function parseAnalysis(text, n) {
 
 // Ask Claude to make the call. Returns { pick, rationale, reach } (1-based pick index
 // into `candidates`) or null on any failure (no key, API error, bad JSON).
-async function analyzePick({ sport, round, scoring, teams, roster, candidates, runs, board, cats }) {
+async function analyzePick({ sport, round, scoring, teams, roster, candidates, runs, board, cats, notes }) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key || !candidates.length) return null;
   const describe = describeFor(sport);
@@ -254,6 +255,7 @@ async function analyzePick({ sport, round, scoring, teams, roster, candidates, r
     + `\nPicks I have left: ${board?.picksLeft ?? '?'}.`
     + necessity
     + scarcityNote
+    + leagueNotesBlock(notes) // user-provided context, delimited as data (see leagueNotes.js)
     + `\n\nCandidates:\n${listed}\n\nPick the best one and respond with the JSON object only.`;
   try {
     const r = await fetch(ANTHROPIC_URL, {
@@ -342,11 +344,16 @@ export default async function handler(req, res) {
     let ordered = candidates;
     let rationale = null;
     let reach = false;
+    // League notes only reach the analyst — the engine's own ranking never reads free text. So
+    // notesUsed is true only when the analyst actually made this call with them in front of it.
+    const notes = cleanLeagueNotes(b.leagueNotes);
+    let notesUsed = false;
     if (b.rationale !== false && candidates.length) {
       const analysis = await analyzePick({
-        sport, round, scoring: settings.scoring, teams: settings.teams, roster, candidates, runs, board, cats: settings.cats,
+        sport, round, scoring: settings.scoring, teams: settings.teams, roster, candidates, runs, board, cats: settings.cats, notes,
       });
       if (analysis) {
+        notesUsed = !!notes;
         // Promote Claude's pick to the front so the panel headline + board highlight
         // (which read candidates[0]) reflect the analyst's call.
         const chosen = candidates[analysis.pick - 1];
@@ -370,7 +377,7 @@ export default async function handler(req, res) {
       needs: board.needs, forceNeeds: board.forceNeeds, mustFillNow: board.mustFillNow, fillSoon: board.fillSoon, picksLeft: board.picksLeft,
       weakCats: board.weakCats || null, // NBA-only: roster's lagging categories for the Coach
     };
-    return res.json({ candidates: ordered.slice(0, 8), runs, rationale, reach, round, premium, board: boardOut });
+    return res.json({ candidates: ordered.slice(0, 8), runs, rationale, reach, round, premium, board: boardOut, notesUsed });
   } catch (err) {
     return sendError(res, err);
   }

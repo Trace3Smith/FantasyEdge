@@ -8,6 +8,7 @@
 // replies, so the system prompt tells it to answer directly without reasoning preamble.
 import { requirePremium, sendError } from '../_lib/auth.js';
 import { buildLiveContext } from '../_lib/coachContext.js';
+import { leagueNotesBlock } from '../_lib/leagueNotes.js';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-opus-4-8';
@@ -107,6 +108,10 @@ export default async function handler(req, res) {
         + 'needs. When unsure whether the user owns a player, check YOUR ROSTER and default to "you don\'t have one '
         + 'yet" rather than inventing a name:\n' + draftContext.slice(0, MAX_CONTEXT);
     }
+
+    // League notes the user typed at draft setup — the same text the pick recommendation gets, so
+    // chat and pick advice read one context. Delimited as data, not instructions (leagueNotes.js).
+    system += leagueNotesBlock(req.body?.leagueNotes);
 
     // The user's actual ESPN team, sent when the Coach is embedded in a Team Manager
     // league card. You already KNOW their roster, record, league type, and scoring —
