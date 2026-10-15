@@ -68,7 +68,7 @@ async function hashes(){
 }
 try{
  assert(process.argv.length===2);
- evidence.baseSha='021450cbc72346f365d2c198068d82156e07476f';
+ evidence.baseSha='df7d0dd31e19d1e1a3c813c1af04347a91a10ca3';
  evidence.preCommitHead=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
  evidence.files=await hashes();evidence.manifestSha256=hash(JSON.stringify(evidence.files));
  const u=new URL(process.env.CERT_URL);assert(u.protocol==='https:'&&u.hostname.endsWith('.upstash.io')&&!u.username&&!u.password&&!u.search&&!u.hash&&u.pathname==='/');
